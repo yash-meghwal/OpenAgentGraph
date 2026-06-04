@@ -517,10 +517,10 @@ describe("DashboardView empty states", () => {
       agentFrontier: [
         {
           nodeId: "node-1",
-          title: "Ship agent coordination",
+          title: "Ship agent coordination OPENAI_API_KEY=sk_1234567890abcdef",
           kind: "work",
           status: "ready",
-          humanSummary: "External agents can start here.",
+          humanSummary: "External agents can start from C:\\Users\\yashm\\secret.txt.",
           dependsOnNodeIds: [],
           updatedAt: "2026-06-04T00:00:00.000Z",
         },
@@ -530,7 +530,7 @@ describe("DashboardView empty states", () => {
           id: "activity-1",
           graphId: "graph-1",
           kind: "progress",
-          summary: "Codex reported progress.",
+          summary: "Codex reported progress with Bearer abc.def.ghi from C:\\Users\\yashm\\.env.",
           createdAt: "2026-06-04T00:01:00.000Z",
         },
       ],
@@ -540,8 +540,8 @@ describe("DashboardView empty states", () => {
           graphId: "graph-1",
           createdAt: "2026-06-04T00:02:00.000Z",
           agent: { agentId: "gemini", displayName: "Gemini", kind: "gemini" },
-          title: "Add agent tests",
-          summary: "Add focused coordination tests.",
+          title: "Add agent tests OPENAI_API_KEY=sk_1234567890abcdef",
+          summary: "Add focused coordination tests from C:\\Users\\yashm\\secret.txt with Bearer abc.def.ghi.",
           nodes: [{ title: "Write tests", intent: "Cover agent coordination endpoints." }],
         },
       ],
@@ -577,10 +577,40 @@ describe("DashboardView empty states", () => {
     expect(markup).toContain("Agent coordination");
     expect(markup).toContain("Agent-ready work");
     expect(markup).toContain("Ship agent coordination");
-    expect(markup).toContain("Codex reported progress.");
+    expect(markup).toContain("Codex reported progress");
     expect(markup).toContain("Add agent tests");
+    expect(markup).toContain("<redacted-secret>");
+    expect(markup).toContain("Bearer <redacted-token>");
+    expect(markup).not.toContain("sk_1234567890abcdef");
+    expect(markup).not.toContain("abc.def.ghi");
+    expect(markup).not.toContain("C:");
+    expect(markup).not.toContain("yashm");
     expect(markup).toContain("Dismiss reason");
     expect(markup).toContain("Accept proposal");
     expect(markup).toContain("Dismiss");
+
+    const operatorAcceptButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props.children === "Accept proposal");
+    expect(operatorAcceptButton?.props.disabled).toBe(false);
+
+    act(() => {
+      useStore.setState({
+        currentActor: { actorId: "viewer", displayName: "Viewer", role: "viewer" },
+      });
+    });
+
+    const viewerAcceptButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props.children === "Accept proposal");
+    const viewerDismissButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props.children === "Dismiss");
+    const viewerDismissReason = renderer!.root
+      .findAllByType("input")
+      .find((input) => String(input.props["aria-label"] ?? "").startsWith("Dismiss reason"));
+    expect(viewerAcceptButton?.props.disabled).toBe(true);
+    expect(viewerDismissButton?.props.disabled).toBe(true);
+    expect(viewerDismissReason?.props.disabled).toBe(true);
   });
 });

@@ -919,6 +919,87 @@ describe("graph agent collaboration routes", () => {
     await app.close();
   });
 
+  it("rejects oversized agent evidence lists before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/evidence",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        summary: "Checked files.",
+        files: Array.from({ length: 21 }, (_, index) => `packages/example-${index}.ts`),
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects oversized agent proposal content before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/plan-proposals",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        title: "Add follow-up tests",
+        summary: "x".repeat(4001),
+        nodes: [
+          {
+            title: "Write tests",
+            intent: "Add focused coordination tests.",
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("redacts secret-like external agent payload text before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/evidence",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: {
+          agentId: "codex",
+          displayName: "Codex OPENAI_API_KEY=sk_1234567890abcdef",
+          kind: "codex",
+        },
+        summary: "Checked with Bearer abc.def.ghi and OPENAI_API_KEY=sk_1234567890abcdef.",
+        files: ["C:\\Users\\yashm\\Desktop\\promptvector\\.env"],
+        commands: ["curl -H \"Authorization: Bearer abc.def.ghi\" https://example.test"],
+        metadata: {
+          tokenValue: "sk_1234567890abcdef",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const appended = repoMocks.appendGraphEvent.mock.calls[0][0];
+    const serialized = JSON.stringify(appended);
+    expect(serialized).toContain("<redacted-secret>");
+    expect(serialized).toContain("Bearer <redacted-token>");
+    expect(serialized).not.toContain("sk_1234567890abcdef");
+    expect(serialized).not.toContain("abc.def.ghi");
+    expect(serialized).not.toContain("C:");
+    expect(serialized).not.toContain("yashm");
+    await app.close();
+  });
+
   it("accepts proposals by appending planned nodes and an inert accepted event", async () => {
     const app = Fastify();
     await app.register(graphRoutes);

@@ -4,6 +4,17 @@ const path = require("path");
 const packageRoot = path.resolve(__dirname, "..");
 const sourceDir = path.resolve(packageRoot, "..", "frontend", "dist");
 const targetDir = path.resolve(packageRoot, "webview-dist");
+const textAssetExtensions = new Set([".css", ".html", ".js", ".json", ".map", ".svg", ".txt"]);
+
+function copyFile(sourcePath, targetPath) {
+  if (!textAssetExtensions.has(path.extname(sourcePath).toLowerCase())) {
+    fs.copyFileSync(sourcePath, targetPath);
+    return;
+  }
+
+  const content = fs.readFileSync(sourcePath, "utf8").replace(/\r+\n/g, "\n").replace(/\r/g, "\n");
+  fs.writeFileSync(targetPath, content, "utf8");
+}
 
 function copyDirectory(sourcePath, targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
@@ -14,7 +25,7 @@ function copyDirectory(sourcePath, targetPath) {
       copyDirectory(sourceEntryPath, targetEntryPath);
       continue;
     }
-    fs.copyFileSync(sourceEntryPath, targetEntryPath);
+    copyFile(sourceEntryPath, targetEntryPath);
   }
 }
 

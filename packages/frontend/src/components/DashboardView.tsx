@@ -6,6 +6,7 @@ import type {
   AgentPlanProposalRecord,
   GraphFrontierNodeSummary,
 } from "@openagentgraph/shared";
+import { sanitizeOperationalText } from "@openagentgraph/shared";
 import { useStore } from "../lib/store.js";
 import { filterDashboardItems, findMostUrgentRun, sortDashboardItems } from "../lib/dashboard.js";
 import {
@@ -47,6 +48,10 @@ type AgentFrontierSummary = {
   blockedCount: number;
   openProposalCount: number;
 };
+
+function safeAgentDisplayText(value: string | undefined, maxLength = 500) {
+  return sanitizeOperationalText(value ?? "", { maxLength });
+}
 
 const PROVIDER_SETUP_LABELS: Record<ProviderSetupMode, string> = {
   openai: "OpenAI",
@@ -606,14 +611,18 @@ function AgentCollaborationCard({
 
       {frontier.length > 0 ? (
         <div style={{ display: "grid", gap: 6 }}>
-          {frontier.slice(0, 4).map((node) => (
-            <div key={node.nodeId} style={{ color: "#cbd5e1", fontSize: 12, display: "grid", gap: 2 }}>
-              <strong style={{ color: "#e2e8f0" }}>{node.title}</strong>
-              <span>
-                {node.status} · {node.kind} · {node.humanSummary}
-              </span>
-            </div>
-          ))}
+          {frontier.slice(0, 4).map((node) => {
+            const title = safeAgentDisplayText(node.title, 160);
+            const summary = safeAgentDisplayText(node.humanSummary, 500);
+            return (
+              <div key={node.nodeId} style={{ color: "#cbd5e1", fontSize: 12, display: "grid", gap: 2 }}>
+                <strong style={{ color: "#e2e8f0" }}>{title}</strong>
+                <span>
+                  {node.status} · {node.kind} · {summary}
+                </span>
+              </div>
+            );
+          })}
         </div>
       ) : null}
 
@@ -627,71 +636,75 @@ function AgentCollaborationCard({
       {proposals.length > 0 ? (
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ color: "#e2e8f0", fontSize: 13, fontWeight: 800 }}>Open proposals</div>
-          {proposals.slice(0, 3).map((proposal) => (
-            <div key={proposal.proposalId} style={{ border: "1px solid #263244", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
-              <div style={{ color: "#e2e8f0", fontSize: 12, fontWeight: 800 }}>{proposal.title}</div>
-              <div style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.45 }}>{proposal.summary}</div>
-              <label style={{ display: "grid", gap: 4, color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>
-                Dismiss reason
-                <input
-                  aria-label={`Dismiss reason for ${proposal.title}`}
-                  disabled={!canManage || loading}
-                  maxLength={500}
-                  placeholder="Optional audit note"
-                  value={dismissReasons[proposal.proposalId] ?? ""}
-                  onChange={(event) =>
-                    setDismissReasons((current) => ({
-                      ...current,
-                      [proposal.proposalId]: event.target.value,
-                    }))
-                  }
-                  style={{
-                    background: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: 8,
-                    color: "#e2e8f0",
-                    fontSize: 12,
-                    minWidth: 0,
-                    padding: "7px 9px",
-                  }}
-                />
-              </label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  disabled={!canManage || loading || !graphId}
-                  onClick={() => graphId && void onAcceptProposal(graphId, proposal.proposalId)}
-                  style={{
-                    background: canManage && !loading ? "#065f46" : "#1f2937",
-                    color: "#f8fafc",
-                    border: "1px solid #276749",
-                    borderRadius: 8,
-                    padding: "6px 9px",
-                    cursor: canManage && !loading ? "pointer" : "not-allowed",
-                    fontSize: 12,
-                    fontWeight: 800,
-                  }}
-                >
-                  Accept proposal
-                </button>
-                <button
-                  disabled={!canManage || loading || !graphId}
-                  onClick={() => graphId && void onDismissProposal(graphId, proposal.proposalId, dismissReasons[proposal.proposalId])}
-                  style={{
-                    background: "#0f172a",
-                    color: "#cbd5e1",
-                    border: "1px solid #334155",
-                    borderRadius: 8,
-                    padding: "6px 9px",
-                    cursor: canManage && !loading ? "pointer" : "not-allowed",
-                    fontSize: 12,
-                    fontWeight: 800,
-                  }}
-                >
-                  Dismiss
-                </button>
+          {proposals.slice(0, 3).map((proposal) => {
+            const title = safeAgentDisplayText(proposal.title, 160);
+            const summary = safeAgentDisplayText(proposal.summary, 500);
+            return (
+              <div key={proposal.proposalId} style={{ border: "1px solid #263244", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+                <div style={{ color: "#e2e8f0", fontSize: 12, fontWeight: 800 }}>{title}</div>
+                <div style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.45 }}>{summary}</div>
+                <label style={{ display: "grid", gap: 4, color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>
+                  Dismiss reason
+                  <input
+                    aria-label={`Dismiss reason for ${title}`}
+                    disabled={!canManage || loading}
+                    maxLength={500}
+                    placeholder="Optional audit note"
+                    value={dismissReasons[proposal.proposalId] ?? ""}
+                    onChange={(event) =>
+                      setDismissReasons((current) => ({
+                        ...current,
+                        [proposal.proposalId]: event.target.value,
+                      }))
+                    }
+                    style={{
+                      background: "#0f172a",
+                      border: "1px solid #334155",
+                      borderRadius: 8,
+                      color: "#e2e8f0",
+                      fontSize: 12,
+                      minWidth: 0,
+                      padding: "7px 9px",
+                    }}
+                  />
+                </label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    disabled={!canManage || loading || !graphId}
+                    onClick={() => graphId && void onAcceptProposal(graphId, proposal.proposalId)}
+                    style={{
+                      background: canManage && !loading ? "#065f46" : "#1f2937",
+                      color: "#f8fafc",
+                      border: "1px solid #276749",
+                      borderRadius: 8,
+                      padding: "6px 9px",
+                      cursor: canManage && !loading ? "pointer" : "not-allowed",
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    Accept proposal
+                  </button>
+                  <button
+                    disabled={!canManage || loading || !graphId}
+                    onClick={() => graphId && void onDismissProposal(graphId, proposal.proposalId, dismissReasons[proposal.proposalId])}
+                    style={{
+                      background: "#0f172a",
+                      color: "#cbd5e1",
+                      border: "1px solid #334155",
+                      borderRadius: 8,
+                      padding: "6px 9px",
+                      cursor: canManage && !loading ? "pointer" : "not-allowed",
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
 
@@ -699,7 +712,7 @@ function AgentCollaborationCard({
         <div style={{ display: "grid", gap: 4, color: "#94a3b8", fontSize: 12 }}>
           <strong style={{ color: "#e2e8f0" }}>Recent agent activity</strong>
           {activity.slice(0, 3).map((item) => (
-            <span key={item.id}>{item.summary}</span>
+            <span key={item.id}>{safeAgentDisplayText(item.summary, 500)}</span>
           ))}
         </div>
       ) : null}

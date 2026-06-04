@@ -29,7 +29,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@rollup/rollup-win32-x64-msvc": "^4.60.1",
     "concurrently": "^8.2.2",
     "typescript": "^5.4.5"
   }

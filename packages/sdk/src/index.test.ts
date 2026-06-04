@@ -422,20 +422,68 @@ describe("OpenAgentGraph SDK agent collaboration", () => {
   });
 
   it("throws clear errors for explicit agent method failures", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 403,
-      headers: new Headers(),
-    })) as unknown as typeof fetch;
-    const client = createOpenAgentGraphClient({
-      baseUrl: "http://localhost:3001",
-      graphId: "graph-1",
-      fetch: fetchMock,
-    });
+    const agent = { agentId: "codex", displayName: "Codex", kind: "codex" as const };
+    const failures = [
+      {
+        name: "getFrontier",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) => client.getFrontier(),
+      },
+      {
+        name: "getAgentContext",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) => client.getAgentContext(),
+      },
+      {
+        name: "registerAgent",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) => client.registerAgent(agent),
+      },
+      {
+        name: "reportProgress",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) =>
+          client.reportProgress({ agent, status: "progress", summary: "Checked work." }),
+      },
+      {
+        name: "submitEvidence",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) =>
+          client.submitEvidence({ agent, summary: "Checked work." }),
+      },
+      {
+        name: "proposePlan",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) =>
+          client.proposePlan({
+            agent,
+            title: "Add tests",
+            summary: "Propose tests.",
+            nodes: [{ title: "Write tests", intent: "Cover errors." }],
+          }),
+      },
+      {
+        name: "acceptPlanProposal",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) =>
+          client.acceptPlanProposal("proposal-1"),
+      },
+      {
+        name: "dismissPlanProposal",
+        invoke: (client: ReturnType<typeof createOpenAgentGraphClient>) =>
+          client.dismissPlanProposal("proposal-1", "Not needed."),
+      },
+    ];
 
-    await expect(client.submitEvidence({
-      agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
-      summary: "Checked work.",
-    })).rejects.toThrow("OpenAgentGraph request failed with status 403");
+    for (const failure of failures) {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        headers: new Headers(),
+      })) as unknown as typeof fetch;
+      const client = createOpenAgentGraphClient({
+        baseUrl: "http://localhost:3001",
+        graphId: "graph-1",
+        fetch: fetchMock,
+      });
+
+      await expect(failure.invoke(client), failure.name).rejects.toThrow(
+        "OpenAgentGraph request failed with status 403"
+      );
+      expect(fetchMock, failure.name).toHaveBeenCalledOnce();
+    }
   });
 });

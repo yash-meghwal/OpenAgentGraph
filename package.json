@@ -2,7 +2,7 @@
   "name": "openagentgraph",
   "description": "Event-sourced execution graphs, code maps, handoffs, and coordination surfaces for supervised autonomous software work.",
   "private": true,
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20.19.0"
   },

@@ -729,6 +729,18 @@ test.describe("OpenAgentGraph launch-critical browser flows", () => {
             message: "Signed in as Priya Operator.",
           }),
         }),
+      "/provider/config": (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            configured: true,
+            provider: "openai",
+            source: "environment",
+            model: "gpt-4o",
+            message: "OpenAI provider is configured.",
+          }),
+        }),
       "/graphs": (route) =>
         route.fulfill({
           status: 200,
@@ -1009,6 +1021,18 @@ test.describe("OpenAgentGraph launch-critical browser flows", () => {
             message: "Signed in as Priya Operator.",
           }),
         }),
+      "/provider/config": (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            configured: true,
+            provider: "openai",
+            source: "environment",
+            model: "gpt-4o",
+            message: "OpenAI provider is configured.",
+          }),
+        }),
       "/graphs": (route) =>
         route.fulfill({
           status: 200,
@@ -1044,11 +1068,65 @@ test.describe("OpenAgentGraph launch-critical browser flows", () => {
             },
           }),
         }),
+      "/graphs/*": (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            graphId: "graph:checkout-proof",
+            summary: {
+              runControlState: "idle",
+              frontierStatus: "on_track",
+              readyCount: 0,
+              runningCount: 0,
+              blockedCount: 0,
+              openProposalCount: 0,
+            },
+            frontier: [],
+            recentAgentActivity: [],
+            planProposals: [],
+          }),
+        }),
       "/product-graph": (route) =>
         route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify(productGraphProjection),
+        }),
+      "/product-graph/handoff": (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            markdown: "# OpenAgentGraph Handoff\n\nE2E fixture handoff.",
+            summary: {
+              nodeCount: productGraphProjection.summary.nodeCount,
+              edgeCount: productGraphProjection.summary.edgeCount,
+              codeFileCount: 1,
+              codeSymbolCount: 1,
+              taskScopeCount: 1,
+              riskCount: 0,
+              recommendedReadCount: 1,
+              generatedAt: now(),
+              productGraphId: productGraphProjection.productGraphId,
+              workspaceRoot: "C:\\OpenAgentGraph\\e2e-workspace",
+              workspaceRootSource: "configured",
+              latestCodeScanUpdatedAt: now(),
+              semanticAnalysisSucceeded: true,
+              semanticResolutionCount: 1,
+              semanticEdgeCount: 1,
+              workspacePathCheck: {
+                checkedFileCount: 1,
+                missingFileCount: 0,
+                status: "aligned",
+              },
+              handoffFile: {
+                path: "GRAPH_REPORT.md",
+                exists: true,
+                updatedAt: now(),
+              },
+            },
+          }),
         }),
       "/product-graph/codex-plan/*": (route) => {
         const url = new URL(route.request().url());

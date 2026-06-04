@@ -245,3 +245,7 @@ npm run build
 npm run electron:build
 npm test
 ```
+
+## License
+
+OpenAgentGraph is licensed under the GNU Affero General Public License v3.0 only. See `LICENSE`.

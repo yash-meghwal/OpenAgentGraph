@@ -1,0 +1,23 @@
+{
+  "name": "@openagentgraph/electron",
+  "private": true,
+  "version": "0.0.1",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron .",
+    "dev": "wait-on tcp:3001 http://127.0.0.1:5173 && cross-env OPENAGENTGRAPH_ELECTRON_RENDERER_URL=http://127.0.0.1:5173 OPENAGENTGRAPH_ELECTRON_BACKEND_URL=http://127.0.0.1:3001 electron .",
+    "test": "vitest run src",
+    "repro:cjs": "electron ./repro/minimal-main.cjs",
+    "repro:esm": "electron ./repro/minimal-main.mjs",
+    "repro:package": "electron ./repro/package-app"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "cross-env": "^7.0.3",
+    "electron": "^42.3.0",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.8",
+    "wait-on": "^7.2.0"
+  }
+}

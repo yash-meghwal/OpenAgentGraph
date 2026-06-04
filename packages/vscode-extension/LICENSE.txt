@@ -1,0 +1,6 @@
+OpenAgentGraph VS Code extension package
+Copyright (c) OpenAgentGraph
+
+This package is provided as UNLICENSED source and binary material.
+No rights to use, copy, modify, or redistribute this package are granted
+except by explicit written permission from the OpenAgentGraph maintainers.

@@ -1,0 +1,36 @@
+{
+  "name": "openagentgraph",
+  "description": "Event-sourced execution graphs, code maps, handoffs, and coordination surfaces for supervised autonomous software work.",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=packages/backend\" \"npm run dev --workspace=packages/frontend\"",
+    "electron:dev": "npm run build --workspace=packages/electron && concurrently \"npm run dev --workspace=packages/backend\" \"npm run dev --workspace=packages/frontend\" \"npm run dev --workspace=packages/electron\"",
+    "electron:build": "npm run build && npm run build --workspace=packages/electron",
+    "electron:start": "npm run electron:build && npm run start --workspace=packages/electron",
+    "vscode:build": "npm run build --workspace=packages/frontend && npm run build --workspace=packages/vscode-extension",
+    "vscode:package": "npm run vscode:build && npm run package --workspace=packages/vscode-extension",
+    "start:backend": "npm run start --workspace=packages/backend",
+    "start:frontend": "npm run preview --workspace=packages/frontend",
+    "start:prod": "npm run build && npm run start:backend",
+    "build": "npm run build --workspace=packages/shared && npm run build --workspace=packages/sdk && npm run build --workspace=packages/backend && npm run build --workspace=packages/frontend",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "gate:check": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/gate.js",
+    "handoff:print": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/handoff.js",
+    "handoff:write": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/handoff.js --output GRAPH_REPORT.md",
+    "docker:build": "docker build -t openagentgraph-backend ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@rollup/rollup-win32-x64-msvc": "^4.60.1",
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  }
+}

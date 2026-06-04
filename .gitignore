@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+/GRAPH_REPORT.md
+/HANDOFF-CURRENT.md
+/MULTI-AGENT-HUB-DISCUSSION.md
+*.vsix
+.playwright-mcp/
+test-results/
+.tmp-dev-logs/
+mcps/
+packages/vscode-extension/.vscode-test/

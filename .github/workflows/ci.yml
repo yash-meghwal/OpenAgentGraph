@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build, tests, gate, and e2e smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck shared
+        run: npm run build --workspace=packages/shared
+
+      - name: Typecheck SDK
+        run: npm run build --workspace=packages/sdk
+
+      - name: Typecheck backend
+        run: npm run build --workspace=packages/backend
+
+      - name: Typecheck frontend
+        run: npx tsc --noEmit --pretty false -p packages/frontend/tsconfig.json
+
+      - name: Typecheck Electron
+        run: npx tsc --noEmit --pretty false -p packages/electron/tsconfig.json
+
+      - name: Typecheck VS Code extension
+        run: npx tsc --noEmit --pretty false -p packages/vscode-extension/tsconfig.json
+
+      - name: Run full build
+        run: npm run build
+
+      - name: Build VS Code webview assets
+        run: npm run vscode:build
+
+      - name: Run unit tests
+        run: npm run test --workspaces --if-present
+
+      - name: Run Product Graph quality gate
+        run: npm run gate:check -- --mode hard --allow-empty
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Intent graph e2e smoke
+        run: npx playwright test tests/e2e/runtime-flows.spec.ts -g "opens the intent graph"
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-artifacts
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

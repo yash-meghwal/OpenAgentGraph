@@ -1,0 +1,62 @@
+{
+  "name": "openagentgraph-vscode-extension",
+  "displayName": "OpenAgentGraph",
+  "description": "OpenAgentGraph VS Code webview shell",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "openagentgraph",
+  "license": "UNLICENSED",
+  "files": [
+    "dist/extension.js",
+    "dist/webview.js",
+    "webview-dist/**",
+    "package.json",
+    "LICENSE.txt"
+  ],
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "openagentgraph",
+    "event-sourced",
+    "graph",
+    "operator"
+  ],
+  "activationEvents": [
+    "onCommand:openagentgraph.openPanel"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "openagentgraph.openPanel",
+        "title": "OpenAgentGraph: Open Panel"
+      }
+    ],
+    "configuration": {
+      "title": "OpenAgentGraph",
+      "properties": {
+        "openagentgraph.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3001",
+          "description": "Backend API base URL used by the OpenAgentGraph webview shell."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc && node ./scripts/copy-frontend-dist.cjs",
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "test": "vitest run src"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.6.2",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.8"
+  }
+}

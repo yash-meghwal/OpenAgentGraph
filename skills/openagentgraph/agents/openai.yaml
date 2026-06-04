@@ -1,0 +1,8 @@
+interface:
+  display_name: "OpenAgentGraph"
+  short_description: "Use OAG graphs, scans, handoffs, and gates"
+  brand_color: "#2563EB"
+  default_prompt: "Use $openagentgraph to inspect this repository with OAG, refresh the handoff if needed, and verify source before editing."
+
+policy:
+  allow_implicit_invocation: true

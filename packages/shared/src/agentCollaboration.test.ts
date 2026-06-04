@@ -157,4 +157,90 @@ describe("agent collaboration helpers", () => {
     expect(JSON.stringify(pack)).not.toContain("proposal-3");
     expect(JSON.stringify(pack)).not.toContain("source body");
   });
+
+  it("sanitizes context pack and frontier text before returning API payloads", () => {
+    const secret = "sk_1234567890abcdef";
+    const bearer = "Bearer abc.def.ghi";
+    const homePath = "C:\\Users\\yashm\\.env";
+    const projection = makeProjection({
+      graph: {
+        ...makeProjection().graph,
+        title: `Graph OPENAI_API_KEY=${secret}`,
+        goal: `Coordinate with ${bearer} from ${homePath}`,
+      },
+      runHealthSummary: `Read ${homePath} and TOKEN=${secret}`,
+      nodes: [
+        makeNode({
+          id: "ready",
+          title: `Ready ${secret}`,
+          status: "ready",
+          humanSummary: `Inspected ${homePath} with ${bearer}`,
+        }),
+      ],
+      agentActivity: [
+        {
+          id: "activity-1",
+          graphId: "graph-1",
+          kind: "progress",
+          agent: {
+            agentId: `codex-${secret}`,
+            displayName: `Codex ${secret}`,
+            kind: "codex",
+            model: `gpt with ${bearer}`,
+            capabilities: [`read ${homePath}`],
+            sessionId: `session-${secret}`,
+          },
+          summary: `Used OPENAI_API_KEY=${secret} from ${homePath}`,
+          createdAt: "2026-04-16T10:02:00.000Z",
+          actor: {
+            actorId: `operator-${secret}`,
+            displayName: `Operator ${homePath}`,
+            role: "operator",
+          },
+        },
+      ],
+      agentPlanProposals: [
+        {
+          proposalId: "proposal-1",
+          graphId: "graph-1",
+          createdAt: "2026-04-16T10:03:00.000Z",
+          agent: {
+            agentId: `planner-${secret}`,
+            displayName: `Planner ${secret}`,
+            kind: "script",
+          },
+          title: `Add tests with ${secret}`,
+          summary: `Cover ${bearer}`,
+          reason: `Protect ${homePath}`,
+          nodes: [
+            {
+              title: `Write tests ${secret}`,
+              intent: `Reject ${bearer}`,
+              humanSummary: `No ${homePath}`,
+              acceptanceCriteria: [`Does not expose ${homePath}`],
+            },
+          ],
+          metadata: {
+            token: secret,
+            path: homePath,
+          },
+        },
+      ],
+    });
+
+    const frontier = buildGraphFrontier(projection);
+    const pack = buildAgentContextPack(projection, {
+      generatedAt: "2026-04-16T10:06:00.000Z",
+      nodeId: "ready",
+    });
+    const serialized = JSON.stringify({ frontier, pack });
+
+    expect(serialized).toContain("<redacted-secret>");
+    expect(serialized).toContain("Bearer <redacted-token>");
+    expect(serialized).toContain("<home>/.env");
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("abc.def.ghi");
+    expect(serialized).not.toContain("C:");
+    expect(serialized).not.toContain("yashm");
+  });
 });

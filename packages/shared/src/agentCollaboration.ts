@@ -1,15 +1,21 @@
 import type {
+  ActorIdentity,
   AgentActivityRecord,
   AgentContextPack,
+  AgentPlanProposalNode,
   AgentPlanProposalRecord,
   GraphFrontierNodeSummary,
   GraphProjection,
   Node,
+  NodeEvidenceMetadataValue,
+  OpenAgentGraphAgentIdentity,
 } from "./types";
+import { sanitizeOperationalText } from "./safeText";
 
 const DEFAULT_FRONTIER_LIMIT = 8;
 const DEFAULT_ACTIVITY_LIMIT = 8;
 const DEFAULT_PROPOSAL_LIMIT = 8;
+const CONTEXT_TEXT_MAX_LENGTH = 1000;
 
 export interface BuildGraphFrontierOptions {
   limit?: number;
@@ -26,14 +32,101 @@ export interface BuildAgentContextPackOptions {
 function nodeToFrontierSummary(node: Node): GraphFrontierNodeSummary {
   return {
     nodeId: node.id,
-    title: node.title,
+    title: sanitizeContextText(node.title),
     kind: node.kind,
     status: node.status,
-    humanSummary: node.humanSummary,
+    humanSummary: sanitizeContextText(node.humanSummary),
     dependsOnNodeIds: [...node.dependsOnNodeIds],
     evidenceCoverage: node.evidenceCoverage,
     confidenceBadge: node.confidenceBadge,
     updatedAt: node.updatedAt,
+  };
+}
+
+function sanitizeContextText(value: string): string {
+  return sanitizeOperationalText(value, { maxLength: CONTEXT_TEXT_MAX_LENGTH });
+}
+
+function sanitizeOptionalContextText(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : sanitizeContextText(value);
+}
+
+function sanitizeStringList(values: string[] | undefined): string[] | undefined {
+  return values?.map(sanitizeContextText);
+}
+
+function sanitizeMetadata(
+  metadata: Record<string, NodeEvidenceMetadataValue> | undefined
+): Record<string, NodeEvidenceMetadataValue> | undefined {
+  if (!metadata) return undefined;
+
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      sanitizeContextText(key),
+      typeof value === "string" ? sanitizeContextText(value) : value,
+    ])
+  );
+}
+
+function sanitizeActor(actor: ActorIdentity | undefined): ActorIdentity | undefined {
+  if (!actor) return undefined;
+
+  return {
+    actorId: sanitizeContextText(actor.actorId),
+    displayName: sanitizeContextText(actor.displayName),
+    role: actor.role,
+  };
+}
+
+function sanitizeAgent(
+  agent: OpenAgentGraphAgentIdentity | undefined
+): OpenAgentGraphAgentIdentity | undefined {
+  if (!agent) return undefined;
+
+  return {
+    agentId: sanitizeContextText(agent.agentId),
+    displayName: sanitizeContextText(agent.displayName),
+    kind: agent.kind,
+    model: sanitizeOptionalContextText(agent.model),
+    version: sanitizeOptionalContextText(agent.version),
+    capabilities: sanitizeStringList(agent.capabilities),
+    sessionId: sanitizeOptionalContextText(agent.sessionId),
+  };
+}
+
+function sanitizeProposalNode(node: AgentPlanProposalNode): AgentPlanProposalNode {
+  return {
+    title: sanitizeContextText(node.title),
+    intent: sanitizeContextText(node.intent),
+    kind: node.kind,
+    humanSummary: sanitizeOptionalContextText(node.humanSummary),
+    acceptanceCriteria: sanitizeStringList(node.acceptanceCriteria),
+    dependsOnNodeIds: node.dependsOnNodeIds ? [...node.dependsOnNodeIds] : undefined,
+  };
+}
+
+function sanitizeActivity(activity: AgentActivityRecord): AgentActivityRecord {
+  return {
+    ...activity,
+    agent: sanitizeAgent(activity.agent),
+    summary: sanitizeContextText(activity.summary),
+    actor: sanitizeActor(activity.actor),
+  };
+}
+
+function sanitizeProposal(proposal: AgentPlanProposalRecord): AgentPlanProposalRecord {
+  return {
+    ...proposal,
+    agent: sanitizeAgent(proposal.agent) ?? proposal.agent,
+    actor: sanitizeActor(proposal.actor),
+    acceptedBy: sanitizeActor(proposal.acceptedBy),
+    dismissedBy: sanitizeActor(proposal.dismissedBy),
+    title: sanitizeContextText(proposal.title),
+    summary: sanitizeContextText(proposal.summary),
+    reason: sanitizeOptionalContextText(proposal.reason),
+    nodes: proposal.nodes.map(sanitizeProposalNode),
+    metadata: sanitizeMetadata(proposal.metadata),
+    dismissalReason: sanitizeOptionalContextText(proposal.dismissalReason),
   };
 }
 
@@ -77,14 +170,16 @@ export function buildGraphFrontier(
 function recentActivity(projection: GraphProjection, limit: number): AgentActivityRecord[] {
   return [...(projection.agentActivity ?? [])]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, Math.max(0, limit));
+    .slice(0, Math.max(0, limit))
+    .map(sanitizeActivity);
 }
 
 function openProposals(projection: GraphProjection, limit: number): AgentPlanProposalRecord[] {
   return [...(projection.agentPlanProposals ?? [])]
     .filter((proposal) => !proposal.acceptedAt && !proposal.dismissedAt)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, Math.max(0, limit));
+    .slice(0, Math.max(0, limit))
+    .map(sanitizeProposal);
 }
 
 export function buildAgentContextPack(
@@ -101,8 +196,8 @@ export function buildAgentContextPack(
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     graph: {
       id: projection.graph.id,
-      title: projection.graph.title,
-      goal: projection.graph.goal,
+      title: sanitizeContextText(projection.graph.title),
+      goal: sanitizeContextText(projection.graph.goal),
       status: projection.graph.status,
       activeGoalVersionId: projection.graph.activeGoalVersionId,
     },
@@ -112,7 +207,7 @@ export function buildAgentContextPack(
       plannedNodeCount: projection.plannedNodeCount,
       completedNodeCount: projection.completedNodeCount,
       failedNodeCount: projection.failedNodeCount,
-      runHealthSummary: projection.runHealthSummary,
+      runHealthSummary: sanitizeContextText(projection.runHealthSummary),
     },
     selectedNode: selectedNode ? nodeToFrontierSummary(selectedNode) : undefined,
     frontier,

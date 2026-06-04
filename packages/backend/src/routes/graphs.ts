@@ -3,7 +3,10 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type {
   ActorIdentity,
+  AgentEvidenceSubmission,
+  AgentPlanProposal,
   AgentPlanProposalNode,
+  AgentProgressSubmission,
   AnnotationRequest,
   AttentionLabel,
   DashboardLifecycleBucket,
@@ -12,8 +15,9 @@ import type {
   GraphEvent,
   GraphEventKind,
   NodeEvidenceMetadataValue,
+  OpenAgentGraphAgentIdentity,
 } from "@openagentgraph/shared";
-import { buildAgentContextPack, buildGraphFrontier } from "@openagentgraph/shared";
+import { buildAgentContextPack, buildGraphFrontier, sanitizeOperationalText } from "@openagentgraph/shared";
 import * as repo from "../db/graphRepo.js";
 import { canActorPerform, permissionMessage, resolveActor, resolveAuth, type ProtectedAction } from "../auth/actors.js";
 import { DEFAULT_PROVIDER_BASE_URLS, PROVIDER_DISPLAY_NAMES, getAppConfig } from "../config.js";
@@ -397,6 +401,83 @@ function nodeExists(projection: Awaited<ReturnType<typeof repo.getGraphProjectio
   return projection.nodes.some((node) => node.id === nodeId);
 }
 
+function sanitizeAgentText(value: string, maxLength = MAX_AGENT_TEXT_CHARS) {
+  return sanitizeOperationalText(value, { maxLength });
+}
+
+function sanitizeMetadata(
+  metadata: Record<string, NodeEvidenceMetadataValue> | undefined
+): Record<string, NodeEvidenceMetadataValue> | undefined {
+  if (!metadata) return undefined;
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      sanitizeAgentText(key, 120),
+      typeof value === "string" ? sanitizeAgentText(value, 500) : value,
+    ])
+  );
+}
+
+function sanitizeAgent(agent: OpenAgentGraphAgentIdentity): OpenAgentGraphAgentIdentity {
+  return {
+    ...agent,
+    agentId: sanitizeAgentText(agent.agentId, 120),
+    displayName: sanitizeAgentText(agent.displayName, 120),
+    ...(agent.model ? { model: sanitizeAgentText(agent.model, 120) } : {}),
+    ...(agent.version ? { version: sanitizeAgentText(agent.version, 120) } : {}),
+    ...(agent.capabilities ? { capabilities: agent.capabilities.map((item) => sanitizeAgentText(item, 80)) } : {}),
+    ...(agent.sessionId ? { sessionId: sanitizeAgentText(agent.sessionId, 120) } : {}),
+  };
+}
+
+function sanitizeAgentProgress(input: AgentProgressSubmission): AgentProgressSubmission {
+  return {
+    ...input,
+    agent: sanitizeAgent(input.agent),
+    ...(input.nodeId ? { nodeId: sanitizeAgentText(input.nodeId, 160) } : {}),
+    summary: sanitizeAgentText(input.summary),
+    ...(input.details ? { details: sanitizeAgentText(input.details) } : {}),
+    ...(input.metadata ? { metadata: sanitizeMetadata(input.metadata) } : {}),
+  };
+}
+
+function sanitizeAgentEvidence(input: AgentEvidenceSubmission): AgentEvidenceSubmission {
+  return {
+    ...input,
+    agent: sanitizeAgent(input.agent),
+    ...(input.nodeId ? { nodeId: sanitizeAgentText(input.nodeId, 160) } : {}),
+    ...(input.productNodeId ? { productNodeId: sanitizeAgentText(input.productNodeId, 160) } : {}),
+    summary: sanitizeAgentText(input.summary),
+    ...(input.files ? { files: input.files.map((item) => sanitizeAgentText(item, 300)) } : {}),
+    ...(input.commands ? { commands: input.commands.map((item) => sanitizeAgentText(item, 500)) } : {}),
+    ...(input.metadata ? { metadata: sanitizeMetadata(input.metadata) } : {}),
+  };
+}
+
+function sanitizeProposalNode(node: AgentPlanProposalNode): AgentPlanProposalNode {
+  return {
+    ...node,
+    title: sanitizeAgentText(node.title, 160),
+    intent: sanitizeAgentText(node.intent),
+    ...(node.humanSummary ? { humanSummary: sanitizeAgentText(node.humanSummary, 500) } : {}),
+    ...(node.acceptanceCriteria
+      ? { acceptanceCriteria: node.acceptanceCriteria.map((item) => sanitizeAgentText(item, 500)) }
+      : {}),
+    ...(node.dependsOnNodeIds ? { dependsOnNodeIds: node.dependsOnNodeIds.map((item) => sanitizeAgentText(item, 160)) } : {}),
+  };
+}
+
+function sanitizeAgentPlanProposal(input: AgentPlanProposal): AgentPlanProposal {
+  return {
+    ...input,
+    agent: sanitizeAgent(input.agent),
+    title: sanitizeAgentText(input.title, 160),
+    summary: sanitizeAgentText(input.summary),
+    ...(input.reason ? { reason: sanitizeAgentText(input.reason) } : {}),
+    nodes: input.nodes.map(sanitizeProposalNode),
+    ...(input.metadata ? { metadata: sanitizeMetadata(input.metadata) } : {}),
+  };
+}
+
 function proposalDependenciesAreKnown(
   nodes: AgentPlanProposalNode[],
   existingNodeIds: Set<string>
@@ -709,17 +790,18 @@ export async function graphRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Invalid agent registration payload.", issues: validationIssues(parsed.error) });
       }
 
+      const agent = sanitizeAgent(parsed.data.agent);
       const event = await recordAndBroadcast({
         graphId: req.params.graphId,
         kind: "agent.registered",
         payload: {
-          agent: parsed.data.agent,
+          agent,
           createdAt: new Date().toISOString(),
           actor,
         },
       });
 
-      return reply.status(201).send({ eventId: event.id, agent: parsed.data.agent });
+      return reply.status(201).send({ eventId: event.id, agent });
     }
   );
 
@@ -740,12 +822,13 @@ export async function graphRoutes(app: FastifyInstance) {
       }
 
       const progressId = nanoid();
+      const sanitized = sanitizeAgentProgress(parsed.data);
       const event = await recordAndBroadcast({
         graphId: req.params.graphId,
         kind: "agent.progress_reported",
-        nodeId: parsed.data.nodeId,
+        nodeId: sanitized.nodeId,
         payload: {
-          ...parsed.data,
+          ...sanitized,
           progressId,
           graphId: req.params.graphId,
           createdAt: new Date().toISOString(),
@@ -774,12 +857,13 @@ export async function graphRoutes(app: FastifyInstance) {
       }
 
       const evidenceId = nanoid();
+      const sanitized = sanitizeAgentEvidence(parsed.data);
       const event = await recordAndBroadcast({
         graphId: req.params.graphId,
         kind: "agent.evidence_submitted",
-        nodeId: parsed.data.nodeId,
+        nodeId: sanitized.nodeId,
         payload: {
-          ...parsed.data,
+          ...sanitized,
           evidenceId,
           graphId: req.params.graphId,
           createdAt: new Date().toISOString(),
@@ -814,11 +898,12 @@ export async function graphRoutes(app: FastifyInstance) {
       }
 
       const proposalId = nanoid();
+      const sanitized = sanitizeAgentPlanProposal(parsed.data);
       const event = await recordAndBroadcast({
         graphId: req.params.graphId,
         kind: "agent.plan_proposed",
         payload: {
-          ...parsed.data,
+          ...sanitized,
           proposalId,
           graphId: req.params.graphId,
           createdAt: new Date().toISOString(),

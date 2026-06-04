@@ -1488,6 +1488,8 @@ describe("buildProductGraphHandoffReport", () => {
     expect(report.markdown).toContain("Dependency edges: 1.");
     expect(report.markdown).toContain("External dependencies recorded: 1.");
     expect(report.markdown).toContain("Unresolved dependencies recorded: 1.");
+    expect(report.markdown).toContain("For live run coordination, use `GET /graphs/:graphId/agent-context` and `GET /graphs/:graphId/frontier`");
+    expect(report.markdown).toContain("External agents can submit progress, evidence, or plan proposals");
     expect(report.markdown).not.toContain("SECRET SOURCE BODY");
     expect(report.markdown).not.toContain("GENERATED BODY");
     expect(report.markdown).not.toContain("packages/frontend/dist/generated.js` -");

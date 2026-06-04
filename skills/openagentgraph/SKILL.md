@@ -119,6 +119,15 @@ npm run gate:check -- --mode hard --allow-empty
 
 Use these surfaces when Codex, Gemini, Grok, a script, or another worker needs to stay coordinated with a live OAG graph without taking over the central runner.
 
+Use a stable agent identity that describes the worker, not the current user permission:
+
+| Worker | Suggested `agentId` | `kind` |
+| --- | --- | --- |
+| Codex | `codex-local` or `codex-ci` | `codex` |
+| Gemini | `gemini-review` or `gemini-worker` | `gemini` |
+| Grok | `grok-review` or `grok-worker` | `grok` |
+| Script/CI | `script-worker` or a job-specific ID | `script` |
+
 Read a context pack:
 
 ```powershell
@@ -139,12 +148,36 @@ Invoke-RestMethod `
   -Method Post `
   -Headers @{ "x-openagentgraph-actor-id" = "operator" } `
   -ContentType "application/json" `
-  -Body '{"agent":{"agentId":"codex","displayName":"Codex","kind":"codex"},"status":"progress","summary":"Loaded context and scoped the next edit."}'
+  -Body '{"agent":{"agentId":"codex-local","displayName":"Codex","kind":"codex"},"status":"progress","summary":"Loaded context and scoped the next edit."}'
+```
+
+Submit evidence (as operator/admin):
+
+```powershell
+Invoke-RestMethod `
+  -Uri http://127.0.0.1:3001/graphs/<graphId>/agent/evidence `
+  -Method Post `
+  -Headers @{ "x-openagentgraph-actor-id" = "operator" } `
+  -ContentType "application/json" `
+  -Body '{"agent":{"agentId":"codex-local","displayName":"Codex","kind":"codex"},"nodeId":"node-123","summary":"Focused tests passed.","files":["packages/backend/src/routes/graphs.test.ts"],"commands":["npm run test --workspace=packages/backend"],"confidence":0.9}'
+```
+
+Propose next work instead of expanding scope silently:
+
+```powershell
+Invoke-RestMethod `
+  -Uri http://127.0.0.1:3001/graphs/<graphId>/agent/plan-proposals `
+  -Method Post `
+  -Headers @{ "x-openagentgraph-actor-id" = "operator" } `
+  -ContentType "application/json" `
+  -Body '{"agent":{"agentId":"gemini-review","displayName":"Gemini","kind":"gemini"},"title":"Add SDK examples","summary":"External SDK users need a short coordination example.","nodes":[{"title":"Document SDK agent context usage","intent":"Add a concise SDK example for frontier/context/evidence calls.","acceptanceCriteria":["Docs show getAgentContext","Docs show submitEvidence"]}]}'
 ```
 
 Rules:
+- Read a context pack or frontier before broad source scanning.
+- Scope work to frontier nodes or the user's explicit task.
 - Progress and evidence are recorded as collaboration events.
-- Plan proposals stay inert until an operator/admin accepts them.
+- Plan proposals stay inert until an operator/admin accepts or dismisses them.
 - `agentId` is just metadata — it does not grant permissions.
 - Never submit source bodies, secrets, or private content.
 - For building a reusable external worker, see the coordination guidance in the main docs.

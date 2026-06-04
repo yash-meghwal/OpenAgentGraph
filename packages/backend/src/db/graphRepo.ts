@@ -6,6 +6,7 @@ import type {
   AgentEvidenceSubmittedPayload,
   AgentPlanAcceptedPayload,
   AgentPlanDismissedPayload,
+  AgentPlanProposalNode,
   AgentPlanProposedPayload,
   AgentPlanProposalRecord,
   AgentProgressReportedPayload,
@@ -50,6 +51,8 @@ import type {
   NodeSummarizedPayload,
   NodeSupersededPayload,
   NodeToolCallPayload,
+  NodeEvidenceMetadataValue,
+  OpenAgentGraphAgentIdentity,
   SystemLineageDeclaredPayload,
   RelevantNodeOutput,
   ReplanBranchedPayload,
@@ -69,7 +72,7 @@ import type {
   SimilarRunSummary,
 } from "@openagentgraph/shared";
 import { applyTailSamplingToGraphEventPayload, buildGraphRunReport, buildRunComparison } from "@openagentgraph/shared";
-import { toPlainEnglishFailureSummary, toPlainEnglishSummary } from "@openagentgraph/shared";
+import { sanitizeOperationalText, toPlainEnglishFailureSummary, toPlainEnglishSummary } from "@openagentgraph/shared";
 import { deriveCapabilities } from "../auth/actors.js";
 import { getAppConfig } from "../config.js";
 import { exportGraphEventToOpenTelemetry } from "../observability/otel.js";
@@ -683,6 +686,47 @@ function derivePeopleSummary(events: GraphEvent[]): string | undefined {
   return undefined;
 }
 
+function sanitizeAgentProjectionText(value: string, maxLength = 4000) {
+  return sanitizeOperationalText(value, { maxLength });
+}
+
+function sanitizeAgentProjection(agent: OpenAgentGraphAgentIdentity): OpenAgentGraphAgentIdentity {
+  return {
+    ...agent,
+    agentId: sanitizeAgentProjectionText(agent.agentId, 120),
+    displayName: sanitizeAgentProjectionText(agent.displayName, 120),
+    ...(agent.model ? { model: sanitizeAgentProjectionText(agent.model, 120) } : {}),
+    ...(agent.version ? { version: sanitizeAgentProjectionText(agent.version, 120) } : {}),
+    ...(agent.capabilities ? { capabilities: agent.capabilities.map((item) => sanitizeAgentProjectionText(item, 80)) } : {}),
+    ...(agent.sessionId ? { sessionId: sanitizeAgentProjectionText(agent.sessionId, 120) } : {}),
+  };
+}
+
+function sanitizeAgentMetadataProjection(
+  metadata: Record<string, NodeEvidenceMetadataValue> | undefined
+): Record<string, NodeEvidenceMetadataValue> | undefined {
+  if (!metadata) return undefined;
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      sanitizeAgentProjectionText(key, 120),
+      typeof value === "string" ? sanitizeAgentProjectionText(value, 500) : value,
+    ])
+  );
+}
+
+function sanitizeProposalNodeProjection(node: AgentPlanProposalNode): AgentPlanProposalNode {
+  return {
+    ...node,
+    title: sanitizeAgentProjectionText(node.title, 160),
+    intent: sanitizeAgentProjectionText(node.intent),
+    ...(node.humanSummary ? { humanSummary: sanitizeAgentProjectionText(node.humanSummary, 500) } : {}),
+    ...(node.acceptanceCriteria
+      ? { acceptanceCriteria: node.acceptanceCriteria.map((item) => sanitizeAgentProjectionText(item, 500)) }
+      : {}),
+    ...(node.dependsOnNodeIds ? { dependsOnNodeIds: node.dependsOnNodeIds.map((item) => sanitizeAgentProjectionText(item, 160)) } : {}),
+  };
+}
+
 function deriveAgentCollaboration(events: GraphEvent[]): {
   agentActivity: AgentActivityRecord[];
   agentPlanProposals: AgentPlanProposalRecord[];
@@ -698,8 +742,8 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           id: event.id,
           graphId: event.graphId,
           kind: "registered",
-          agent: payload.agent,
-          summary: `${payload.agent.displayName} registered as ${payload.agent.kind}.`,
+          agent: sanitizeAgentProjection(payload.agent),
+          summary: `${sanitizeAgentProjectionText(payload.agent.displayName, 120)} registered as ${payload.agent.kind}.`,
           createdAt: payload.createdAt || event.ts,
           actor: payload.actor,
         });
@@ -711,9 +755,9 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           id: payload.progressId,
           graphId: event.graphId,
           kind: "progress",
-          agent: payload.agent,
+          agent: sanitizeAgentProjection(payload.agent),
           nodeId: payload.nodeId ?? event.nodeId,
-          summary: payload.summary,
+          summary: sanitizeAgentProjectionText(payload.summary),
           createdAt: payload.createdAt || event.ts,
           actor: payload.actor,
         });
@@ -725,9 +769,9 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           id: payload.evidenceId,
           graphId: event.graphId,
           kind: "evidence",
-          agent: payload.agent,
+          agent: sanitizeAgentProjection(payload.agent),
           nodeId: payload.nodeId ?? event.nodeId,
-          summary: payload.summary,
+          summary: sanitizeAgentProjectionText(payload.summary),
           createdAt: payload.createdAt || event.ts,
           actor: payload.actor,
         });
@@ -740,21 +784,21 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           graphId: event.graphId,
           createdAt: payload.createdAt || event.ts,
           actor: payload.actor,
-          agent: payload.agent,
-          title: payload.title,
-          summary: payload.summary,
-          reason: payload.reason,
-          nodes: payload.nodes,
-          metadata: payload.metadata,
+          agent: sanitizeAgentProjection(payload.agent),
+          title: sanitizeAgentProjectionText(payload.title, 160),
+          summary: sanitizeAgentProjectionText(payload.summary),
+          reason: payload.reason ? sanitizeAgentProjectionText(payload.reason) : undefined,
+          nodes: payload.nodes.map(sanitizeProposalNodeProjection),
+          metadata: sanitizeAgentMetadataProjection(payload.metadata),
         };
         proposals.set(record.proposalId, record);
         activities.push({
           id: event.id,
           graphId: event.graphId,
           kind: "plan_proposed",
-          agent: payload.agent,
+          agent: sanitizeAgentProjection(payload.agent),
           proposalId: payload.proposalId,
-          summary: payload.summary,
+          summary: sanitizeAgentProjectionText(payload.summary),
           createdAt: payload.createdAt || event.ts,
           actor: payload.actor,
         });
@@ -776,7 +820,7 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           graphId: event.graphId,
           kind: "plan_accepted",
           proposalId: payload.proposalId,
-          summary: `Accepted proposal ${payload.proposalId}.`,
+          summary: `Accepted proposal ${sanitizeAgentProjectionText(payload.proposalId, 160)}.`,
           createdAt: payload.acceptedAt || event.ts,
           actor: payload.acceptedBy,
         });
@@ -798,7 +842,9 @@ function deriveAgentCollaboration(events: GraphEvent[]): {
           graphId: event.graphId,
           kind: "plan_dismissed",
           proposalId: payload.proposalId,
-          summary: payload.reason?.trim() || `Dismissed proposal ${payload.proposalId}.`,
+          summary: payload.reason?.trim()
+            ? sanitizeAgentProjectionText(payload.reason)
+            : `Dismissed proposal ${sanitizeAgentProjectionText(payload.proposalId, 160)}.`,
           createdAt: payload.dismissedAt || event.ts,
           actor: payload.dismissedBy,
         });

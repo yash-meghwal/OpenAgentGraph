@@ -54,9 +54,15 @@ export function NodeDetailPanel() {
     nodes,
     edges,
     selectedNodeId,
+    activeGraphId,
     events,
+    agentContext,
+    agentCollaborationLoading,
+    agentCollaborationError,
+    agentCollaborationMessage,
     currentActor,
     capabilities,
+    loadAgentContext,
     retryNode,
     replanNode,
     annotateNode,
@@ -72,6 +78,7 @@ export function NodeDetailPanel() {
   const [replanReason, setReplanReason] = useState("");
   const [annotationText, setAnnotationText] = useState("");
   const [tab, setTab] = useState<"summary" | "developer">("summary");
+  const [agentContextCopyMessage, setAgentContextCopyMessage] = useState("");
 
   const node = nodes.find((candidate) => candidate.id === selectedNodeId);
 
@@ -96,6 +103,11 @@ export function NodeDetailPanel() {
 
   const defaultSummary = getNodeDisplaySummary(node);
   const statusCopy = getNodeStatusCopy(node);
+  const selectedAgentContext =
+    agentContext?.graphId === activeGraphId && agentContext.selectedNode?.nodeId === node.id
+      ? agentContext
+      : null;
+  const agentContextJson = selectedAgentContext ? JSON.stringify(selectedAgentContext, null, 2) : "";
   const evaluation = node.evaluation;
   const failureSummary =
     toPlainEnglishFailureSummary(
@@ -186,6 +198,76 @@ export function NodeDetailPanel() {
             node.evidenceSummary,
             "A plain-English evidence summary is not available for this step yet."
           )}
+        </div>
+      </div>
+
+      <div>
+        <p style={SECTION_TITLE}>Agent Context Pack</p>
+        <div style={{ ...CARD, display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={async () => {
+                if (!activeGraphId) return;
+                setAgentContextCopyMessage("");
+                await loadAgentContext(activeGraphId, node.id);
+              }}
+              disabled={!activeGraphId || agentCollaborationLoading}
+              style={{
+                background: activeGraphId && !agentCollaborationLoading ? "#2d3748" : "#1f2937",
+                color: "#e2e8f0",
+                border: "1px solid #4a5568",
+                borderRadius: 6,
+                padding: "7px 10px",
+                cursor: activeGraphId && !agentCollaborationLoading ? "pointer" : "not-allowed",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {agentCollaborationLoading ? "Loading..." : "Load context"}
+            </button>
+            <button
+              onClick={async () => {
+                if (!agentContextJson) return;
+                if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+                  setAgentContextCopyMessage("Clipboard is unavailable.");
+                  return;
+                }
+                await navigator.clipboard.writeText(agentContextJson);
+                setAgentContextCopyMessage("Context JSON copied.");
+              }}
+              disabled={!agentContextJson}
+              style={{
+                background: agentContextJson ? "#0f172a" : "#1f2937",
+                color: "#e2e8f0",
+                border: "1px solid #4a5568",
+                borderRadius: 6,
+                padding: "7px 10px",
+                cursor: agentContextJson ? "pointer" : "not-allowed",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              Copy JSON
+            </button>
+          </div>
+          {selectedAgentContext ? (
+            <>
+              <div style={{ color: "#a0aec0", fontSize: 11 }}>
+                {selectedAgentContext.frontier.length} frontier nodes ·{" "}
+                {selectedAgentContext.recentAgentActivity.length} agent updates ·{" "}
+                {selectedAgentContext.planProposals.length} open proposals
+              </div>
+              <div style={CODE_BLOCK}>{agentContextJson}</div>
+            </>
+          ) : (
+            <div style={{ color: "#718096", fontSize: 12 }}>
+              {activeGraphId ? "No context pack loaded for this step." : "Open a run to load context."}
+            </div>
+          )}
+          {agentCollaborationError ? <div style={{ color: "#f97316", fontSize: 12 }}>{agentCollaborationError}</div> : null}
+          {agentContextCopyMessage || agentCollaborationMessage ? (
+            <div style={{ color: "#34d399", fontSize: 12 }}>{agentContextCopyMessage || agentCollaborationMessage}</div>
+          ) : null}
         </div>
       </div>
 

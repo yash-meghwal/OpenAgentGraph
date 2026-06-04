@@ -870,32 +870,71 @@ describe("graph agent collaboration routes", () => {
     await app.close();
   });
 
-  it("rejects external agent mutations without operator/admin access", async () => {
+  it("rejects all external agent mutations without operator/admin access", async () => {
     const app = Fastify();
     await app.register(graphRoutes);
 
-    const missing = await app.inject({
-      method: "POST",
-      url: "/graphs/graph-1/agent/progress",
-      payload: {
-        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
-        status: "progress",
-        summary: "Working.",
+    const agent = { agentId: "codex", displayName: "Codex", kind: "codex" };
+    const mutationCases = [
+      {
+        url: "/graphs/graph-1/agent/register",
+        payload: { agent },
       },
-    });
-    const viewer = await app.inject({
-      method: "POST",
-      url: "/graphs/graph-1/agent/evidence",
-      headers: { "x-openagentgraph-actor-id": "viewer" },
-      payload: {
-        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
-        summary: "Checked files.",
+      {
+        url: "/graphs/graph-1/agent/progress",
+        payload: {
+          agent,
+          status: "progress",
+          summary: "Working.",
+        },
       },
-    });
+      {
+        url: "/graphs/graph-1/agent/evidence",
+        payload: {
+          agent,
+          summary: "Checked files.",
+        },
+      },
+      {
+        url: "/graphs/graph-1/agent/plan-proposals",
+        payload: {
+          agent,
+          title: "Add tests",
+          summary: "Add focused tests.",
+          nodes: [{ title: "Write tests", intent: "Cover the route." }],
+        },
+      },
+      {
+        url: "/graphs/graph-1/agent/plan-proposals/proposal-1/accept",
+        payload: {},
+      },
+      {
+        url: "/graphs/graph-1/agent/plan-proposals/proposal-1/dismiss",
+        payload: {
+          reason: "Out of scope.",
+        },
+      },
+    ];
 
-    expect(missing.statusCode).toBe(401);
-    expect(viewer.statusCode).toBe(403);
+    for (const mutation of mutationCases) {
+      const missing = await app.inject({
+        method: "POST",
+        url: mutation.url,
+        payload: mutation.payload,
+      });
+      const viewer = await app.inject({
+        method: "POST",
+        url: mutation.url,
+        headers: { "x-openagentgraph-actor-id": "viewer" },
+        payload: mutation.payload,
+      });
+
+      expect(missing.statusCode, `${mutation.url} without actor`).toBe(401);
+      expect(viewer.statusCode, `${mutation.url} as viewer`).toBe(403);
+    }
+
     expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    expect(repoMocks.appendGraphEvents).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -916,6 +955,87 @@ describe("graph agent collaboration routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects oversized agent evidence lists before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/evidence",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        summary: "Checked files.",
+        files: Array.from({ length: 21 }, (_, index) => `packages/example-${index}.ts`),
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects oversized agent proposal content before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/plan-proposals",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        title: "Add follow-up tests",
+        summary: "x".repeat(4001),
+        nodes: [
+          {
+            title: "Write tests",
+            intent: "Add focused coordination tests.",
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("redacts secret-like external agent payload text before appending events", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/evidence",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: {
+          agentId: "codex",
+          displayName: "Codex OPENAI_API_KEY=sk_1234567890abcdef",
+          kind: "codex",
+        },
+        summary: "Checked with Bearer abc.def.ghi and OPENAI_API_KEY=sk_1234567890abcdef.",
+        files: ["C:\\Users\\yashm\\Desktop\\promptvector\\.env"],
+        commands: ["curl -H \"Authorization: Bearer abc.def.ghi\" https://example.test"],
+        metadata: {
+          tokenValue: "sk_1234567890abcdef",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const appended = repoMocks.appendGraphEvent.mock.calls[0][0];
+    const serialized = JSON.stringify(appended);
+    expect(serialized).toContain("<redacted-secret>");
+    expect(serialized).toContain("Bearer <redacted-token>");
+    expect(serialized).not.toContain("sk_1234567890abcdef");
+    expect(serialized).not.toContain("abc.def.ghi");
+    expect(serialized).not.toContain("C:");
+    expect(serialized).not.toContain("yashm");
     await app.close();
   });
 

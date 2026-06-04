@@ -1,5 +1,34 @@
 export type OpenAgentGraphMetadataValue = string | number | boolean | null;
 
+export type OpenAgentGraphGraphStatus = "idle" | "running" | "completed" | "failed" | "blocked" | "stopped";
+
+export type OpenAgentGraphNodeStatus =
+  | "pending"
+  | "ready"
+  | "running"
+  | "completed"
+  | "failed"
+  | "superseded"
+  | "blocked";
+
+export type OpenAgentGraphNodeKind = "plan" | "work" | "evaluate" | "revision" | "replan";
+
+export type OpenAgentGraphFrontierStatus = "on_track" | "exploring" | "drifting" | "blocked";
+
+export type OpenAgentGraphRunControlState = "running" | "paused" | "stopped" | "idle";
+
+export type OpenAgentGraphEvidenceCoverage = "none" | "partial" | "grounded";
+
+export type OpenAgentGraphConfidenceBadge = "low" | "medium" | "high";
+
+export type OpenAgentGraphActorRole = "viewer" | "operator" | "reviewer" | "admin";
+
+export interface OpenAgentGraphActorIdentity {
+  actorId: string;
+  displayName: string;
+  role: OpenAgentGraphActorRole;
+}
+
 export interface OpenAgentGraphUsage {
   promptTokens?: number;
   completionTokens?: number;
@@ -90,6 +119,118 @@ export interface OpenAgentGraphFrontierOptions {
   limit?: number;
 }
 
+export interface OpenAgentGraphFrontierNodeSummary {
+  nodeId: string;
+  title: string;
+  kind: OpenAgentGraphNodeKind;
+  status: OpenAgentGraphNodeStatus;
+  humanSummary: string;
+  dependsOnNodeIds: string[];
+  evidenceCoverage?: OpenAgentGraphEvidenceCoverage;
+  confidenceBadge?: OpenAgentGraphConfidenceBadge;
+  updatedAt: string;
+}
+
+export interface OpenAgentGraphAgentActivityRecord {
+  id: string;
+  graphId: string;
+  kind: "registered" | "progress" | "evidence" | "plan_proposed" | "plan_accepted" | "plan_dismissed";
+  agent?: OpenAgentGraphAgentIdentity;
+  nodeId?: string;
+  proposalId?: string;
+  summary: string;
+  createdAt: string;
+  actor?: OpenAgentGraphActorIdentity;
+}
+
+export interface OpenAgentGraphAgentPlanProposalRecord extends OpenAgentGraphAgentPlanProposal {
+  proposalId: string;
+  graphId: string;
+  createdAt: string;
+  actor?: OpenAgentGraphActorIdentity;
+  acceptedAt?: string;
+  acceptedBy?: OpenAgentGraphActorIdentity;
+  acceptedNodeIds?: string[];
+  dismissedAt?: string;
+  dismissedBy?: OpenAgentGraphActorIdentity;
+  dismissalReason?: string;
+}
+
+export interface OpenAgentGraphFrontierSummary {
+  runControlState: OpenAgentGraphRunControlState;
+  frontierStatus: OpenAgentGraphFrontierStatus;
+  readyCount: number;
+  runningCount: number;
+  blockedCount: number;
+  openProposalCount: number;
+}
+
+export interface OpenAgentGraphFrontierResponse {
+  graphId: string;
+  generatedAt: string;
+  summary: OpenAgentGraphFrontierSummary;
+  frontier: OpenAgentGraphFrontierNodeSummary[];
+  recentAgentActivity: OpenAgentGraphAgentActivityRecord[];
+  planProposals: OpenAgentGraphAgentPlanProposalRecord[];
+}
+
+export interface OpenAgentGraphAgentContextPack {
+  graphId: string;
+  generatedAt: string;
+  graph: {
+    id: string;
+    title: string;
+    goal: string;
+    status: OpenAgentGraphGraphStatus;
+    activeGoalVersionId: string;
+  };
+  run: {
+    runControlState: OpenAgentGraphRunControlState;
+    frontierStatus: OpenAgentGraphFrontierStatus;
+    plannedNodeCount: number;
+    completedNodeCount: number;
+    failedNodeCount: number;
+    runHealthSummary: string;
+  };
+  selectedNode?: OpenAgentGraphFrontierNodeSummary;
+  frontier: OpenAgentGraphFrontierNodeSummary[];
+  recentAgentActivity: OpenAgentGraphAgentActivityRecord[];
+  planProposals: OpenAgentGraphAgentPlanProposalRecord[];
+  instructions: string[];
+}
+
+export interface OpenAgentGraphAgentRegistrationResponse {
+  eventId: string;
+  agent: OpenAgentGraphAgentIdentity;
+}
+
+export interface OpenAgentGraphAgentProgressResponse {
+  progressId: string;
+  eventId: string;
+}
+
+export interface OpenAgentGraphAgentEvidenceResponse {
+  evidenceId: string;
+  eventId: string;
+}
+
+export interface OpenAgentGraphAgentPlanProposalResponse {
+  proposalId: string;
+  eventId: string;
+}
+
+export interface OpenAgentGraphAgentPlanAcceptedResponse {
+  proposalId: string;
+  acceptedNodeIds: string[];
+  eventId?: string;
+}
+
+export interface OpenAgentGraphAgentPlanDismissedResponse {
+  proposalId: string;
+  eventId: string;
+  dismissedAt: string;
+}
+
 export interface OpenAgentGraphClientOptions {
   baseUrl: string;
   graphId: string;
@@ -107,14 +248,14 @@ export interface OpenAgentGraphClient {
   readonly captureContent: boolean;
   preview(value: unknown): string | undefined;
   recordLlmCall(call: OpenAgentGraphLlmCall): Promise<void>;
-  getFrontier(options?: OpenAgentGraphFrontierOptions): Promise<unknown>;
-  getAgentContext(options?: OpenAgentGraphAgentContextOptions): Promise<unknown>;
-  registerAgent(agent: OpenAgentGraphAgentIdentity): Promise<unknown>;
-  reportProgress(progress: OpenAgentGraphAgentProgress): Promise<unknown>;
-  submitEvidence(evidence: OpenAgentGraphAgentEvidence): Promise<unknown>;
-  proposePlan(proposal: OpenAgentGraphAgentPlanProposal): Promise<unknown>;
-  acceptPlanProposal(proposalId: string): Promise<unknown>;
-  dismissPlanProposal(proposalId: string, reason?: string): Promise<unknown>;
+  getFrontier(options?: OpenAgentGraphFrontierOptions): Promise<OpenAgentGraphFrontierResponse>;
+  getAgentContext(options?: OpenAgentGraphAgentContextOptions): Promise<OpenAgentGraphAgentContextPack>;
+  registerAgent(agent: OpenAgentGraphAgentIdentity): Promise<OpenAgentGraphAgentRegistrationResponse>;
+  reportProgress(progress: OpenAgentGraphAgentProgress): Promise<OpenAgentGraphAgentProgressResponse>;
+  submitEvidence(evidence: OpenAgentGraphAgentEvidence): Promise<OpenAgentGraphAgentEvidenceResponse>;
+  proposePlan(proposal: OpenAgentGraphAgentPlanProposal): Promise<OpenAgentGraphAgentPlanProposalResponse>;
+  acceptPlanProposal(proposalId: string): Promise<OpenAgentGraphAgentPlanAcceptedResponse>;
+  dismissPlanProposal(proposalId: string, reason?: string): Promise<OpenAgentGraphAgentPlanDismissedResponse>;
 }
 
 export interface WrapOpenAIOptions {
@@ -381,14 +522,14 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
     }
   }
 
-  async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
+  async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await requestFetch(`${baseUrl}${path}`, {
       ...init,
       headers: buildHeaders(options),
     });
     if (response.ok) {
       const contentType = response.headers.get("content-type");
-      return contentType?.includes("application/json") ? response.json() : undefined;
+      return contentType?.includes("application/json") ? response.json() : undefined as T;
     }
     throw new Error(`OpenAgentGraph request failed with status ${response.status}`);
   }
@@ -408,12 +549,12 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
     preview,
     recordLlmCall,
     getFrontier(frontierOptions: OpenAgentGraphFrontierOptions = {}) {
-      return requestJson(
+      return requestJson<OpenAgentGraphFrontierResponse>(
         `/graphs/${encodeURIComponent(options.graphId)}/frontier${queryString({ limit: frontierOptions.limit })}`
       );
     },
     getAgentContext(contextOptions: OpenAgentGraphAgentContextOptions = {}) {
-      return requestJson(
+      return requestJson<OpenAgentGraphAgentContextPack>(
         `/graphs/${encodeURIComponent(options.graphId)}/agent-context${queryString({
           nodeId: contextOptions.nodeId,
           frontierLimit: contextOptions.frontierLimit,
@@ -423,31 +564,31 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
       );
     },
     registerAgent(agent: OpenAgentGraphAgentIdentity) {
-      return requestJson(`/graphs/${encodeURIComponent(options.graphId)}/agent/register`, {
+      return requestJson<OpenAgentGraphAgentRegistrationResponse>(`/graphs/${encodeURIComponent(options.graphId)}/agent/register`, {
         method: "POST",
         body: JSON.stringify({ agent: boundedAgent(agent) }),
       });
     },
     reportProgress(progress: OpenAgentGraphAgentProgress) {
-      return requestJson(`/graphs/${encodeURIComponent(options.graphId)}/agent/progress`, {
+      return requestJson<OpenAgentGraphAgentProgressResponse>(`/graphs/${encodeURIComponent(options.graphId)}/agent/progress`, {
         method: "POST",
         body: JSON.stringify(boundedAgentProgress(progress)),
       });
     },
     submitEvidence(evidence: OpenAgentGraphAgentEvidence) {
-      return requestJson(`/graphs/${encodeURIComponent(options.graphId)}/agent/evidence`, {
+      return requestJson<OpenAgentGraphAgentEvidenceResponse>(`/graphs/${encodeURIComponent(options.graphId)}/agent/evidence`, {
         method: "POST",
         body: JSON.stringify(boundedAgentEvidence(evidence)),
       });
     },
     proposePlan(proposal: OpenAgentGraphAgentPlanProposal) {
-      return requestJson(`/graphs/${encodeURIComponent(options.graphId)}/agent/plan-proposals`, {
+      return requestJson<OpenAgentGraphAgentPlanProposalResponse>(`/graphs/${encodeURIComponent(options.graphId)}/agent/plan-proposals`, {
         method: "POST",
         body: JSON.stringify(boundedAgentPlanProposal(proposal)),
       });
     },
     acceptPlanProposal(proposalId: string) {
-      return requestJson(
+      return requestJson<OpenAgentGraphAgentPlanAcceptedResponse>(
         `/graphs/${encodeURIComponent(options.graphId)}/agent/plan-proposals/${encodeURIComponent(proposalId)}/accept`,
         { method: "POST" }
       );
@@ -456,7 +597,7 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
       const body = reason?.trim()
         ? { body: JSON.stringify({ reason: truncateTo(reason.trim(), 500) }) }
         : {};
-      return requestJson(
+      return requestJson<OpenAgentGraphAgentPlanDismissedResponse>(
         `/graphs/${encodeURIComponent(options.graphId)}/agent/plan-proposals/${encodeURIComponent(proposalId)}/dismiss`,
         {
           method: "POST",

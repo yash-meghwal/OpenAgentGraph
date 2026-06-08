@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphEvent, GraphProjection } from "@openagentgraph/shared";
@@ -968,7 +969,8 @@ describe("graph agent collaboration routes", () => {
   });
 
   it("sanitizes agent read payloads before returning them", async () => {
-    const workspaceRoot = "C:\\Users\\yashm\\Desktop\\OpenAgentGraphV1Publish";
+    const workspaceRoot = path.join(process.cwd(), "test-workspace");
+    const workspaceFile = path.join(workspaceRoot, "packages", "backend", "src", "secret.ts");
     setAppConfigForTests(
       loadAppConfig({
         NODE_ENV: "test",
@@ -981,14 +983,14 @@ describe("graph agent collaboration routes", () => {
       graph: {
         ...makeProjection().graph,
         title: "Graph Bearer abc.def.ghi",
-        goal: `Read ${workspaceRoot}\\packages\\backend\\src\\secret.ts with OPENAI_API_KEY=sk_123456789012`,
+        goal: `Read ${workspaceFile} with OPENAI_API_KEY=sk_123456789012`,
       },
       nodes: [
         {
           id: "node-ready",
           graphId: "graph-1",
           kind: "work",
-          title: `${workspaceRoot}\\packages\\backend\\src\\secret.ts`,
+          title: workspaceFile,
           intent: "Do not return source bodies.",
           humanSummary: "Token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature near C:\\Users\\yashm\\Desktop\\outside.txt",
           status: "ready",
@@ -1010,7 +1012,7 @@ describe("graph agent collaboration routes", () => {
           id: "activity-1",
           graphId: "graph-1",
           kind: "progress",
-          summary: `Checked ${workspaceRoot}\\packages\\backend\\src\\secret.ts with Bearer abc.def.ghi`,
+          summary: `Checked ${workspaceFile} with Bearer abc.def.ghi`,
           createdAt: "2026-06-01T00:02:00.000Z",
           agent: {
             agentId: "codex",

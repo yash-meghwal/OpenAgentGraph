@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadAppConfig, setAppConfigForTests } from "../config.js";
-import { __testUtils, buildAuthSession, resolveAuth } from "./actors.js";
+import { __testUtils, buildAuthSession, canActorPerform, resolveAuth } from "./actors.js";
 
 function createJwt(payload: Record<string, unknown>, secret: string) {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
@@ -140,5 +140,21 @@ describe("actor resolution", () => {
       actor: undefined,
       message: "This environment allows viewing, but protected actions require sign-in.",
     });
+  });
+
+  it("keeps agent read permission separate from agent mutation and product graph admin", () => {
+    const viewer = { actorId: "viewer", displayName: "Viewer", role: "viewer" as const };
+    const reviewer = { actorId: "reviewer", displayName: "Reviewer", role: "reviewer" as const };
+    const operator = { actorId: "operator", displayName: "Operator", role: "operator" as const };
+
+    expect(canActorPerform(viewer, "agent_read")).toBe(true);
+    expect(canActorPerform(viewer, "agent_report")).toBe(false);
+    expect(canActorPerform(viewer, "manage_product_graph")).toBe(false);
+    expect(canActorPerform(reviewer, "agent_read")).toBe(true);
+    expect(canActorPerform(reviewer, "agent_propose")).toBe(false);
+    expect(canActorPerform(reviewer, "agent_admin")).toBe(false);
+    expect(canActorPerform(operator, "agent_report")).toBe(true);
+    expect(canActorPerform(operator, "agent_propose")).toBe(true);
+    expect(canActorPerform(operator, "agent_admin")).toBe(true);
   });
 });

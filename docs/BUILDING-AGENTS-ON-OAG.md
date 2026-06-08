@@ -27,7 +27,7 @@ The safest pattern is:
 
 ## No-Key Contract
 
-These external agent coordination APIs do not require an AI provider key for reads:
+These external agent coordination APIs do not require an AI provider key. No-key does not mean public unauthenticated network access: anonymous reads are for localhost development only. In JWT mode, and in production actor-header deployments, frontier and context reads require a valid viewer-or-better actor.
 
 - `GET /graphs/:graphId/frontier`
 - `GET /graphs/:graphId/agent-context`
@@ -69,9 +69,12 @@ The frontier response includes:
 
 - run control and frontier status
 - ready/running/blocked counts
+- read-only scheduling hints such as `claimableReadyCount`, `schedulingState`, and `agentAction`
 - bounded frontier node summaries
 - recent external agent activity
 - open plan proposals
+
+In V1.1, `deferredReadyCount` is a lifecycle-derived count of `pending` nodes. It is not a claim/lease backlog and should not be interpreted as Pro-style scheduling state.
 
 ## Register An Agent
 

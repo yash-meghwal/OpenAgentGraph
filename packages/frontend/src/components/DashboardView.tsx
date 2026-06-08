@@ -46,6 +46,10 @@ type AgentFrontierSummary = {
   runningCount: number;
   blockedCount: number;
   openProposalCount: number;
+  claimableReadyCount?: number;
+  inProgressCount?: number;
+  blockedActionCount?: number;
+  deferredReadyCount?: number;
 };
 
 const PROVIDER_SETUP_LABELS: Record<ProviderSetupMode, string> = {
@@ -592,6 +596,8 @@ function AgentCollaborationCard({
             ["Ready", summary.readyCount],
             ["Running", summary.runningCount],
             ["Blocked", summary.blockedCount],
+            ["Claimable", summary.claimableReadyCount ?? summary.readyCount],
+            ["Deferred", summary.deferredReadyCount ?? 0],
             ["Proposals", summary.openProposalCount],
           ].map(([label, value]) => (
             <div key={label} style={{ border: "1px solid #263244", borderRadius: 8, padding: 10 }}>
@@ -610,7 +616,9 @@ function AgentCollaborationCard({
             <div key={node.nodeId} style={{ color: "#cbd5e1", fontSize: 12, display: "grid", gap: 2 }}>
               <strong style={{ color: "#e2e8f0" }}>{node.title}</strong>
               <span>
-                {node.status} · {node.kind} · {node.humanSummary}
+                {node.status} · {node.kind}
+                {node.schedulingState ? ` · ${node.schedulingState.replace(/_/g, " ")} / ${node.agentAction ?? "none"}` : ""} ·{" "}
+                {node.humanSummary}
               </span>
             </div>
           ))}

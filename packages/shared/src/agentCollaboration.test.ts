@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentContextPack, buildGraphFrontier } from "./agentCollaboration";
+import { buildAgentContextPack, buildAgentSchedulingSummary, buildGraphFrontier } from "./agentCollaboration";
 import type { GraphProjection, Node } from "./types";
 
 function makeNode(input: Partial<Node> & Pick<Node, "id" | "title" | "status">): Node {
@@ -83,6 +83,39 @@ describe("agent collaboration helpers", () => {
 
     expect(buildGraphFrontier(projection).map((node) => node.nodeId)).toEqual(["ready", "pending"]);
     expect(buildGraphFrontier(projection, { limit: 1 })).toHaveLength(1);
+    expect(buildGraphFrontier(projection).map((node) => node.schedulingState)).toEqual(["claimable", "waiting"]);
+  });
+
+  it("builds deterministic read-only scheduling hints", () => {
+    const projection = makeProjection({
+      nodes: [
+        makeNode({ id: "ready", title: "Ready", status: "ready" }),
+        makeNode({ id: "running", title: "Running", status: "running" }),
+        makeNode({ id: "blocked", title: "Blocked", status: "blocked" }),
+        makeNode({ id: "failed", title: "Failed", status: "failed" }),
+        makeNode({ id: "pending", title: "Pending", status: "pending" }),
+        makeNode({ id: "completed", title: "Completed", status: "completed" }),
+      ],
+    });
+
+    expect(buildAgentSchedulingSummary(projection)).toEqual({
+      claimableReadyCount: 1,
+      inProgressCount: 1,
+      blockedActionCount: 2,
+      deferredReadyCount: 1,
+    });
+    expect(buildGraphFrontier(projection).map((node) => [node.nodeId, node.schedulingState, node.agentAction])).toEqual([
+      ["ready", "claimable", "start"],
+      ["running", "in_progress", "observe"],
+      ["blocked", "blocked", "unblock"],
+      ["failed", "blocked", "unblock"],
+      ["pending", "waiting", "wait"],
+    ]);
+    expect(buildAgentContextPack(projection, { nodeId: "completed" }).selectedNode).toMatchObject({
+      nodeId: "completed",
+      schedulingState: "not_actionable",
+      agentAction: "none",
+    });
   });
 
   it("builds context packs with agent activity and inert open proposals", () => {
@@ -156,5 +189,101 @@ describe("agent collaboration helpers", () => {
     expect(pack.planProposals.map((proposal) => proposal.proposalId)).toEqual(["proposal-1"]);
     expect(JSON.stringify(pack)).not.toContain("proposal-3");
     expect(JSON.stringify(pack)).not.toContain("source body");
+  });
+
+  it("sanitizes context and frontier text for model-safe agent reads", () => {
+    const workspaceRoot = "C:\\Users\\yashm\\Desktop\\OpenAgentGraphV1Publish";
+    const secretToken = "Bearer abc.def.ghi";
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature";
+    const secretKey = "sk_123456789012";
+    const workspaceFile = "C:\\Users\\yashm\\Desktop\\OpenAgentGraphV1Publish\\packages\\backend\\src\\secret.ts";
+    const homeFile = "C:\\Users\\yashm\\Desktop\\private\\outside.txt";
+    const posixHomeFile = "/Users/yashm/private/posix-secret.ts";
+    const projection = makeProjection({
+      graph: {
+        ...makeProjection().graph,
+        title: `Graph ${secretToken}`,
+        goal: `Fix ${workspaceFile} with OPENAI_API_KEY=${secretKey}`,
+      },
+      runHealthSummary: `Health includes ${jwt}`,
+      nodes: [
+        makeNode({
+          id: "ready",
+          title: `Ready ${workspaceFile}`,
+          humanSummary: `Check ${homeFile} and ${secretToken}`,
+          status: "ready",
+        }),
+      ],
+      agentActivity: [
+        {
+          id: "activity-1",
+          graphId: "graph-1",
+          kind: "progress",
+          summary: `Ran with API_KEY=${secretKey} near ${workspaceFile}`,
+          createdAt: "2026-04-16T10:02:00.000Z",
+          agent: {
+            agentId: `codex-${secretKey}`,
+            displayName: `Codex ${secretToken}`,
+            kind: "codex",
+            model: `model-${jwt}`,
+            sessionId: workspaceFile,
+            capabilities: [`read ${homeFile}`],
+          },
+          actor: {
+            actorId: `operator-${secretKey}`,
+            displayName: `Operator ${secretToken}`,
+            role: "operator",
+          },
+        },
+      ],
+      agentPlanProposals: [
+        {
+          proposalId: "proposal-1",
+          graphId: "graph-1",
+          createdAt: "2026-04-16T10:03:00.000Z",
+          agent: {
+            agentId: "gemini",
+            displayName: `Gemini ${workspaceFile}`,
+            kind: "gemini",
+          },
+          actor: {
+            actorId: "operator",
+            displayName: `Reviewer ${homeFile}`,
+            role: "operator",
+          },
+          title: `Proposal ${secretToken}`,
+          summary: `Use ${workspaceFile}`,
+          reason: `Because ${jwt}`,
+          metadata: {
+            path: workspaceFile,
+            token: secretKey,
+            [`OPENAI_API_KEY=${secretKey}`]: "key should be sanitized",
+            [posixHomeFile]: posixHomeFile,
+          },
+          nodes: [
+            {
+              title: `Node ${secretKey}`,
+              intent: `Do work in ${workspaceFile}`,
+              humanSummary: `Summary ${homeFile}`,
+              acceptanceCriteria: [`No ${secretToken}`],
+            },
+          ],
+        },
+      ],
+    });
+
+    const pack = buildAgentContextPack(projection, { workspaceRoot });
+    const frontier = buildGraphFrontier(projection, { workspaceRoot });
+    const serialized = JSON.stringify({ pack, frontier });
+
+    expect(serialized).not.toContain(secretKey);
+    expect(serialized).not.toContain(secretToken);
+    expect(serialized).not.toContain(jwt);
+    expect(serialized).not.toContain("C:\\Users\\yashm");
+    expect(serialized).not.toContain("/Users/yashm");
+    expect(serialized).toContain("<workspace>/packages/backend/src/secret.ts");
+    expect(serialized).toContain("<home>/private/outside.txt");
+    expect(serialized).toContain("<home>/private/posix-secret.ts");
+    expect(pack.graph.goal).toContain("OPENAI_API_KEY=<redacted-secret>");
   });
 });

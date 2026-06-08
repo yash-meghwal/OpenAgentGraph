@@ -513,6 +513,10 @@ describe("DashboardView empty states", () => {
         runningCount: 0,
         blockedCount: 0,
         openProposalCount: 1,
+        claimableReadyCount: 1,
+        inProgressCount: 0,
+        blockedActionCount: 0,
+        deferredReadyCount: 2,
       },
       agentFrontier: [
         {
@@ -520,6 +524,8 @@ describe("DashboardView empty states", () => {
           title: "Ship agent coordination",
           kind: "work",
           status: "ready",
+          schedulingState: "claimable",
+          agentAction: "start",
           humanSummary: "External agents can start here.",
           dependsOnNodeIds: [],
           updatedAt: "2026-06-04T00:00:00.000Z",
@@ -576,7 +582,10 @@ describe("DashboardView empty states", () => {
     const markup = JSON.stringify(renderer!.toJSON());
     expect(markup).toContain("Agent coordination");
     expect(markup).toContain("Agent-ready work");
+    expect(markup).toContain("Claimable");
+    expect(markup).toContain("Deferred");
     expect(markup).toContain("Ship agent coordination");
+    expect(markup).toContain("claimable / start");
     expect(markup).toContain("Codex reported progress.");
     expect(markup).toContain("Add agent tests");
     expect(markup).toContain("Dismiss reason");

@@ -159,8 +159,8 @@ Custom base URLs must not include credentials. Remote endpoints must use HTTPS; 
 | `/product-graph/codebase/scan-jobs/:jobId/events` | GET | SSE scan progress | dashboard read |
 | `/product-graph/handoff` | GET | deterministic Markdown handoff preview | dashboard read |
 | `/product-graph/handoff/write` | POST | path-safe `GRAPH_REPORT.md` write | operator/admin |
-| `/graphs/:graphId/frontier` | GET | ready/running/blocked frontier plus recent agent activity | dashboard read |
-| `/graphs/:graphId/agent-context` | GET | bounded context pack for external agents | dashboard read |
+| `/graphs/:graphId/frontier` | GET | sanitized frontier plus recent agent activity and scheduling hints | local-dev anonymous; viewer+ in JWT/production |
+| `/graphs/:graphId/agent-context` | GET | sanitized bounded context pack for external agents | local-dev anonymous; viewer+ in JWT/production |
 | `/graphs/:graphId/agent/register` | POST | register an external agent identity | operator/admin |
 | `/graphs/:graphId/agent/progress` | POST | submit external-agent progress | operator/admin |
 | `/graphs/:graphId/agent/evidence` | POST | submit bounded external-agent evidence | operator/admin |
@@ -191,6 +191,13 @@ Treat breaker hits as diagnostics. Do not silently ignore them and do not raise 
 ## Auth And Roles
 
 Local development commonly uses actor headers. Protected write actions require `operator` or `admin`.
+
+Agent coordination permissions are split from Product Graph administration:
+
+- `agent_read`: `viewer`, `reviewer`, `operator`, and `admin`.
+- `agent_report`: `operator` and `admin`.
+- `agent_propose`: `operator` and `admin`.
+- `agent_admin`: `operator` and `admin` for register, accept, and dismiss actions.
 
 PowerShell example:
 

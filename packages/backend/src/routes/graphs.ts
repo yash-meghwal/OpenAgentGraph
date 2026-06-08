@@ -13,7 +13,7 @@ import type {
   GraphEventKind,
   NodeEvidenceMetadataValue,
 } from "@openagentgraph/shared";
-import { buildAgentContextPack, buildGraphFrontier } from "@openagentgraph/shared";
+import { buildAgentContextPack, buildAgentSchedulingSummary } from "@openagentgraph/shared";
 import * as repo from "../db/graphRepo.js";
 import { canActorPerform, permissionMessage, resolveActor, resolveAuth, type ProtectedAction } from "../auth/actors.js";
 import { DEFAULT_PROVIDER_BASE_URLS, PROVIDER_DISPLAY_NAMES, getAppConfig } from "../config.js";
@@ -364,6 +364,19 @@ function ensurePermission(
   return true;
 }
 
+function ensureAgentReadAccess(
+  req: { id: string; headers: Record<string, unknown>; params?: unknown },
+  reply: { status: (code: number) => { send: (body: unknown) => unknown } }
+) {
+  const config = getAppConfig();
+  if (config.auth.mode === "dev_header" && !config.env.isProduction && !config.auth.unsafeDevAuthOptIn) {
+    return true;
+  }
+
+  const actor = requireActor(req, reply);
+  return Boolean(actor && ensurePermission(req, actor, "agent_read", reply));
+}
+
 async function projectionOr404(
   graphId: string,
   req: { id: string; params?: unknown },
@@ -643,15 +656,19 @@ export async function graphRoutes(app: FastifyInstance) {
     Params: { graphId: string };
     Querystring: { limit?: string };
   }>("/graphs/:graphId/frontier", async (req, reply) => {
+    if (!ensureAgentReadAccess(req, reply)) return;
     const projection = await projectionOr404(req.params.graphId, req, reply);
     if (!projection) return;
-    const frontier = buildGraphFrontier(projection, {
-      limit: boundedLimit(req.query.limit, 8, 50),
+    const config = getAppConfig();
+    const scheduling = buildAgentSchedulingSummary(projection);
+    const context = buildAgentContextPack(projection, {
+      frontierLimit: boundedLimit(req.query.limit, 8, 50),
+      workspaceRoot: config.workspace.root,
     });
 
     return {
       graphId: req.params.graphId,
-      generatedAt: new Date().toISOString(),
+      generatedAt: context.generatedAt,
       summary: {
         runControlState: projection.runControlState,
         frontierStatus: projection.frontierStatus,
@@ -661,15 +678,11 @@ export async function graphRoutes(app: FastifyInstance) {
         openProposalCount: (projection.agentPlanProposals ?? []).filter(
           (proposal) => !proposal.acceptedAt && !proposal.dismissedAt
         ).length,
+        ...scheduling,
       },
-      frontier,
-      recentAgentActivity: [...(projection.agentActivity ?? [])]
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-        .slice(0, 8),
-      planProposals: [...(projection.agentPlanProposals ?? [])]
-        .filter((proposal) => !proposal.acceptedAt && !proposal.dismissedAt)
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-        .slice(0, 8),
+      frontier: context.frontier,
+      recentAgentActivity: context.recentAgentActivity,
+      planProposals: context.planProposals,
     };
   });
 
@@ -682,17 +695,20 @@ export async function graphRoutes(app: FastifyInstance) {
       proposalLimit?: string;
     };
   }>("/graphs/:graphId/agent-context", async (req, reply) => {
+    if (!ensureAgentReadAccess(req, reply)) return;
     const projection = await projectionOr404(req.params.graphId, req, reply);
     if (!projection) return;
     if (req.query.nodeId && !nodeExists(projection, req.query.nodeId)) {
       return reply.status(404).send({ error: "Node not found" });
     }
 
+    const config = getAppConfig();
     return buildAgentContextPack(projection, {
       nodeId: req.query.nodeId,
       frontierLimit: boundedLimit(req.query.frontierLimit, 8, 50),
       activityLimit: boundedLimit(req.query.activityLimit, 8, 50),
       proposalLimit: boundedLimit(req.query.proposalLimit, 8, 50),
+      workspaceRoot: config.workspace.root,
     });
   });
 
@@ -700,7 +716,7 @@ export async function graphRoutes(app: FastifyInstance) {
     "/graphs/:graphId/agent/register",
     async (req, reply) => {
       const actor = requireActor(req, reply);
-      if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+      if (!actor || !ensurePermission(req, actor, "agent_admin", reply)) return;
       const projection = await projectionOr404(req.params.graphId, req, reply);
       if (!projection) return;
 
@@ -727,7 +743,7 @@ export async function graphRoutes(app: FastifyInstance) {
     "/graphs/:graphId/agent/progress",
     async (req, reply) => {
       const actor = requireActor(req, reply);
-      if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+      if (!actor || !ensurePermission(req, actor, "agent_report", reply)) return;
       const projection = await projectionOr404(req.params.graphId, req, reply);
       if (!projection) return;
 
@@ -761,7 +777,7 @@ export async function graphRoutes(app: FastifyInstance) {
     "/graphs/:graphId/agent/evidence",
     async (req, reply) => {
       const actor = requireActor(req, reply);
-      if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+      if (!actor || !ensurePermission(req, actor, "agent_report", reply)) return;
       const projection = await projectionOr404(req.params.graphId, req, reply);
       if (!projection) return;
 
@@ -795,7 +811,7 @@ export async function graphRoutes(app: FastifyInstance) {
     "/graphs/:graphId/agent/plan-proposals",
     async (req, reply) => {
       const actor = requireActor(req, reply);
-      if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+      if (!actor || !ensurePermission(req, actor, "agent_propose", reply)) return;
       const projection = await projectionOr404(req.params.graphId, req, reply);
       if (!projection) return;
 
@@ -834,7 +850,7 @@ export async function graphRoutes(app: FastifyInstance) {
     Params: { graphId: string; proposalId: string };
   }>("/graphs/:graphId/agent/plan-proposals/:proposalId/accept", async (req, reply) => {
     const actor = requireActor(req, reply);
-    if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+    if (!actor || !ensurePermission(req, actor, "agent_admin", reply)) return;
     const projection = await projectionOr404(req.params.graphId, req, reply);
     if (!projection) return;
 
@@ -907,7 +923,7 @@ export async function graphRoutes(app: FastifyInstance) {
     Body: unknown;
   }>("/graphs/:graphId/agent/plan-proposals/:proposalId/dismiss", async (req, reply) => {
     const actor = requireActor(req, reply);
-    if (!actor || !ensurePermission(req, actor, "manage_product_graph", reply)) return;
+    if (!actor || !ensurePermission(req, actor, "agent_admin", reply)) return;
     const projection = await projectionOr404(req.params.graphId, req, reply);
     if (!projection) return;
 

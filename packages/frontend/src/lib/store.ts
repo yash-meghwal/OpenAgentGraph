@@ -110,6 +110,10 @@ type AgentFrontierResponse = {
     runningCount: number;
     blockedCount: number;
     openProposalCount: number;
+    claimableReadyCount?: number;
+    inProgressCount?: number;
+    blockedActionCount?: number;
+    deferredReadyCount?: number;
   };
   frontier: GraphFrontierNodeSummary[];
   recentAgentActivity: AgentActivityRecord[];

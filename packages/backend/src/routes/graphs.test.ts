@@ -846,19 +846,29 @@ describe("graph agent collaboration routes", () => {
       summary: {
         readyCount: 1,
         openProposalCount: 1,
+        claimableReadyCount: 1,
+        inProgressCount: 0,
+        blockedActionCount: 0,
+        deferredReadyCount: 0,
       },
       frontier: [
         {
           nodeId: "node-ready",
           title: "Implement agent coordination",
+          schedulingState: "claimable",
+          agentAction: "start",
         },
       ],
     });
     expect(contextResponse.statusCode).toBe(200);
     expect(contextResponse.json()).toMatchObject({
       graphId: "graph-1",
+      run: {
+        claimableReadyCount: 1,
+      },
       selectedNode: {
         nodeId: "node-ready",
+        schedulingState: "claimable",
       },
       recentAgentActivity: [
         {
@@ -867,6 +877,173 @@ describe("graph agent collaboration routes", () => {
       ],
     });
     expect(JSON.stringify(contextResponse.json())).not.toContain("apiKey");
+    await app.close();
+  });
+
+  it("requires viewer-or-better auth for agent read endpoints in jwt mode", async () => {
+    setAppConfigForTests(
+      loadAppConfig({
+        NODE_ENV: "test",
+        OPENAGENTGRAPH_AUTH_MODE: "jwt",
+        OPENAGENTGRAPH_JWT_SECRET: "super-secret",
+      })
+    );
+    const viewerToken = createJwt(
+      {
+        sub: "viewer-1",
+        name: "Vera Viewer",
+        role: "viewer",
+        exp: Math.floor(Date.now() / 1000) + 600,
+      },
+      "super-secret"
+    );
+    const expiredToken = createJwt(
+      {
+        sub: "viewer-2",
+        name: "Expired Viewer",
+        role: "viewer",
+        exp: Math.floor(Date.now() / 1000) - 60,
+      },
+      "super-secret"
+    );
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    for (const url of ["/graphs/graph-1/frontier", "/graphs/graph-1/agent-context?nodeId=node-ready"]) {
+      const missing = await app.inject({ method: "GET", url });
+      const invalid = await app.inject({
+        method: "GET",
+        url,
+        headers: { authorization: "Bearer not-a-real-token" },
+      });
+      const expired = await app.inject({
+        method: "GET",
+        url,
+        headers: { authorization: `Bearer ${expiredToken}` },
+      });
+      const viewer = await app.inject({
+        method: "GET",
+        url,
+        headers: { authorization: `Bearer ${viewerToken}` },
+      });
+
+      expect(missing.statusCode).toBe(401);
+      expect(invalid.statusCode).toBe(401);
+      expect(expired.statusCode).toBe(401);
+      expect(viewer.statusCode).toBe(200);
+    }
+    await app.close();
+  });
+
+  it("requires a configured actor header for agent read endpoints in production dev-header opt-in mode", async () => {
+    setAppConfigForTests(
+      loadAppConfig({
+        NODE_ENV: "production",
+        OPENAGENTGRAPH_AUTH_MODE: "dev_header",
+        OPENAGENTGRAPH_ALLOW_ACTOR_HEADERS: "true",
+        OPENAGENTGRAPH_ALLOW_UNSAFE_DEV_AUTH_IN_PRODUCTION: "true",
+      })
+    );
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    for (const url of ["/graphs/graph-1/frontier", "/graphs/graph-1/agent-context?nodeId=node-ready"]) {
+      const missing = await app.inject({ method: "GET", url });
+      const invalid = await app.inject({
+        method: "GET",
+        url,
+        headers: { "x-openagentgraph-actor-id": "not-configured" },
+      });
+      const viewer = await app.inject({
+        method: "GET",
+        url,
+        headers: { "x-openagentgraph-actor-id": "viewer" },
+      });
+
+      expect(missing.statusCode).toBe(401);
+      expect(invalid.statusCode).toBe(401);
+      expect(viewer.statusCode).toBe(200);
+    }
+    await app.close();
+  });
+
+  it("sanitizes agent read payloads before returning them", async () => {
+    const workspaceRoot = "C:\\Users\\yashm\\Desktop\\OpenAgentGraphV1Publish";
+    setAppConfigForTests(
+      loadAppConfig({
+        NODE_ENV: "test",
+        OPENAGENTGRAPH_ALLOW_ACTOR_HEADERS: "true",
+        OPENAGENTGRAPH_WORKSPACE_ROOT: workspaceRoot,
+      })
+    );
+    repoMocks.getGraphProjection.mockResolvedValue({
+      ...makeProjection(),
+      graph: {
+        ...makeProjection().graph,
+        title: "Graph Bearer abc.def.ghi",
+        goal: `Read ${workspaceRoot}\\packages\\backend\\src\\secret.ts with OPENAI_API_KEY=sk_123456789012`,
+      },
+      nodes: [
+        {
+          id: "node-ready",
+          graphId: "graph-1",
+          kind: "work",
+          title: `${workspaceRoot}\\packages\\backend\\src\\secret.ts`,
+          intent: "Do not return source bodies.",
+          humanSummary: "Token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature near C:\\Users\\yashm\\Desktop\\outside.txt",
+          status: "ready",
+          contract: {
+            expectedArtifact: "Safe context",
+            allowedTools: [],
+            acceptanceCriteria: ["Secrets are redacted."],
+            humanSummary: "Build safe context.",
+          },
+          baselineGoalVersionId: "goal-1",
+          activeGoalVersionId: "goal-1",
+          dependsOnNodeIds: [],
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      agentActivity: [
+        {
+          id: "activity-1",
+          graphId: "graph-1",
+          kind: "progress",
+          summary: `Checked ${workspaceRoot}\\packages\\backend\\src\\secret.ts with Bearer abc.def.ghi`,
+          createdAt: "2026-06-01T00:02:00.000Z",
+          agent: {
+            agentId: "codex",
+            displayName: "Codex sk_123456789012",
+            kind: "codex",
+          },
+        },
+      ],
+      agentPlanProposals: [],
+    } satisfies GraphProjection);
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const contextResponse = await app.inject({
+      method: "GET",
+      url: "/graphs/graph-1/agent-context?nodeId=node-ready",
+    });
+    const frontierResponse = await app.inject({
+      method: "GET",
+      url: "/graphs/graph-1/frontier",
+    });
+    const body = JSON.stringify({
+      context: contextResponse.json(),
+      frontier: frontierResponse.json(),
+    });
+
+    expect(contextResponse.statusCode).toBe(200);
+    expect(frontierResponse.statusCode).toBe(200);
+    expect(body).not.toContain("sk_123456789012");
+    expect(body).not.toContain("Bearer abc.def.ghi");
+    expect(body).not.toContain("eyJhbGci");
+    expect(body).not.toContain("C:\\Users\\yashm");
+    expect(body).toContain("<workspace>/packages/backend/src/secret.ts");
     await app.close();
   });
 
@@ -892,10 +1069,70 @@ describe("graph agent collaboration routes", () => {
         summary: "Checked files.",
       },
     });
+    const reviewer = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/plan-proposals",
+      headers: { "x-openagentgraph-actor-id": "reviewer" },
+      payload: {
+        agent: { agentId: "admin", displayName: "Fake Admin", kind: "script" },
+        title: "Try to propose as reviewer",
+        summary: "agentId must not grant permission.",
+        nodes: [{ title: "Do work", intent: "Should not be accepted." }],
+      },
+    });
 
     expect(missing.statusCode).toBe(401);
     expect(viewer.statusCode).toBe(403);
+    expect(reviewer.statusCode).toBe(403);
     expect(repoMocks.appendGraphEvent).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("allows operators to report, propose, register, and administer agent proposals", async () => {
+    const app = Fastify();
+    await app.register(graphRoutes);
+
+    const register = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/register",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+      },
+    });
+    const progress = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/progress",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        nodeId: "node-ready",
+        status: "progress",
+        summary: "Working.",
+      },
+    });
+    const proposal = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/plan-proposals",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: {
+        agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
+        title: "Add follow-up",
+        summary: "Add safe follow-up work.",
+        nodes: [{ title: "Follow-up", intent: "Do bounded follow-up." }],
+      },
+    });
+    const dismiss = await app.inject({
+      method: "POST",
+      url: "/graphs/graph-1/agent/plan-proposals/proposal-1/dismiss",
+      headers: { "x-openagentgraph-actor-id": "operator" },
+      payload: { reason: "Handled." },
+    });
+
+    expect(register.statusCode).toBe(201);
+    expect(progress.statusCode).toBe(201);
+    expect(proposal.statusCode).toBe(201);
+    expect(dismiss.statusCode).toBe(201);
     await app.close();
   });
 

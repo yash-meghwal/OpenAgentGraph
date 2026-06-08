@@ -21,7 +21,7 @@ The important local surfaces are:
 - Frontend app: `http://localhost:5173`
 - Product Graph / Code Map: deterministic codebase scanner, file and symbol graph, dependency edges, architecture health, and explorer views
 - Run graph: event-sourced agent planning, execution, evidence, approvals, replay, and diagnostics
-- External agent coordination: no-key context packs (`/agent-context`), frontier summaries (`/frontier`), progress/evidence reporting, and inert plan proposals that operators can accept
+- External agent coordination: no-provider-key context packs (`/agent-context`), frontier summaries (`/frontier`), progress/evidence reporting, and inert plan proposals that operators can accept
 
 ## Start The App
 
@@ -166,7 +166,7 @@ Use this graph as a map, then confirm important facts in source files before edi
 
 ## External Agent Coordination
 
-External agents (Codex, Gemini, Grok, custom scripts, CI workers, etc.) can coordinate with OAG runs using dedicated no-key surfaces for context and proposals. These let agents stay in sync with the live Run Graph and Product Graph without needing an AI provider key for reads.
+External agents (Codex, Gemini, Grok, custom scripts, CI workers, etc.) can coordinate with OAG runs using dedicated no-provider-key surfaces for context and proposals. These let agents stay in sync with the live Run Graph and Product Graph without needing an AI provider key for reads. No-provider-key does not mean public unauthenticated access: anonymous reads are for localhost development only; JWT or production deployments require a valid viewer-or-better actor.
 
 Read a bounded live context pack (recommended starting point for an external agent):
 

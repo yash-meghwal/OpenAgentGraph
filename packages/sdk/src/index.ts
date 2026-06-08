@@ -30,6 +30,23 @@ export type OpenAgentGraphAgentKind =
   | "unknown";
 
 export type OpenAgentGraphAgentProgressStatus = "started" | "progress" | "blocked" | "completed" | "failed";
+export type OpenAgentGraphActorRole = "viewer" | "reviewer" | "operator" | "admin";
+export type OpenAgentGraphGraphStatus = "idle" | "running" | "completed" | "failed" | "blocked" | "stopped";
+export type OpenAgentGraphNodeStatus =
+  | "pending"
+  | "ready"
+  | "running"
+  | "completed"
+  | "failed"
+  | "superseded"
+  | "blocked";
+export type OpenAgentGraphNodeKind = "plan" | "work" | "evaluate" | "revision" | "replan";
+export type OpenAgentGraphRunControlState = "idle" | "running" | "paused" | "stopping";
+export type OpenAgentGraphFrontierStatus = "on_track" | "exploring" | "drifting" | "blocked";
+export type OpenAgentGraphSchedulingState = "claimable" | "in_progress" | "blocked" | "waiting" | "not_actionable";
+export type OpenAgentGraphAgentAction = "start" | "observe" | "unblock" | "wait" | "none";
+export type OpenAgentGraphEvidenceCoverage = "none" | "partial" | "grounded";
+export type OpenAgentGraphConfidenceBadge = "low" | "medium" | "high";
 
 export interface OpenAgentGraphAgentIdentity {
   agentId: string;
@@ -79,6 +96,99 @@ export interface OpenAgentGraphAgentPlanProposal {
   metadata?: Record<string, OpenAgentGraphMetadataValue>;
 }
 
+export interface OpenAgentGraphActorIdentity {
+  actorId: string;
+  displayName: string;
+  role: OpenAgentGraphActorRole;
+}
+
+export interface OpenAgentGraphFrontierNodeSummary {
+  nodeId: string;
+  title: string;
+  kind: OpenAgentGraphNodeKind;
+  status: OpenAgentGraphNodeStatus;
+  schedulingState?: OpenAgentGraphSchedulingState;
+  agentAction?: OpenAgentGraphAgentAction;
+  humanSummary: string;
+  dependsOnNodeIds: string[];
+  evidenceCoverage?: OpenAgentGraphEvidenceCoverage;
+  confidenceBadge?: OpenAgentGraphConfidenceBadge;
+  updatedAt: string;
+}
+
+export interface OpenAgentGraphAgentActivityRecord {
+  id: string;
+  graphId: string;
+  kind: "registered" | "progress" | "evidence" | "plan_proposed" | "plan_accepted" | "plan_dismissed";
+  agent?: OpenAgentGraphAgentIdentity;
+  nodeId?: string;
+  proposalId?: string;
+  summary: string;
+  createdAt: string;
+  actor?: OpenAgentGraphActorIdentity;
+}
+
+export interface OpenAgentGraphAgentPlanProposalRecord extends OpenAgentGraphAgentPlanProposal {
+  proposalId: string;
+  graphId: string;
+  createdAt: string;
+  actor?: OpenAgentGraphActorIdentity;
+  acceptedAt?: string;
+  acceptedBy?: OpenAgentGraphActorIdentity;
+  acceptedNodeIds?: string[];
+  dismissedAt?: string;
+  dismissedBy?: OpenAgentGraphActorIdentity;
+  dismissalReason?: string;
+}
+
+export interface OpenAgentGraphAgentSchedulingSummary {
+  claimableReadyCount?: number;
+  inProgressCount?: number;
+  blockedActionCount?: number;
+  deferredReadyCount?: number;
+}
+
+export interface OpenAgentGraphFrontierResponse {
+  graphId: string;
+  generatedAt: string;
+  summary: OpenAgentGraphAgentSchedulingSummary & {
+    runControlState: OpenAgentGraphRunControlState;
+    frontierStatus: OpenAgentGraphFrontierStatus;
+    readyCount: number;
+    runningCount: number;
+    blockedCount: number;
+    openProposalCount: number;
+  };
+  frontier: OpenAgentGraphFrontierNodeSummary[];
+  recentAgentActivity: OpenAgentGraphAgentActivityRecord[];
+  planProposals: OpenAgentGraphAgentPlanProposalRecord[];
+}
+
+export interface OpenAgentGraphAgentContextPack {
+  graphId: string;
+  generatedAt: string;
+  graph: {
+    id: string;
+    title: string;
+    goal: string;
+    status: OpenAgentGraphGraphStatus;
+    activeGoalVersionId: string;
+  };
+  run: OpenAgentGraphAgentSchedulingSummary & {
+    runControlState: OpenAgentGraphRunControlState;
+    frontierStatus: OpenAgentGraphFrontierStatus;
+    plannedNodeCount: number;
+    completedNodeCount: number;
+    failedNodeCount: number;
+    runHealthSummary: string;
+  };
+  selectedNode?: OpenAgentGraphFrontierNodeSummary;
+  frontier: OpenAgentGraphFrontierNodeSummary[];
+  recentAgentActivity: OpenAgentGraphAgentActivityRecord[];
+  planProposals: OpenAgentGraphAgentPlanProposalRecord[];
+  instructions: string[];
+}
+
 export interface OpenAgentGraphAgentContextOptions {
   nodeId?: string;
   frontierLimit?: number;
@@ -107,8 +217,8 @@ export interface OpenAgentGraphClient {
   readonly captureContent: boolean;
   preview(value: unknown): string | undefined;
   recordLlmCall(call: OpenAgentGraphLlmCall): Promise<void>;
-  getFrontier(options?: OpenAgentGraphFrontierOptions): Promise<unknown>;
-  getAgentContext(options?: OpenAgentGraphAgentContextOptions): Promise<unknown>;
+  getFrontier(options?: OpenAgentGraphFrontierOptions): Promise<OpenAgentGraphFrontierResponse>;
+  getAgentContext(options?: OpenAgentGraphAgentContextOptions): Promise<OpenAgentGraphAgentContextPack>;
   registerAgent(agent: OpenAgentGraphAgentIdentity): Promise<unknown>;
   reportProgress(progress: OpenAgentGraphAgentProgress): Promise<unknown>;
   submitEvidence(evidence: OpenAgentGraphAgentEvidence): Promise<unknown>;
@@ -381,14 +491,14 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
     }
   }
 
-  async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
+  async function requestJson<T = unknown>(path: string, init?: RequestInit): Promise<T> {
     const response = await requestFetch(`${baseUrl}${path}`, {
       ...init,
       headers: buildHeaders(options),
     });
     if (response.ok) {
       const contentType = response.headers.get("content-type");
-      return contentType?.includes("application/json") ? response.json() : undefined;
+      return contentType?.includes("application/json") ? response.json() as Promise<T> : undefined as T;
     }
     throw new Error(`OpenAgentGraph request failed with status ${response.status}`);
   }
@@ -408,12 +518,12 @@ export function createOpenAgentGraphClient(options: OpenAgentGraphClientOptions)
     preview,
     recordLlmCall,
     getFrontier(frontierOptions: OpenAgentGraphFrontierOptions = {}) {
-      return requestJson(
+      return requestJson<OpenAgentGraphFrontierResponse>(
         `/graphs/${encodeURIComponent(options.graphId)}/frontier${queryString({ limit: frontierOptions.limit })}`
       );
     },
     getAgentContext(contextOptions: OpenAgentGraphAgentContextOptions = {}) {
-      return requestJson(
+      return requestJson<OpenAgentGraphAgentContextPack>(
         `/graphs/${encodeURIComponent(options.graphId)}/agent-context${queryString({
           nodeId: contextOptions.nodeId,
           frontierLimit: contextOptions.frontierLimit,

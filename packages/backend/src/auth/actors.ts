@@ -20,7 +20,11 @@ export type ProtectedAction =
   | "approve"
   | "reject"
   | "continue"
-  | "manage_product_graph";
+  | "manage_product_graph"
+  | "agent_read"
+  | "agent_report"
+  | "agent_propose"
+  | "agent_admin";
 
 type VerifiedJwtClaims = {
   sub?: string;
@@ -49,6 +53,10 @@ const ACTION_MESSAGES: Record<ProtectedAction, string> = {
   reject: "You do not have permission to reject this run.",
   continue: "You do not have permission to continue this run.",
   manage_product_graph: "This action requires operator access.",
+  agent_read: "This action requires signed-in viewer access.",
+  agent_report: "This action requires operator access.",
+  agent_propose: "This action requires operator access.",
+  agent_admin: "This action requires operator access.",
 };
 
 function configuredActors(): Record<string, ActorIdentity> {
@@ -278,7 +286,13 @@ export function canActorPerform(actor: ActorIdentity | undefined, action: Protec
     case "admin":
       return true;
     case "reviewer":
-      return action !== "request_approval" && action !== "manage_product_graph";
+      return ![
+        "request_approval",
+        "manage_product_graph",
+        "agent_report",
+        "agent_propose",
+        "agent_admin",
+      ].includes(action);
     case "operator":
       return [
         "annotate",
@@ -288,9 +302,13 @@ export function canActorPerform(actor: ActorIdentity | undefined, action: Protec
         "stop",
         "request_approval",
         "manage_product_graph",
+        "agent_read",
+        "agent_report",
+        "agent_propose",
+        "agent_admin",
       ].includes(action);
     case "viewer":
-      return false;
+      return action === "agent_read";
   }
 }
 

@@ -110,7 +110,7 @@ OpenAgentGraph also does not store raw bearer tokens in events, logs, metrics, r
 The compact Codex handoff (`GET /product-graph/handoff`, Dashboard **Generate Handoff**, and `npm run handoff:write`) is deterministic Product Graph output. It does not call OpenAI, Ollama, or any model provider.
 When no `DATA_DIR` is set, the root handoff and gate scripts reuse `packages/backend/data` if its OpenAgentGraph database exists, so they match the local dashboard/dev backend by default.
 
-External agents can coordinate using provider-neutral surfaces: `GET /graphs/:graphId/agent-context` (bounded context pack), `GET /graphs/:graphId/frontier` (ready work), plus endpoints to report progress/evidence and submit inert plan proposals. Mutating agent endpoints require operator/admin authority; proposals only become executable work when explicitly accepted.
+External agents can coordinate using provider-neutral surfaces: `GET /graphs/:graphId/agent-context` (bounded context pack), `GET /graphs/:graphId/frontier` (ready work), plus endpoints to report progress/evidence and submit inert plan proposals. These reads do not need an AI provider key, but JWT and production deployments require viewer-or-better auth; anonymous reads are local-dev only. Mutating agent endpoints require operator/admin authority; proposals only become executable work when explicitly accepted.
 
 The frontend runtime stays backend-authoritative:
 - `/auth/session` remains the source of session truth.

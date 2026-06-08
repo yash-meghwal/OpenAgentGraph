@@ -1,5 +1,7 @@
 const WINDOWS_ABSOLUTE_PATH =
   /\b[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\b/g;
+const WINDOWS_TEMP_PATH =
+  /\b[A-Za-z]:\\Users\\[^\\]+\\AppData\\Local\\Temp\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\b/gi;
 const POSIX_ABSOLUTE_PATH =
   /\/(?:Users|home|tmp|private\/tmp|var\/folders|opt|srv|workspace|app|data)(?:\/[^\s"'<>]+)+/g;
 const BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*\b/gi;
@@ -63,6 +65,9 @@ export function sanitizeOperationalText(
   sanitized = sanitized.replace(JWT_PATTERN, "<redacted-token>");
   sanitized = sanitized.replace(SECRET_ASSIGNMENT_PATTERN, "$1=<redacted-secret>");
   sanitized = sanitized.replace(SECRET_VALUE_PATTERN, "<redacted-secret>");
+  sanitized = sanitized.replace(WINDOWS_TEMP_PATH, (match) =>
+    sanitizePathMatch(match, options?.workspaceRoot)
+  );
   sanitized = sanitized.replace(WINDOWS_ABSOLUTE_PATH, (match) =>
     sanitizePathMatch(match, options?.workspaceRoot)
   );

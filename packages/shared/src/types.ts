@@ -259,6 +259,8 @@ export interface GraphFrontierNodeSummary {
   title: string;
   kind: NodeKind;
   status: NodeStatus;
+  schedulingState?: "claimable" | "in_progress" | "blocked" | "waiting" | "not_actionable";
+  agentAction?: "start" | "observe" | "unblock" | "wait" | "none";
   humanSummary: string;
   dependsOnNodeIds: string[];
   evidenceCoverage?: EvidenceCoverage;
@@ -339,6 +341,10 @@ export interface AgentContextPack {
     plannedNodeCount: number;
     completedNodeCount: number;
     failedNodeCount: number;
+    claimableReadyCount?: number;
+    inProgressCount?: number;
+    blockedActionCount?: number;
+    deferredReadyCount?: number;
     runHealthSummary: string;
   };
   selectedNode?: GraphFrontierNodeSummary;

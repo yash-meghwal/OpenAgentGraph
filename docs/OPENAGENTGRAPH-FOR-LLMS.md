@@ -42,6 +42,8 @@ These do not need any model provider:
 
 AI provider features are separate. Planning, run execution, embeddings, and AI summaries need a configured provider such as Ollama, OpenAI, Gemini, Anthropic, or a custom OpenAI-compatible endpoint.
 
+No-key graph access means no AI provider key. It does not mean public unauthenticated network access: anonymous `agent-context` and `frontier` reads are for localhost development only. JWT or production deployments require a viewer-or-better actor, and returned text is sanitized for secrets and absolute paths before it is safe to put into model context.
+
 ## Task Scope Lenses
 
 Use the lens that matches the task before reading widely:
@@ -62,7 +64,7 @@ Runtime is real source. Do not call it noise. Inspect it for backend, provider, 
 
 1. Read `GRAPH_REPORT.md`.
 2. Fetch `GET /graphs/<graphId>/agent-context`.
-3. Use frontier nodes to scope work.
+3. Use frontier nodes and their `schedulingState` / `agentAction` hints to scope work.
 4. Submit progress/evidence as bounded summaries.
 5. Propose follow-up work instead of silently expanding scope.
 

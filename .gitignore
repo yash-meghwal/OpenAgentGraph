@@ -5,7 +5,6 @@ data/
 *.db
 /GRAPH_REPORT.md
 /HANDOFF-CURRENT.md
-/MULTI-AGENT-HUB-DISCUSSION.md
 *.vsix
 .playwright-mcp/
 test-results/

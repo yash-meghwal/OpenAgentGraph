@@ -245,13 +245,12 @@ If readiness is degraded or startup fails:
 
 ## Verification
 
-Run the standard checks before shipping changes:
+Run the fast local release checks before shipping changes:
 ```bash
-npm run build
-npm run electron:build
-npm test
+npm run verify
 ```
 
-## License
-
-OpenAgentGraph is licensed under the GNU Affero General Public License v3.0 only. See `LICENSE`.
+Run the full CI-equivalent path, including the Playwright smoke, before release tagging:
+```bash
+npm run verify:ci
+```

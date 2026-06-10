@@ -25,6 +25,16 @@ function lastPathSegments(value: string, count = 2): string[] {
     .slice(-count);
 }
 
+function homePathSuffix(match: string): string {
+  const withoutHomeRoot = match
+    .replace(/\\/g, "/")
+    .replace(/^[A-Za-z]:\/Users\/[^/]+\/?/i, "")
+    .replace(/^\/Users\/[^/]+\/?/i, "")
+    .replace(/^\/home\/[^/]+\/?/i, "");
+  const suffix = lastPathSegments(withoutHomeRoot).join("/");
+  return suffix ? `<home>/${suffix}` : "<home>";
+}
+
 function sanitizePathMatch(match: string, workspaceRoot?: string): string {
   const normalizedMatch = normalizeForComparison(match);
   const normalizedWorkspace = normalizeForComparison(workspaceRoot);
@@ -47,7 +57,7 @@ function sanitizePathMatch(match: string, workspaceRoot?: string): string {
     /^\/Users\/[^/]+/i.test(match) ||
     /^\/home\/[^/]+/i.test(match)
   ) {
-    return `<home>/${lastPathSegments(match).join("/")}`;
+    return homePathSuffix(match);
   }
 
   return `<path>/${lastPathSegments(match, 1).join("/")}`;

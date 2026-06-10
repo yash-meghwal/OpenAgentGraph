@@ -83,6 +83,7 @@ type SessionLifecycle =
   | "expired_session";
 
 type ProductGraphTraceCache = Record<string, ProductGraphTrace>;
+
 type ProductGraphRefreshOptions = {
   preserveTraceNotice?: boolean;
 };
@@ -144,6 +145,7 @@ const LAST_SEEN_STORAGE_KEY = "openagentgraph:last-seen";
 const ACTOR_STORAGE_KEY = "openagentgraph:actor-id";
 const AUTH_TOKEN_STORAGE_KEY = "openagentgraph:auth-token";
 const ONBOARDING_STORAGE_KEY = "openagentgraph:onboarding-dismissed";
+const UI_MODE_STORAGE_KEY = "openagentgraph:ui-mode";
 const AVAILABLE_ACTORS: ActorIdentity[] = [
   { actorId: "viewer", displayName: "Viewer", role: "viewer" },
   { actorId: "operator", displayName: "Operator", role: "operator" },
@@ -234,6 +236,16 @@ function writeOnboardingDismissed(value: boolean) {
     return;
   }
   window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+}
+
+function readUiMode(): "default" | "developer" {
+  if (typeof window === "undefined") return "default";
+  return window.localStorage.getItem(UI_MODE_STORAGE_KEY) === "developer" ? "developer" : "default";
+}
+
+function writeUiMode(mode: "default" | "developer") {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(UI_MODE_STORAGE_KEY, mode);
 }
 
 function cacheProductGraphTrace(cache: ProductGraphTraceCache, trace: ProductGraphTrace): ProductGraphTraceCache {
@@ -604,6 +616,7 @@ function productGraphImportRefreshWarning(importName: "Codebase scan" | "Spec Ki
   return error instanceof Error && error.message ? `${baseMessage} ${error.message}` : baseMessage;
 }
 
+
 interface AppState {
   runtimeEnvironmentMode: string;
   apiBaseDisplay: string;
@@ -936,7 +949,7 @@ export const useStore = create<AppState>((set, get) => ({
   changesSinceLastViewed: null,
   lastSeenSequenceByGraph: readLastSeenMap(),
   activityOpen: false,
-  uiMode: "default",
+  uiMode: readUiMode(),
   graphQuality: "standard",
   graphDetailMode: "auto",
   largeGraphThreshold: LARGE_GRAPH_NODE_THRESHOLD,
@@ -2050,7 +2063,10 @@ export const useStore = create<AppState>((set, get) => ({
   selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
   setFilterStatus: (status) => set({ filterStatus: status }),
   setFilterBranch: (branch) => set({ filterBranch: branch }),
-  setUiMode: (mode) => set({ uiMode: mode }),
+  setUiMode: (mode) => {
+    writeUiMode(mode);
+    set({ uiMode: mode });
+  },
   setGraphQuality: (mode) => set({ graphQuality: mode }),
   setGraphDetailMode: (mode) => set({ graphDetailMode: mode }),
   setShowSupersededNodes: (value) => set({ showSupersededNodes: value }),

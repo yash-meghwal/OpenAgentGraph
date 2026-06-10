@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { toPlainEnglishFailureSummary, toPlainEnglishSummary } from "@openagentgraph/shared";
 import { useStore } from "../lib/store.js";
-import { getNodeDisplaySummary, getNodeStatusCopy } from "../lib/viewMode.js";
+import { getNodeDisplaySummary, getNodeStatusCopy } from "../lib/nodeSummary.js";
 
 const PANEL: React.CSSProperties = {
   width: 380,

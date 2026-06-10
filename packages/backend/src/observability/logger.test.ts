@@ -82,6 +82,6 @@ describe("structured logger", () => {
           "JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature failed near C:\\Users\\yashm\\token.txt"
         )
       )
-    ).toBe("JWT <redacted-token> failed near <home>/yashm/token.txt");
+    ).toBe("JWT <redacted-token> failed near <home>/token.txt");
   });
 });

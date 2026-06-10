@@ -260,7 +260,8 @@ describe("graphRepo semantic retrieval", () => {
           agent: { agentId: "codex", displayName: "Codex", kind: "codex" },
           nodeId: "node-1",
           status: "completed",
-          summary: "External agent finished a review.",
+          summary:
+            "External agent finished a review with OPENAI_API_KEY=sk_1234567890abcdef from C:\\Users\\yashm\\Desktop\\promptvector\\.env.",
           createdAt: "2026-04-16T10:03:00.000Z",
         },
         ts: "2026-04-16T10:03:00.000Z",
@@ -272,10 +273,22 @@ describe("graphRepo semantic retrieval", () => {
         payload: {
           proposalId: "proposal-open",
           graphId: "graph-1",
-          agent: { agentId: "gemini", displayName: "Gemini", kind: "gemini" },
-          title: "Add follow-up tests",
-          summary: "A proposed follow-up.",
-          nodes: [{ title: "Write tests", intent: "Add focused coordination tests." }],
+          agent: { agentId: "gemini", displayName: "Gemini sk_1234567890abcdef", kind: "gemini" },
+          title: "Add follow-up tests OPENAI_API_KEY=sk_1234567890abcdef",
+          summary: "A proposed follow-up from C:\\Users\\yashm\\Desktop\\promptvector\\.env.",
+          reason: "Coordinate without sharing Bearer abc.def.ghi.",
+          nodes: [
+            {
+              title: "Write tests sk_1234567890abcdef",
+              intent: "Add focused coordination tests using C:\\Users\\yashm\\secret.txt.",
+              humanSummary: "Keep OPENAI_API_KEY=sk_1234567890abcdef out of handoff context.",
+              acceptanceCriteria: ["No projected field includes C:\\Users\\yashm\\secret.txt."],
+            },
+          ],
+          metadata: {
+            apiKey: "sk_1234567890abcdef",
+            sourcePath: "C:\\Users\\yashm\\Desktop\\promptvector\\.env",
+          },
           createdAt: "2026-04-16T10:04:00.000Z",
         },
         ts: "2026-04-16T10:04:00.000Z",
@@ -303,8 +316,8 @@ describe("graphRepo semantic retrieval", () => {
           proposalId: "proposal-dismissed",
           graphId: "graph-1",
           dismissedAt: "2026-04-16T10:06:00.000Z",
-          dismissedBy: { actorId: "operator", displayName: "Operator", role: "operator" },
-          reason: "Out of scope.",
+          dismissedBy: { actorId: "operator", displayName: "Operator sk_actor999secret999", role: "operator" },
+          reason: "Out of scope because OPENAI_API_KEY=sk_1234567890abcdef came from C:\\Users\\yashm\\notes.txt.",
         },
         ts: "2026-04-16T10:06:00.000Z",
       },
@@ -316,6 +329,23 @@ describe("graphRepo semantic retrieval", () => {
     expect(projection.agentPlanProposals?.find((proposal) => proposal.proposalId === "proposal-dismissed")?.dismissedAt).toBe(
       "2026-04-16T10:06:00.000Z"
     );
+    const projectedAgentJson = JSON.stringify({
+      activity: projection.agentActivity,
+      proposals: projection.agentPlanProposals,
+    });
+    expect(projectedAgentJson).toContain("<redacted-secret>");
+    expect(projectedAgentJson).toContain("Bearer <redacted-token>");
+    expect(projectedAgentJson).not.toContain("sk_1234567890abcdef");
+    expect(projectedAgentJson).not.toContain("abc.def.ghi");
+    expect(projectedAgentJson).not.toContain("C:");
+    expect(projectedAgentJson).not.toContain("yashm");
+    // Actor identities are sanitized too (defense-in-depth): a secret-looking
+    // display name on the dismissing actor must not survive into the projection.
+    const dismissedActor = projection.agentActivity?.find(
+      (activity) => activity.kind === "plan_dismissed"
+    )?.actor;
+    expect(dismissedActor?.displayName).toContain("<redacted-secret>");
+    expect(projectedAgentJson).not.toContain("sk_actor999secret999");
   });
 
   it("returns the most relevant completed node summaries", () => {

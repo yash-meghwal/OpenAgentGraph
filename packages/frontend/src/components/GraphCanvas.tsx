@@ -10,7 +10,7 @@ import {
 } from "three";
 import type { Edge, Node } from "@openagentgraph/shared";
 import { useStore } from "../lib/store.js";
-import { getActiveNode, getNodeDisplaySummary } from "../lib/viewMode.js";
+import { getActiveNode, getNodeDisplaySummary } from "../lib/nodeSummary.js";
 import { buildPresentedGraph } from "../lib/graphPresentation.js";
 import { deriveGraphRuntime } from "../lib/graphRuntime.js";
 import {

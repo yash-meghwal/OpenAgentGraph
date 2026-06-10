@@ -38,7 +38,7 @@ VS Code shell integration:
 - The VS Code extension is a separate webview shell around the same built frontend.
 - The React app still talks only to the narrow `openagentgraphShell` bridge.
 - VS Code-specific behavior stays in the extension host and webview bootstrap, not in the core product logic.
-- `packages/vscode-extension/webview-dist/` is committed intentionally so the extension has reviewable, packaged webview assets; regenerate it with `npm run vscode:build` after frontend changes.
+- `packages/vscode-extension/webview-dist/` is generated and ignored by git; regenerate it with `npm run vscode:build` before packaging or manually validating the VS Code extension.
 
 ## Environment Configuration
 
@@ -116,6 +116,12 @@ The frontend runtime stays backend-authoritative:
 - `/auth/session` remains the source of session truth.
 - `/ready` remains the source of runtime/degraded truth.
 - Frontend runtime config only decides where the browser connects; it does not decide permissions.
+
+## License
+
+OpenAgentGraph is licensed under AGPL-3.0-only. See `LICENSE` for the full license text.
+
+When running OpenAgentGraph as a network service, make the corresponding source available to users as required by AGPLv3 section 13. The canonical public source repository is [yash-meghwal/OpenAgentGraph](https://github.com/yash-meghwal/OpenAgentGraph).
 
 Renderer shell boundary:
 - Browser mode uses a safe built-in shell fallback.

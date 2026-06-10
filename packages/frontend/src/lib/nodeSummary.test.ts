@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Node } from "@openagentgraph/shared";
-import { getNodeDisplaySummary } from "./viewMode.js";
+import { getNodeDisplaySummary } from "./nodeSummary.js";
 
 function makeNode(overrides: Partial<Node> = {}): Node {
   return {

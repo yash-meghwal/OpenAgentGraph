@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store.js";
 import { buildFrontendReplayFrame } from "../lib/replay.js";
-import { getNodeDisplaySummary, getNodeStatusCopy } from "../lib/viewMode.js";
+import { getNodeDisplaySummary, getNodeStatusCopy } from "../lib/nodeSummary.js";
 
 const KIND_COLOR: Record<string, string> = {
   "system.lineage_declared": "#7f9cf5",

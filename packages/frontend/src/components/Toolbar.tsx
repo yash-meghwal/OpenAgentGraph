@@ -19,7 +19,7 @@ import {
   getNextNode,
   getNodeDisplaySummary,
   getNodeStatusCopy,
-} from "../lib/viewMode.js";
+} from "../lib/nodeSummary.js";
 
 const CONTROL_STYLE: React.CSSProperties = {
   background: "#2d3748",

@@ -11,3 +11,15 @@ test-results/
 .tmp-dev-logs/
 mcps/
 packages/vscode-extension/.vscode-test/
+packages/vscode-extension/webview-dist/
+
+# Local sibling working copies / exports — never commit into the base repo
+/OpenAgentGraph-base-review/
+/OpenAgentGraphPro/
+/OpenAgentGraphPro-export/
+/OpenAgentGraphPro-import/
+/OpenAgentGraphPro-separate/
+/OpenAgentGraphPro-local-remote.git/
+/OpenAgentGraphPro-phase0-export.zip
+/agent-tools/
+/terminals/

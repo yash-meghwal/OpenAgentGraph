@@ -1074,6 +1074,7 @@ test.describe("OpenAgentGraph launch-critical browser flows", () => {
           contentType: "application/json",
           body: JSON.stringify({
             graphId: "graph:checkout-proof",
+            generatedAt: now(),
             summary: {
               runControlState: "idle",
               frontierStatus: "on_track",

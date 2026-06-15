@@ -4,6 +4,7 @@ export * from "./graphQueryEngine";
 export * from "./graphArtifacts";
 export * from "./graphLenses";
 export * from "./graphFusion";
+export * from "./graphReleaseGates";
 export * from "./report";
 export * from "./safeText";
 export * from "./productGraph";

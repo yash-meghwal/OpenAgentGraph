@@ -18,7 +18,7 @@ function makeGraph(): UnifiedCodeGraph {
       { id: "file:xaml", kind: "code_file", label: "Views/MainView.xaml", path: "Views/MainView.xaml" },
       { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "ViewModels/MainViewModel.cs" },
       { id: "sym:svc", kind: "symbol", label: "PlaybackService (class)", path: "Services/PlaybackService.cs" },
-      { id: "comm:ui", kind: "community", label: "ui", path: "OpenViewPlayer.App" },
+      { id: "comm:ui", kind: "community", label: "ui", path: "SampleMediaPlayer.App" },
     ],
     edges: [
       { id: "e1", sourceNodeId: "file:xaml", targetNodeId: "sym:vm", kind: "references", provenance: "inferred", label: "View -> MainViewModel" },

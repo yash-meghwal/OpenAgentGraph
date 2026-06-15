@@ -35,7 +35,7 @@ Acceptance:
 - Mixed repos can activate multiple scanners.
 
 ## Phase 2 - C#/.NET T0 Scanner
-Goal: beat Graphify on OpenViewPlayer-style C# repos.
+Goal: beat Graphify on SampleMediaPlayer-style C# repos.
 
 Key work:
 - Add a Roslyn-backed scanner or safe out-of-process `.NET` scanner helper.
@@ -43,10 +43,10 @@ Key work:
 - Index namespaces, classes, interfaces, records, structs, enums, methods, properties, events.
 - Add WPF/XAML relationships: XAML file to code-behind, View to ViewModel naming links.
 - Add `using`, project-reference, test, entrypoint, service, and command edges.
-- Add OpenViewPlayer fixture/dogfood acceptance.
+- Add SampleMediaPlayer fixture/dogfood acceptance.
 
 Acceptance:
-- Dogfood on OpenViewPlayer shows `MainViewModel`, `OpenViewPlayer.Core`, app/test projects.
+- Dogfood on SampleMediaPlayer shows `MainViewModel`, `SampleMediaPlayer.Core`, app/test projects.
 - Zero `bin/Debug/libvlc` paths in "read first."
 - C# symbol coverage is at least 90% of Graphify's useful symbol coverage.
 
@@ -148,7 +148,7 @@ Add checks:
 
 ## Phase 7 - Benchmarks And Release Gates
 Create fixture suite:
-- `fixture-openviewplayer`
+- `fixture-csharp-media-player`
 - `fixture-csharp-wpf`
 - `fixture-next-app`
 - `fixture-python-django`
@@ -164,7 +164,7 @@ Success metrics:
 - generated/build junk in read-first: 0
 - dogfood setup: under 5 minutes on Windows
 - agent first-query success: 80%+ without grep
-- OpenViewPlayer C# useful symbol coverage: 90%+ of Graphify
+- SampleMediaPlayer C# useful symbol coverage: 90%+ of Graphify
 - all graph fixture tests green in CI
 
 ## Grok Work Protocol

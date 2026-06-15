@@ -17,11 +17,11 @@ function makeGraph(): UnifiedCodeGraph {
     activeScannerIds: ["dotnet", "typescript"],
     diagnostics: ["Python: T1 structural indexing; AST-level semantic edges not yet enabled."],
     nodes: [
-      { id: "comm:app", kind: "community", label: "OpenViewPlayer.App", path: "OpenViewPlayer.App" },
-      { id: "file:xaml", kind: "code_file", label: "Views/MainView.xaml", path: "OpenViewPlayer.App/Views/MainView.xaml" },
-      { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "OpenViewPlayer.App/ViewModels/MainViewModel.cs" },
-      { id: "file:svc", kind: "code_file", label: "Services/PlaybackService.cs", path: "OpenViewPlayer.Core/Services/PlaybackService.cs" },
-      { id: "file:test", kind: "code_file", label: "MainViewModelTests.cs", path: "OpenViewPlayer.Tests/MainViewModelTests.cs" },
+      { id: "comm:app", kind: "community", label: "SampleMediaPlayer.App", path: "SampleMediaPlayer.App" },
+      { id: "file:xaml", kind: "code_file", label: "Views/MainView.xaml", path: "SampleMediaPlayer.App/Views/MainView.xaml" },
+      { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "SampleMediaPlayer.App/ViewModels/MainViewModel.cs" },
+      { id: "file:svc", kind: "code_file", label: "Services/PlaybackService.cs", path: "SampleMediaPlayer.Core/Services/PlaybackService.cs" },
+      { id: "file:test", kind: "code_file", label: "MainViewModelTests.cs", path: "SampleMediaPlayer.Tests/MainViewModelTests.cs" },
       { id: "file:tf", kind: "config_file", label: "main.tf", path: "infra/main.tf" },
       { id: "file:doc", kind: "doc_file", label: "README.md", path: "README.md" },
     ],
@@ -36,7 +36,7 @@ function makeGraph(): UnifiedCodeGraph {
 describe("graph lenses", () => {
   it("classifies paths into deterministic task lenses", () => {
     expect(graphLensIdsForPath("app/page.tsx")).toContain("frontend");
-    expect(graphLensIdsForPath("OpenViewPlayer.Tests/MainViewModelTests.cs")).toContain("tests");
+    expect(graphLensIdsForPath("SampleMediaPlayer.Tests/MainViewModelTests.cs")).toContain("tests");
     expect(graphLensIdsForPath("infra/main.tf")).toContain("infra");
     expect(graphLensIdsForPath("myapp/models.py")).toContain("database");
   });

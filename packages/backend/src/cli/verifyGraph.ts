@@ -1,6 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
-import { runKernelWorkspaceScan } from "../scanner/kernel/scanKernel.js";
+import {
+  evaluateReleaseBenchmarkSuite,
+  GRAPH_RELEASE_FIXTURE_IDS,
+  GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
+} from "@openagentgraph/shared";
+import { runKernelWorkspaceScan, type KernelScanResult } from "../scanner/kernel/scanKernel.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
 const DEFAULT_FIXTURES_DIR = "tests/fixtures/graph";
@@ -17,6 +22,13 @@ interface FixtureCheckResult {
   activeScanners: string[];
   indexedFileCount: number;
   skippedCountsByReason: Record<string, number>;
+  scanMs: number;
+}
+
+interface FixtureScanBundle {
+  fixture: string;
+  scan: KernelScanResult;
+  scanMs: number;
 }
 
 function readRequiredCliValue(argv: string[], index: number, flag: string) {
@@ -64,10 +76,9 @@ function assertNoGeneratedPaths(indexedPaths: string[], errors: string[]) {
   }
 }
 
-async function verifyFixture(fixturesRoot: string, fixtureName: string): Promise<FixtureCheckResult> {
-  const fixturePath = path.join(fixturesRoot, fixtureName);
+function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
+  const { fixture: fixtureName, scan: result } = bundle;
   const errors: string[] = [];
-  const result = await runKernelWorkspaceScan(fixturePath);
   const indexedPaths = result.scanPlan.nodes
     .filter((node) => node.kind === "code_file")
     .map((node) => node.title);
@@ -231,14 +242,15 @@ async function verifyFixture(fixturesRoot: string, fixtureName: string): Promise
       }
       break;
     case "fixture-csharp-wpf":
+    case "fixture-csharp-media-player":
       if (!result.kernelProfile.activeScannerIds.includes("dotnet")) {
         errors.push("Expected dotnet scanner to be active.");
       }
-      if (!indexedPaths.includes("OpenViewPlayer.App/ViewModels/MainViewModel.cs")) {
+      if (!indexedPaths.includes("SampleMediaPlayer.App/ViewModels/MainViewModel.cs")) {
         errors.push("Expected MainViewModel.cs to be indexed.");
       }
-      if (!indexedPaths.includes("OpenViewPlayer.Core/OpenViewPlayer.Core.csproj")) {
-        errors.push("Expected OpenViewPlayer.Core project to be indexed.");
+      if (!indexedPaths.includes("SampleMediaPlayer.Core/SampleMediaPlayer.Core.csproj")) {
+        errors.push("Expected SampleMediaPlayer.Core project to be indexed.");
       }
       const symbolTitles = result.scanPlan.nodes
         .filter((node) => node.kind === "code_symbol")
@@ -252,7 +264,42 @@ async function verifyFixture(fixturesRoot: string, fixtureName: string): Promise
       if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "xaml_code_behind")) {
         errors.push("Expected XAML code-behind edges.");
       }
+      if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 4) {
+        errors.push("Expected SampleMediaPlayer stand-in fixture to index multiple C# symbols.");
+      }
       assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-mixed-polyglot":
+      if (!result.kernelProfile.activeScannerIds.includes("dotnet")) {
+        errors.push("Expected dotnet scanner to be active.");
+      }
+      const hasPolyglotType = result.kernelProfile.secondaryTypes.includes("mixed-polyglot")
+        || result.kernelProfile.primaryType === "mixed-polyglot"
+        || (
+          result.kernelProfile.activeScannerIds.includes("dotnet")
+          && indexedPaths.some((indexedPath) => indexedPath.endsWith(".ps1"))
+        );
+      if (!hasPolyglotType) {
+        errors.push("Expected mixed C# and PowerShell polyglot layout.");
+      }
+      if (!indexedPaths.includes("src/AppService.cs")) {
+        errors.push("Expected src/AppService.cs to be indexed.");
+      }
+      if (!indexedPaths.includes("Scripts/Build.ps1")) {
+        errors.push("Expected Scripts/Build.ps1 to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("AppService"))) {
+        errors.push("Expected AppService C# symbol to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-empty":
+      if (result.kernelProfile.primaryType !== "empty-greenfield") {
+        errors.push(`Expected empty-greenfield primary type, got ${result.kernelProfile.primaryType}.`);
+      }
+      if (indexedPaths.some((indexedPath) => /\.(cs|ts|py|go|rs)$/i.test(indexedPath))) {
+        errors.push("Empty fixture must not index source code files.");
+      }
       break;
     case "dockerignore-artifacts":
       if ((result.scanPlan.summary.skippedCountsByReason?.dockerignore ?? 0) <= 0) {
@@ -286,6 +333,18 @@ async function verifyFixture(fixturesRoot: string, fixtureName: string): Promise
         count ?? 0,
       ])
     ),
+    scanMs: bundle.scanMs,
+  };
+}
+
+async function scanFixture(fixturesRoot: string, fixtureName: string): Promise<FixtureScanBundle> {
+  const fixturePath = path.join(fixturesRoot, fixtureName);
+  const startedAt = Date.now();
+  const scan = await runKernelWorkspaceScan(fixturePath);
+  return {
+    fixture: fixtureName,
+    scan,
+    scanMs: Date.now() - startedAt,
   };
 }
 
@@ -298,17 +357,41 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     throw new Error(`No graph fixtures found under ${fixturesRoot}.`);
   }
 
-  const results: FixtureCheckResult[] = [];
+  const bundles: FixtureScanBundle[] = [];
   for (const fixtureName of fixtureNames) {
-    results.push(await verifyFixture(fixturesRoot, fixtureName));
+    bundles.push(await scanFixture(fixturesRoot, fixtureName));
   }
 
+  const results = bundles.map(verifyFixture);
   const failed = results.filter((result) => !result.passed);
+  const releaseSuite = evaluateReleaseBenchmarkSuite({
+    results: bundles
+      .filter((bundle) => (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(bundle.fixture))
+      .map((bundle) => ({
+        fixture: bundle.fixture,
+        graph: bundle.scan.unifiedGraph,
+        kernelProfile: bundle.scan.kernelProfile,
+        scanMs: bundle.scanMs,
+      })),
+  });
+
   const payload = {
     fixturesRoot,
     fixtureCount: results.length,
-    passed: failed.length === 0,
+    passed: failed.length === 0 && releaseSuite.ok,
     results,
+    releaseGates: {
+      fixtures: [...GRAPH_RELEASE_FIXTURE_IDS],
+      querySuccessRate: releaseSuite.querySuccessRate,
+      minQuerySuccessRate: GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
+      misleadingHandoffRate: releaseSuite.misleadingHandoffRate,
+      totalScanMs: bundles
+        .filter((bundle) => (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(bundle.fixture))
+        .reduce((sum, bundle) => sum + bundle.scanMs, 0),
+      passed: releaseSuite.ok,
+      errors: releaseSuite.errors,
+      results: releaseSuite.releaseResults,
+    },
   };
 
   if (parsed.json) {
@@ -316,16 +399,26 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
   } else {
     for (const result of results) {
       const status = result.passed ? "PASS" : "FAIL";
-      console.log(`${status} ${result.fixture} scanners=[${result.activeScanners.join(", ")}] files=${result.indexedFileCount}`);
+      console.log(`${status} ${result.fixture} scanners=[${result.activeScanners.join(", ")}] files=${result.indexedFileCount} scanMs=${result.scanMs}`);
       for (const error of result.errors) {
         console.log(`  - ${error}`);
       }
     }
-    console.log(`Graph fixture verification: ${failed.length === 0 ? "PASS" : "FAIL"} (${results.length} fixtures)`);
+    console.log(
+      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} querySuccess=${Math.round(releaseSuite.querySuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% totalScanMs=${payload.releaseGates.totalScanMs}`
+    );
+    for (const error of releaseSuite.errors) {
+      console.log(`  - ${error}`);
+    }
+    console.log(`Graph fixture verification: ${payload.passed ? "PASS" : "FAIL"} (${results.length} fixtures)`);
   }
 
-  if (failed.length > 0) {
-    throw new Error(`Graph fixture verification failed for: ${failed.map((result) => result.fixture).join(", ")}`);
+  if (!payload.passed) {
+    const failedNames = [
+      ...failed.map((result) => result.fixture),
+      ...(releaseSuite.ok ? [] : ["release-gates"]),
+    ];
+    throw new Error(`Graph fixture verification failed for: ${failedNames.join(", ")}`);
   }
 
   return payload;

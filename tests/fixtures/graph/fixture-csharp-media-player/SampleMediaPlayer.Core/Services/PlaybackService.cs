@@ -1,4 +1,4 @@
-namespace OpenViewPlayer.Core.Services;
+namespace SampleMediaPlayer.Core.Services;
 
 public class PlaybackService
 {

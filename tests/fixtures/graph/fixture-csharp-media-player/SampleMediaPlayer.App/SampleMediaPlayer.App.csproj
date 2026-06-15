@@ -3,9 +3,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <RootNamespace>OpenViewPlayer.App</RootNamespace>
+    <RootNamespace>SampleMediaPlayer.App</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OpenViewPlayer.Core\OpenViewPlayer.Core.csproj" />
+    <ProjectReference Include="..\SampleMediaPlayer.Core\SampleMediaPlayer.Core.csproj" />
   </ItemGroup>
 </Project>

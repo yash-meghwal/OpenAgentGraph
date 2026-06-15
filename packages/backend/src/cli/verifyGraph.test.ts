@@ -14,7 +14,7 @@ describe("verifyGraph cli", () => {
       "--json",
     ]);
     expect(payload.passed).toBe(true);
-    expect(payload.fixtureCount).toBeGreaterThanOrEqual(15);
+    expect(payload.fixtureCount).toBeGreaterThanOrEqual(18);
     expect(payload.results.map((result) => result.fixture)).toEqual(expect.arrayContaining([
       "mixed-dotnet-node",
       "wrapper-layout",
@@ -25,6 +25,9 @@ describe("verifyGraph cli", () => {
       "unsupported-ruby",
       "dockerignore-artifacts",
       "fixture-csharp-wpf",
+      "fixture-csharp-media-player",
+      "fixture-mixed-polyglot",
+      "fixture-empty",
       "fixture-next-app",
       "fixture-python-django",
       "fixture-go-module",
@@ -32,5 +35,8 @@ describe("verifyGraph cli", () => {
       "fixture-terraform",
       "fixture-docs-only",
     ]));
+    expect(payload.releaseGates.passed).toBe(true);
+    expect(payload.releaseGates.querySuccessRate).toBeGreaterThanOrEqual(0.8);
+    expect(payload.releaseGates.misleadingHandoffRate).toBe(0);
   });
 });

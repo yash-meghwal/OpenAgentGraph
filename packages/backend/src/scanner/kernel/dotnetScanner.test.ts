@@ -16,13 +16,13 @@ function fixtureRoot(...segments: string[]) {
 describe("dotnet scanner", () => {
   it("parses solution and csproj topology", () => {
     const solution = parseSolutionFile([
-      'Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenViewPlayer.App", "OpenViewPlayer.App\\OpenViewPlayer.App.csproj", "{11111111-1111-1111-1111-111111111111}"',
+      'Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SampleMediaPlayer.App", "SampleMediaPlayer.App\\SampleMediaPlayer.App.csproj", "{11111111-1111-1111-1111-111111111111}"',
       "EndProject",
     ].join("\n"));
     expect(solution).toEqual([
       {
-        name: "OpenViewPlayer.App",
-        path: "OpenViewPlayer.App/OpenViewPlayer.App.csproj",
+        name: "SampleMediaPlayer.App",
+        path: "SampleMediaPlayer.App/SampleMediaPlayer.App.csproj",
         projectGuid: "11111111-1111-1111-1111-111111111111",
       },
     ]);
@@ -30,30 +30,30 @@ describe("dotnet scanner", () => {
     const csproj = parseCsprojFile(
       `<Project Sdk="Microsoft.NET.Sdk">
         <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF></PropertyGroup>
-        <ItemGroup><ProjectReference Include="..\\OpenViewPlayer.Core\\OpenViewPlayer.Core.csproj" /></ItemGroup>
+        <ItemGroup><ProjectReference Include="..\\SampleMediaPlayer.Core\\SampleMediaPlayer.Core.csproj" /></ItemGroup>
       </Project>`,
-      "OpenViewPlayer.App/OpenViewPlayer.App.csproj"
+      "SampleMediaPlayer.App/SampleMediaPlayer.App.csproj"
     );
-    expect(csproj.projectName).toBe("OpenViewPlayer.App");
+    expect(csproj.projectName).toBe("SampleMediaPlayer.App");
     expect(csproj.useWpf).toBe(true);
-    expect(csproj.projectReferences).toContain("../OpenViewPlayer.Core/OpenViewPlayer.Core.csproj");
+    expect(csproj.projectReferences).toContain("../SampleMediaPlayer.Core/SampleMediaPlayer.Core.csproj");
   });
 
   it("extracts namespaces, types, and members from csharp files", () => {
     const indexed = parseCSharpFile(
       [
-        "using OpenViewPlayer.Core.Services;",
-        "namespace OpenViewPlayer.App.ViewModels;",
+        "using SampleMediaPlayer.Core.Services;",
+        "namespace SampleMediaPlayer.App.ViewModels;",
         "public class MainViewModel",
         "{",
         "    public string Title { get; set; }",
         "    public void Play() { }",
         "}",
       ].join("\n"),
-      "OpenViewPlayer.App/ViewModels/MainViewModel.cs"
+      "SampleMediaPlayer.App/ViewModels/MainViewModel.cs"
     );
-    expect(indexed.namespace).toBe("OpenViewPlayer.App.ViewModels");
-    expect(indexed.usings).toContain("OpenViewPlayer.Core.Services");
+    expect(indexed.namespace).toBe("SampleMediaPlayer.App.ViewModels");
+    expect(indexed.usings).toContain("SampleMediaPlayer.Core.Services");
     expect(indexed.symbols.map((symbol) => `${symbol.kind}:${symbol.name}`)).toEqual(
       expect.arrayContaining(["class:MainViewModel", "property:Title", "method:Play"])
     );
@@ -61,14 +61,14 @@ describe("dotnet scanner", () => {
 
   it("links xaml views to code-behind and inferred view models", () => {
     const xaml = parseXamlFile(
-      '<Window x:Class="OpenViewPlayer.App.Views.MainView" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" />',
-      "OpenViewPlayer.App/Views/MainView.xaml"
+      '<Window x:Class="SampleMediaPlayer.App.Views.MainView" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" />',
+      "SampleMediaPlayer.App/Views/MainView.xaml"
     );
-    expect(xaml.xamlClass).toBe("OpenViewPlayer.App.Views.MainView");
+    expect(xaml.xamlClass).toBe("SampleMediaPlayer.App.Views.MainView");
     expect(xaml.inferredViewModel).toBe("MainViewModel");
   });
 
-  it("indexes OpenViewPlayer-style fixture with project and symbol coverage", async () => {
+  it("indexes SampleMediaPlayer-style fixture with project and symbol coverage", async () => {
     const result = await runKernelWorkspaceScan(fixtureRoot("fixture-csharp-wpf"));
     const nodesById = new Map(result.scanPlan.nodes.map((node) => [node.id, node]));
     const knownNodeIds = new Set(result.scanPlan.nodes.map((node) => node.id));
@@ -80,12 +80,12 @@ describe("dotnet scanner", () => {
       .map((node) => node.title);
 
     expect(indexedPaths).toEqual(expect.arrayContaining([
-      "OpenViewPlayer.sln",
-      "OpenViewPlayer.App/OpenViewPlayer.App.csproj",
-      "OpenViewPlayer.Core/OpenViewPlayer.Core.csproj",
-      "OpenViewPlayer.Tests/OpenViewPlayer.Tests.csproj",
-      "OpenViewPlayer.App/ViewModels/MainViewModel.cs",
-      "OpenViewPlayer.App/Views/MainView.xaml",
+      "SampleMediaPlayer.sln",
+      "SampleMediaPlayer.App/SampleMediaPlayer.App.csproj",
+      "SampleMediaPlayer.Core/SampleMediaPlayer.Core.csproj",
+      "SampleMediaPlayer.Tests/SampleMediaPlayer.Tests.csproj",
+      "SampleMediaPlayer.App/ViewModels/MainViewModel.cs",
+      "SampleMediaPlayer.App/Views/MainView.xaml",
     ]));
     expect(indexedPaths.some((title) => title.includes("bin/"))).toBe(false);
     expect(symbolTitles).toEqual(expect.arrayContaining([

@@ -4,7 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit" Version="2.9.0" />
-    <ProjectReference Include="..\OpenViewPlayer.Core\OpenViewPlayer.Core.csproj" />
-    <ProjectReference Include="..\OpenViewPlayer.App\OpenViewPlayer.App.csproj" />
+    <ProjectReference Include="..\SampleMediaPlayer.Core\SampleMediaPlayer.Core.csproj" />
+    <ProjectReference Include="..\SampleMediaPlayer.App\SampleMediaPlayer.App.csproj" />
   </ItemGroup>
 </Project>

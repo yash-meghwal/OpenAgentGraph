@@ -20,7 +20,7 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-function readTheseFirstNodes(graph: UnifiedCodeGraph, limit = 8): UnifiedCodeGraphNode[] {
+export function getReadTheseFirstNodes(graph: UnifiedCodeGraph, limit = 8): UnifiedCodeGraphNode[] {
   const priority = (node: UnifiedCodeGraphNode) => {
     if (node.kind === "symbol" && /viewmodel|service|controller|main/i.test(node.label)) return 0;
     if (node.kind === "code_file" && /\.(cs|ts|tsx)$/i.test(node.path ?? node.label)) return 1;
@@ -148,7 +148,7 @@ npm run graph:lens -- --workspace "${escapeHtml(graph.workspaceRoot)}" --lens fr
 }
 
 export function renderUnifiedGraphWiki(graph: UnifiedCodeGraph) {
-  const readFirst = readTheseFirstNodes(graph);
+  const readFirst = getReadTheseFirstNodes(graph);
   const godNodes = buildGraphGodNodeSummaries(graph);
   const primaryLens = recommendPrimaryGraphLens(graph);
   const primaryLensLabel = GRAPH_TASK_LENS_DEFINITIONS.find((definition) => definition.id === primaryLens)?.label ?? primaryLens;
@@ -219,7 +219,7 @@ export function renderUnifiedGraphHandoffReport(
     previousSymbolCount?: number;
   } = {}
 ) {
-  const readFirst = readTheseFirstNodes(graph);
+  const readFirst = getReadTheseFirstNodes(graph);
   const godNodes = buildGraphGodNodeSummaries(graph);
   const health = buildGraphHealthSummary(graph, options.kernelProfile);
   const handoffFreshness = options.handoffFreshness

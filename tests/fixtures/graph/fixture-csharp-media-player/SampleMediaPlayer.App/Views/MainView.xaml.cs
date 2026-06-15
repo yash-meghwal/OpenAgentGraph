@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace OpenViewPlayer.App.Views;
+namespace SampleMediaPlayer.App.Views;
 
 public partial class MainView : Window
 {

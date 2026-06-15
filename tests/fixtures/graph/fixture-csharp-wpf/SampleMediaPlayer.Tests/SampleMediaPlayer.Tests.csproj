@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <ProjectReference Include="..\SampleMediaPlayer.Core\SampleMediaPlayer.Core.csproj" />
+    <ProjectReference Include="..\SampleMediaPlayer.App\SampleMediaPlayer.App.csproj" />
+  </ItemGroup>
+</Project>

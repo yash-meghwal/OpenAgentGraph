@@ -63,6 +63,10 @@ function extensionType(extension: string): string | undefined {
     case ".tf":
     case ".tfvars":
       return "terraform-iac";
+    case ".ps1":
+    case ".sh":
+    case ".bash":
+      return "shell-automation";
     default:
       return undefined;
   }
@@ -205,7 +209,7 @@ export async function detectWorkspaceKernelProfile(
   }
 
   const codeExtensionKeys = new Set([
-    ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt",
+    ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt", ".ps1", ".sh",
   ]);
   const docExtensionKeys = new Set([".md", ".rst", ".txt"]);
   const codeCount = [...sourceExtensionCounts.entries()]

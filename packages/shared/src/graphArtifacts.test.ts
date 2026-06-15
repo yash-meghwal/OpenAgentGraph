@@ -13,7 +13,7 @@ function makeGraph(): UnifiedCodeGraph {
       { id: "workspace", kind: "workspace", label: "workspace", metadata: { primaryType: "dotnet" } },
       { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "ViewModels/MainViewModel.cs" },
       { id: "file:cs", kind: "code_file", label: "ViewModels/MainViewModel.cs", path: "ViewModels/MainViewModel.cs" },
-      { id: "comm:ui", kind: "community", label: "ui", path: "OpenViewPlayer.App" },
+      { id: "comm:ui", kind: "community", label: "ui", path: "SampleMediaPlayer.App" },
     ],
     edges: [
       { id: "e1", sourceNodeId: "file:cs", targetNodeId: "sym:vm", kind: "declares", provenance: "extracted" },

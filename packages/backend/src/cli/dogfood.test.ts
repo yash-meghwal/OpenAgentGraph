@@ -38,7 +38,7 @@ describe("dogfood cli", () => {
 
   it("writes GRAPH_REPORT.md using isolated dogfood data for workspaces with spaces", async () => {
     const repoRoot = makeTempDir("openagentgraph-dogfood-repo-");
-    const workspaceRoot = path.join(makeTempDir("openagentgraph-dogfood-target-"), "Video Player", "openviewplayer");
+    const workspaceRoot = path.join(makeTempDir("openagentgraph-dogfood-target-"), "Video Player", "SampleMediaPlayer");
     writeFile(path.join(repoRoot, "package.json"), JSON.stringify({ workspaces: ["packages/*"] }));
     writeFile(path.join(workspaceRoot, "App.sln"), "Microsoft Visual Studio Solution File\n");
     writeFile(path.join(workspaceRoot, "src", "Player.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");

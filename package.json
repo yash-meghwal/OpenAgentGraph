@@ -37,7 +37,7 @@
     "typecheck": "npx tsc --noEmit --pretty false -p packages/frontend/tsconfig.json && npx tsc --noEmit --pretty false -p packages/electron/tsconfig.json && npx tsc --noEmit --pretty false -p packages/vscode-extension/tsconfig.json",
     "verify": "npm run build && npm run typecheck && npm run test --workspaces --if-present && npm run gate:check -- --mode hard --allow-empty",
     "verify:e2e": "npx playwright test tests/e2e/runtime-flows.spec.ts -g \"opens the intent graph\"",
-    "verify:ci": "npm run verify && npm run verify:e2e"
+    "verify:ci": "npm run verify && npm run verify:graph && npm run verify:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

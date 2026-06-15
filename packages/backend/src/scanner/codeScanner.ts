@@ -32,6 +32,7 @@ import {
   isDotNetSourceExtension,
   isEcosystemConfigFileName,
   isEcosystemScannableExtension,
+  isScriptScannableExtension,
   isTypeScriptScannableExtension,
   isUnsupportedSourceExtension,
   normalizeScannerProjectPath,
@@ -80,6 +81,9 @@ const PRODUCT_GRAPH_EXTENSION_SET = new Set(
     ".tfvars",
     ".md",
     ".rst",
+    ".ps1",
+    ".sh",
+    ".bash",
   ]
 );
 
@@ -1579,6 +1583,54 @@ async function buildScannedDotNetFile(
   };
 }
 
+async function buildScannedScriptFile(
+  file: ScanFile,
+  scanId: string,
+  scannedAt: string
+): Promise<ScannedFileResult> {
+  let body: string;
+  try {
+    body = await fs.readFile(file.absolutePath, "utf8");
+  } catch {
+    return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };
+  }
+
+  const extension = path.extname(file.relativePath).toLowerCase();
+  const hash = contentHash(body);
+  const fileNodeId = stableProductId("code-scan:file", file.relativePath);
+  const fileNode: ProductGraphNode = {
+    id: fileNodeId,
+    kind: "code_file",
+    title: file.relativePath.slice(0, MAX_PRODUCT_NODE_TITLE_LENGTH),
+    summary: `Scanned script file (${Math.round(file.size / 1024)} KB).`.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
+    status: "planned",
+    tags: ["code", "code-scan", "code-source", "script-t2"],
+    source: codeScanSourceRef(file.relativePath),
+    metadata: compactMetadata({
+      scannerVersion: SCANNER_VERSION,
+      scanId,
+      scannedAt,
+      contentHash: hash,
+      scannerSourceFile: file.relativePath,
+      fileSizeBytes: file.size,
+      scannerLanguage: extension === ".ps1" ? "powershell" : "shell",
+      scannerIndexingMode: "t2",
+      scannerSemanticSupported: false,
+    }),
+    createdAt: scannedAt,
+    updatedAt: scannedAt,
+  };
+
+  return {
+    file,
+    fileNode,
+    symbolNodes: [],
+    edges: [],
+    dependencySpecs: [],
+    skippedFileCount: 0,
+  };
+}
+
 async function buildScannedFile(
   file: ScanFile,
   scanId: string,
@@ -1592,6 +1644,9 @@ async function buildScannedFile(
   }
   if (isEcosystemScannableExtension(extension) || isEcosystemConfigFileName(fileName)) {
     return buildScannedEcosystemFile(file, scanId, scannedAt);
+  }
+  if (isScriptScannableExtension(extension)) {
+    return buildScannedScriptFile(file, scanId, scannedAt);
   }
   if (!isTypeScriptScannableExtension(extension)) {
     return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };

@@ -1,6 +1,6 @@
-using OpenViewPlayer.Core.Services;
+using SampleMediaPlayer.Core.Services;
 
-namespace OpenViewPlayer.App.ViewModels;
+namespace SampleMediaPlayer.App.ViewModels;
 
 public class MainViewModel
 {
@@ -11,7 +11,7 @@ public class MainViewModel
         _playbackService = playbackService;
     }
 
-    public string Title => "OpenViewPlayer";
+    public string Title => "SampleMediaPlayer";
 
     public void Play() => _playbackService.Play();
 }

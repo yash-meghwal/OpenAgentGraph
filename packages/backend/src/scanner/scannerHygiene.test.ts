@@ -69,7 +69,7 @@ describe("scanner hygiene", () => {
 
   it("detects dotnet and typescript workspace markers with extension census", async () => {
     const workspaceRoot = makeTempWorkspace();
-    writeFile(path.join(workspaceRoot, "OpenViewPlayer.sln"), "Microsoft Visual Studio Solution File\n");
+    writeFile(path.join(workspaceRoot, "SampleMediaPlayer.sln"), "Microsoft Visual Studio Solution File\n");
     writeFile(path.join(workspaceRoot, "src", "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");
     writeFile(path.join(workspaceRoot, "src", "App.cs"), "public class App { }\n");
     writeFile(path.join(workspaceRoot, "web", "package.json"), "{ \"name\": \"web\" }\n");
@@ -89,7 +89,7 @@ describe("scanner hygiene", () => {
 
     expect(profile.detectedProjectTypes).toEqual(expect.arrayContaining(["dotnet", "node", "typescript"]));
     expect(profile.markerPaths).toEqual(expect.arrayContaining([
-      "OpenViewPlayer.sln",
+      "SampleMediaPlayer.sln",
       "src/App.csproj",
       "web/package.json",
       "web/tsconfig.json",

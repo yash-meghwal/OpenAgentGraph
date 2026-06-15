@@ -67,12 +67,14 @@ export const TYPESCRIPT_SCANNABLE_EXTENSIONS = [
 export const DOTNET_SOURCE_EXTENSIONS = [".cs", ".xaml"] as const;
 export const DOTNET_CONFIG_EXTENSIONS = [".csproj", ".sln", ".props", ".targets"] as const;
 export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [".py", ".go", ".rs", ".tf", ".tfvars", ".md", ".rst"] as const;
+export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
 
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSIONS = [
   ...TYPESCRIPT_SCANNABLE_EXTENSIONS,
   ...DOTNET_SOURCE_EXTENSIONS,
   ...DOTNET_CONFIG_EXTENSIONS,
   ...ECOSYSTEM_SCANNABLE_EXTENSIONS,
+  ...SCRIPT_SCANNABLE_EXTENSIONS,
 ] as const;
 
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET = new Set<string>(PRODUCT_GRAPH_SCANNABLE_EXTENSIONS);
@@ -233,6 +235,10 @@ export function isDotNetConfigExtension(extension: string) {
 
 export function isEcosystemScannableExtension(extension: string) {
   return (ECOSYSTEM_SCANNABLE_EXTENSIONS as readonly string[]).includes(extension.toLowerCase());
+}
+
+export function isScriptScannableExtension(extension: string) {
+  return (SCRIPT_SCANNABLE_EXTENSIONS as readonly string[]).includes(extension.toLowerCase());
 }
 
 export function isEcosystemConfigFileName(fileName: string) {

@@ -6,6 +6,7 @@ import { buildAuthSession, canActorPerform, permissionMessage, resolveAuth } fro
 import { graphRoutes } from "./routes/graphs.js";
 import { productGraphRoutes } from "./routes/productGraph.js";
 import { projectGraphRoutes } from "./routes/projectGraph.js";
+import { registerScanPostBodyTolerance } from "./routes/scanPostBody.js";
 import { getDatabaseDiagnostics, initDb } from "./db/client.js";
 import {
   AI_PROVIDER_SETUP_DETAILS,
@@ -313,6 +314,7 @@ export async function buildApp(config = getAppConfig()) {
   initOpenTelemetryExporter(config);
 
   const app = Fastify();
+  registerScanPostBodyTolerance(app);
   await app.register(cors, {
     origin: buildCorsOriginResolver(config),
   });

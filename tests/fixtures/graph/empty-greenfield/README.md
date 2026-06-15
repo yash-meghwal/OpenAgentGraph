@@ -1,0 +1,1 @@
+Greenfield workspace with docs only.

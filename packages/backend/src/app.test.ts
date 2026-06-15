@@ -80,6 +80,44 @@ describe("backend diagnostics", () => {
     await app.close();
   });
 
+  it("accepts empty scan job POST requests without Content-Type through buildApp()", async () => {
+    const workspaceRoot = makeTempDir();
+    fs.mkdirSync(path.join(workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, "src", "app.ts"), "export const app = true;\n");
+    const config = loadAppConfig({
+      NODE_ENV: "test",
+      DATA_DIR: makeTempDir(),
+      OPENAGENTGRAPH_WORKSPACE_ROOT: workspaceRoot,
+    });
+    const app = await buildApp(config);
+    const operatorHeaders = { "x-openagentgraph-actor-id": "operator" };
+
+    try {
+      for (const url of ["/project-graph/scan-jobs", "/product-graph/codebase/scan-jobs"]) {
+        const response = await app.inject({
+          method: "POST",
+          url,
+          headers: operatorHeaders,
+          payload: "",
+        });
+
+        expect(response.statusCode).toBe(202);
+        expect(response.headers["content-type"]).toMatch(/application\/json/);
+        expect(response.json()).toMatchObject({
+          status: expect.stringMatching(/^(queued|running)$/),
+        });
+      }
+    } finally {
+      const [{ resetProjectGraphScanStateForTests }, { codebaseScanState }] = await Promise.all([
+        import("./routes/projectGraph.js"),
+        import("./routes/productGraphRouteHelpers.js"),
+      ]);
+      resetProjectGraphScanStateForTests();
+      codebaseScanState.inProgress = false;
+      await app.close();
+    }
+  });
+
   it("exports safe metrics and keeps readiness gauges aligned with /ready", async () => {
     const workspaceRoot = makeTempDir();
     const config = loadAppConfig({

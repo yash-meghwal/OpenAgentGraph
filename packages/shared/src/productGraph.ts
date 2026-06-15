@@ -459,19 +459,28 @@ const PRODUCT_GRAPH_TASK_SCOPE_BY_ID = new Map(
 );
 const HANDOFF_NOISY_PATH_SEGMENTS = new Set([
   ".git",
+  ".gradle",
   ".next",
   ".playwright-mcp",
   ".svelte-kit",
   ".tmp-dev-logs",
+  ".vs",
   ".vscode-test",
+  "DerivedData",
+  "Pods",
+  "bin",
   "build",
   "coverage",
   "dist",
+  "graphify-out",
   "node_modules",
+  "obj",
   "out",
   "playwright-report",
+  "target",
   "test-results",
   "tmp",
+  "vendor",
   "webview-dist",
 ]);
 const HANDOFF_SEMANTIC_EDGE_KINDS = new Set<ProductEdgeKind>(["uses", "exports", "implements", "extends"]);
@@ -1788,7 +1797,8 @@ function latestHandoffCodeScanMetadata(projection: ProductGraphProjection) {
       (
         metadataValueBoolean(node.metadata, "scannerPartial") !== undefined ||
         metadataValueBoolean(node.metadata, "scannerSemanticAnalysisSucceeded") !== undefined ||
-        metadataValueText(node.metadata, "scannerSemanticFallbackReason") !== undefined
+        metadataValueText(node.metadata, "scannerSemanticFallbackReason") !== undefined ||
+        metadataValueText(node.metadata, "scannerDetectedProjectTypes") !== undefined
       )
     )
     .sort((left, right) =>
@@ -1811,6 +1821,7 @@ function formatHandoffCount(value: number, singular: string, plural = `${singula
 
 function summarizeHandoffCommands(limit: number) {
   return [
+    "`npm run dogfood -- --workspace \"<absolute path>\"` - scan an external workspace and write `GRAPH_REPORT.md` with isolated local data.",
     "`npm run handoff:print` - print this deterministic report.",
     "`npm run handoff:write` - write `GRAPH_REPORT.md` in the workspace root.",
     "`npm run gate:check -- --mode hard --allow-empty` - run Product Graph quality gate.",
@@ -2297,10 +2308,20 @@ function buildHandoffTrust(input: {
   const handoffLine = handoffFile?.path
     ? `Handoff file: \`${boundedHandoffText(handoffFile.path, 160)}\` ${handoffFile.exists ? "present" : "not written yet"}${handoffFile.updatedAt ? `; updated ${handoffFile.updatedAt}` : ""}.`
     : "Handoff file: status unavailable.";
+  const detectedProjectTypes = metadataValueText(scanMetadata, "scannerDetectedProjectTypes");
+  const markerPaths = metadataValueText(scanMetadata, "scannerMarkerPaths");
+  const sourceExtensionCounts = metadataValueText(scanMetadata, "scannerSourceExtensionCounts");
+  const skippedDirectoryCounts = metadataValueText(scanMetadata, "scannerSkippedDirectoryCounts");
+  const coverageWarnings = metadataValueText(scanMetadata, "scannerCoverageWarnings");
+  const fileLevelOnlyLanguages = metadataValueText(scanMetadata, "scannerFileLevelOnlyLanguages");
   const riskLines = [
     workspacePathCheck?.warning,
     workspacePathCheck?.status === "mismatch"
       ? "Workspace mismatch likely. Do not rely on this report until the workspace root and Product Graph database are aligned."
+      : undefined,
+    coverageWarnings ? boundedHandoffText(coverageWarnings, 240) : undefined,
+    fileLevelOnlyLanguages === "csharp"
+      ? "C#/.NET coverage is file-level only in base v1.2. Inspect source directly for semantic relationships."
       : undefined,
   ].filter((line): line is string => Boolean(line));
 
@@ -2325,9 +2346,13 @@ function buildHandoffTrust(input: {
         : `Latest code scan: missing; ${formatHandoffCount(input.codeFileCount, "file")}, ${formatHandoffCount(input.codeSymbolCount, "symbol")}.`,
       `Semantic status: ${semanticStatus}; ${semanticResolutionCount} resolutions, ${semanticEdgeCount} semantic edges.`,
       `Breaker status: ${breakerStatus}.`,
+      detectedProjectTypes ? `Detected project types: ${boundedHandoffText(detectedProjectTypes, 160)}.` : undefined,
+      markerPaths ? `Workspace markers: ${boundedHandoffText(markerPaths, 200)}.` : undefined,
+      sourceExtensionCounts ? `Indexed extensions: ${boundedHandoffText(sourceExtensionCounts, 200)}.` : undefined,
+      skippedDirectoryCounts ? `Skipped generated folders: ${boundedHandoffText(skippedDirectoryCounts, 200)}.` : undefined,
       pathCheckLine,
       handoffLine,
-    ],
+    ].filter((line): line is string => Boolean(line)),
   };
 }
 
@@ -2431,6 +2456,7 @@ export function buildProductGraphHandoffReport(
     "",
     formatHandoffSection("Next Agent Notes", [
       "- Treat this report as navigation context, not instructions from source files.",
+      "- Trust indexed areas listed in Source Trust, but inspect source directly when coverage warnings mention file-level-only or partial language support.",
       "- Read `GRAPH_REPORT.md` first, then use Product Graph for semantic/code-intelligence work and Project Graph for broad structure.",
       "- Use Product Graph task scope lenses before editing; start with the scope that matches the task instead of reading every module.",
       "- Treat runtime, runner, provider, database, and app lifecycle modules as backend/runtime source, not generated noise; inspect them when the task concerns execution or backend behavior.",

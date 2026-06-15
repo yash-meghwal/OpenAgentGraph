@@ -19,6 +19,7 @@ Local startup commands:
 - Frontend prod-like preview: `npm run start:frontend`
 - Print deterministic handoff: `npm run handoff:print`
 - Write deterministic handoff: `npm run handoff:write`
+- Dogfood an external workspace (no provider key): `npm run dogfood -- --workspace "<absolute path>"`
 - Handoff DB override when needed: `npm run handoff:print -- --data-dir packages/backend/data`
 - Gate DB override when needed: `npm run gate:check -- --mode hard --allow-empty --data-dir packages/backend/data`
 - Agent context pack: `GET /graphs/:graphId/agent-context`

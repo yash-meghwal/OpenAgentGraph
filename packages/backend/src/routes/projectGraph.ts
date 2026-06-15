@@ -11,6 +11,8 @@ import type {
   ScanBreakerStatus,
   ScanJobStatus,
   ScanProgressSnapshot,
+  SkipDiagnostic,
+  SkipReason,
 } from "@openagentgraph/shared";
 import { getAppConfig } from "../config.js";
 import {
@@ -22,60 +24,20 @@ import {
   scanBreakerDiagnostics,
   updateScanBreakerNear,
 } from "../scanner/scanProgress.js";
+import {
+  PROJECT_GRAPH_INCLUDED_EXTENSIONS,
+  detectWorkspaceScanProfile,
+  normalizeScannerProjectPath,
+  recordSkippedDirectory,
+  recordSourceExtension,
+  workspaceProfileDiagnostics,
+} from "../scanner/scannerHygiene.js";
+import { IgnoreEngine } from "../scanner/kernel/ignoreEngine.js";
+import { detectWorkspaceKernelProfile, kernelProfileDiagnostics } from "../scanner/kernel/workspaceDetection.js";
 import { canActorPerform, permissionMessage, resolveAuth } from "../auth/actors.js";
 
-const IGNORED_DIRECTORIES = new Set([
-  ".cache",
-  ".git",
-  ".next",
-  ".mypy_cache",
-  ".output",
-  ".playwright-mcp",
-  ".pytest_cache",
-  ".ruff_cache",
-  ".svelte-kit",
-  ".tmp-dev-logs",
-  ".turbo",
-  ".tox",
-  ".venv",
-  ".vercel",
-  ".vscode-test",
-  "__pycache__",
-  "build",
-  "coverage",
-  "data",
-  "dist",
-  "dist-electron",
-  "dist-main",
-  "dist-renderer",
-  "htmlcov",
-  "node_modules",
-  "out",
-  "playwright-report",
-  "release",
-  "storybook-static",
-  "test-results",
-  "venv",
-  "webview-dist",
-]);
-
-const INCLUDED_EXTENSIONS = new Set([
-  ".css",
-  ".cjs",
-  ".html",
-  ".js",
-  ".jsx",
-  ".json",
-  ".md",
-  ".mjs",
-  ".mts",
-  ".ts",
-  ".tsx",
-  ".yaml",
-  ".yml",
-]);
-
-const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cjs"]);
+const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cjs", ".cs", ".xaml"]);
+const DOTNET_CONFIG_EXTENSIONS = new Set([".sln", ".csproj", ".props", ".targets"]);
 const RESOLUTION_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cjs", ".json"];
 
 type ScannedFile = {
@@ -91,6 +53,10 @@ type ScanResult = {
   files: ScannedFile[];
   skippedFileCount: number;
   skippedDirectoryCount: number;
+  skippedDirectoryCounts: Map<string, number>;
+  skippedCountsByReason: Map<SkipReason, number>;
+  skipDiagnostics: SkipDiagnostic[];
+  sourceExtensionCounts: Map<string, number>;
   partial: boolean;
   totalBytes: number;
   breakers: ScanBreakerStatus;
@@ -120,6 +86,7 @@ function classifyFile(projectPath: string): ProjectGraphNodeKind {
   const basename = path.basename(projectPath).toLowerCase();
   if (/\.(test|spec)\.[^.]+$/.test(basename)) return "test";
   if (extension === ".md") return "doc";
+  if (DOTNET_CONFIG_EXTENSIONS.has(extension)) return "config";
   if ([".json", ".yaml", ".yml"].includes(extension) || basename.startsWith(".")) return "config";
   if (CODE_EXTENSIONS.has(extension) || extension === ".css" || extension === ".html") return "source";
   return "asset";
@@ -155,10 +122,16 @@ async function scanWorkspace(
     now?: () => number;
   }
 ): Promise<ScanResult> {
+  const resolvedRoot = path.resolve(root);
+  const ignoreEngine = await IgnoreEngine.load(resolvedRoot);
   const directories = new Set<string>(["."]);
   const files: ScannedFile[] = [];
   let skippedFileCount = 0;
   let skippedDirectoryCount = 0;
+  const skippedDirectoryCounts = new Map<string, number>();
+  const skippedCountsByReason = new Map<SkipReason, number>();
+  const skipDiagnostics: SkipDiagnostic[] = [];
+  const sourceExtensionCounts = new Map<string, number>();
   let totalBytes = 0;
   let partial = false;
   const limits = normalizeScanBreakerLimits(input.limits, DEFAULT_LIGHTWEIGHT_SCAN_LIMITS);
@@ -192,6 +165,8 @@ async function scanWorkspace(
 
   async function visitDirectory(absoluteDirectory: string, depth: number) {
     if (stopTraversal) return;
+    const visitProjectPath = normalizeScannerProjectPath(path.relative(resolvedRoot, absoluteDirectory)) || ".";
+    await ignoreEngine.enterDirectory(visitProjectPath, absoluteDirectory);
     const elapsedMs = now() - input.startedAt;
     if (elapsedMs > limits.maxDurationMs) {
       partial = true;
@@ -224,11 +199,19 @@ async function scanWorkspace(
       }
 
       const absoluteEntryPath = path.join(absoluteDirectory, entry.name);
-      const projectPath = toProjectPath(root, absoluteEntryPath);
+      const projectPath = toProjectPath(resolvedRoot, absoluteEntryPath);
+
+      const normalizedProjectPath = normalizeScannerProjectPath(projectPath);
 
       if (entry.isDirectory()) {
-        if (IGNORED_DIRECTORIES.has(entry.name)) {
+        const directoryDecision = ignoreEngine.shouldSkip(normalizedProjectPath, true);
+        if (directoryDecision) {
           skippedDirectoryCount += 1;
+          recordSkippedDirectory(skippedDirectoryCounts, entry.name);
+          ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+            path: normalizedProjectPath,
+            decision: directoryDecision,
+          });
           continue;
         }
         if (depth >= limits.maxDepth) {
@@ -238,8 +221,15 @@ async function scanWorkspace(
             breakers,
             "maxDepth",
             depth + 1,
-            `Project graph scan skipped ${projectPath} because directory depth exceeded ${limits.maxDepth}.`
+            `Project graph scan skipped ${normalizedProjectPath} because directory depth exceeded ${limits.maxDepth}.`
           );
+          ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+            path: normalizedProjectPath,
+            decision: {
+              reason: "breaker",
+              detail: `Directory depth exceeded ${limits.maxDepth}.`,
+            },
+          });
           progress = publishProgress("Directory depth breaker hit.");
           continue;
         }
@@ -251,9 +241,26 @@ async function scanWorkspace(
 
       if (!entry.isFile()) continue;
 
-      const extension = path.extname(entry.name).toLowerCase();
-      if (!INCLUDED_EXTENSIONS.has(extension)) {
+      const fileIgnoreDecision = ignoreEngine.shouldSkip(normalizedProjectPath, false);
+      if (fileIgnoreDecision) {
         skippedFileCount += 1;
+        ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+          path: normalizedProjectPath,
+          decision: fileIgnoreDecision,
+        });
+        continue;
+      }
+
+      const extension = path.extname(entry.name).toLowerCase();
+      if (!PROJECT_GRAPH_INCLUDED_EXTENSIONS.has(extension)) {
+        skippedFileCount += 1;
+        ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+          path: normalizedProjectPath,
+          decision: {
+            reason: "unsupported",
+            detail: `Extension '${extension || "(none)"}' is not indexed by the project graph scanner.`,
+          },
+        });
         continue;
       }
 
@@ -283,8 +290,15 @@ async function scanWorkspace(
             breakers,
             "maxFileBytes",
             stat.size,
-            `Project graph scan skipped ${projectPath} because it exceeds ${limits.maxFileBytes} bytes.`
+            `Project graph scan skipped ${normalizedProjectPath} because it exceeds ${limits.maxFileBytes} bytes.`
           );
+          ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+            path: normalizedProjectPath,
+            decision: {
+              reason: "too_large",
+              detail: `File exceeds ${limits.maxFileBytes} bytes.`,
+            },
+          });
           progress = publishProgress("Single-file size breaker hit.");
           continue;
         }
@@ -298,6 +312,13 @@ async function scanWorkspace(
             totalBytes + stat.size,
             `Project graph scan skipped remaining source once total bytes exceeded ${limits.maxTotalBytes}.`
           );
+          ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+            path: normalizedProjectPath,
+            decision: {
+              reason: "breaker",
+              detail: `Total scanned bytes would exceed ${limits.maxTotalBytes}.`,
+            },
+          });
           progress = publishProgress("Total source bytes breaker hit.");
           break;
         }
@@ -306,10 +327,18 @@ async function scanWorkspace(
         }
       } catch {
         skippedFileCount += 1;
+        ignoreEngine.recordSkip(skippedCountsByReason, skipDiagnostics, {
+          path: normalizedProjectPath,
+          decision: {
+            reason: "unreadable",
+            detail: "File could not be read during project graph scan.",
+          },
+        });
         continue;
       }
 
       totalBytes += sizeBytes;
+      recordSourceExtension(sourceExtensionCounts, extension);
       directories.add(parentDirectory(projectPath));
       files.push({
         absolutePath: path.resolve(absoluteEntryPath),
@@ -324,18 +353,38 @@ async function scanWorkspace(
     }
   }
 
-  await visitDirectory(root, 0);
+  await visitDirectory(resolvedRoot, 0);
   progress = publishProgress("Project graph file collection complete.");
+  const workspaceProfile = await detectWorkspaceScanProfile(resolvedRoot, {
+    sourceExtensionCounts,
+    skippedDirectoryCounts,
+  });
+  const kernelProfile = await detectWorkspaceKernelProfile(resolvedRoot, {
+    ignoreEngine,
+    ignoreRules: ignoreEngine.rules,
+    sourceExtensionCounts,
+    skippedCountsByReason,
+    warnings: workspaceProfile.warnings,
+  });
   return {
     directories,
     files,
     skippedFileCount,
     skippedDirectoryCount,
+    skippedDirectoryCounts,
+    skippedCountsByReason,
+    skipDiagnostics,
+    sourceExtensionCounts,
     partial,
     totalBytes,
     breakers,
     progress,
-    diagnostics: scanBreakerDiagnostics(breakers),
+    diagnostics: [
+      ...workspaceProfileDiagnostics(workspaceProfile),
+      ...kernelProfileDiagnostics(kernelProfile),
+      ignoreEngine.diagnosticsSummary(skippedCountsByReason),
+      ...scanBreakerDiagnostics(breakers),
+    ],
   };
 }
 
@@ -587,6 +636,11 @@ type ProjectGraphScanJob = ScanJobStatus<ProjectGraphResponse> & {
 const PROJECT_SCAN_JOB_TTL_MS = 10 * 60 * 1_000;
 const projectGraphScanJobs = new Map<string, ProjectGraphScanJob>();
 let projectGraphScanInProgress = false;
+
+export function resetProjectGraphScanStateForTests() {
+  projectGraphScanInProgress = false;
+  projectGraphScanJobs.clear();
+}
 
 function publicProjectScanJob(job: ProjectGraphScanJob): ScanJobStatus<ProjectGraphResponse> {
   return {

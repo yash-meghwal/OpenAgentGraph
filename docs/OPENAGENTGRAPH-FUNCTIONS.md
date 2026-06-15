@@ -27,6 +27,7 @@ This reference lists what OpenAgentGraph can do today and which surfaces expose 
 | Semantic TypeScript edges | Product codebase scan | No |
 | Handoff preview | `GET /product-graph/handoff`, Dashboard Generate Handoff | No |
 | Handoff write | `POST /product-graph/handoff/write`, `npm run handoff:write` | No |
+| External workspace dogfood | `npm run dogfood -- --workspace "<absolute path>"` | No |
 | Product quality gate | `npm run gate:check -- --mode hard --allow-empty` | No |
 | Agent context pack | `GET /graphs/:graphId/agent-context` | No |
 | Agent frontier | `GET /graphs/:graphId/frontier` | No |
@@ -52,10 +53,13 @@ It can show:
 - dependency cycles
 - external/unresolved dependencies
 - scan progress and breaker diagnostics
+- workspace profile markers and extension coverage
+- honest file-level-only warnings for C#/.NET in base v1.2
 - task scope lenses
 - compact handoff sections
 
 Use it when the task asks "what source matters for this change?"
+Trust indexed areas listed in `GRAPH_REPORT.md`, but inspect source directly when the report warns about file-level-only or partial language coverage.
 
 ## Project Graph Functions
 
@@ -114,6 +118,7 @@ npm run test --workspaces --if-present
 npm run vscode:build
 npm run handoff:print
 npm run handoff:write
+npm run dogfood -- --workspace "C:\path with spaces\your-project"
 npm run gate:check -- --mode hard --allow-empty
 git diff --check
 ```
@@ -187,6 +192,12 @@ Semantic TypeScript scan:
 - `OPENAGENTGRAPH_SEMANTIC_MAX_DURATION_MS`
 
 Treat breaker hits as diagnostics. Do not silently ignore them and do not raise limits without an operator decision.
+
+Base v1.2 scanner coverage:
+
+- TypeScript/JavaScript: file, symbol, dependency, and semantic edges when project config is available.
+- C#/.NET (`.cs`, `.csproj`, `.sln`, `.xaml`, `.props`, `.targets`): file and top-level symbol indexing only; semantic edges are not supported in base.
+- Generated folders such as `bin`, `obj`, `dist`, `build`, `target`, `vendor`, `graphify-out`, and common cache outputs are skipped by default.
 
 ## Auth And Roles
 

@@ -62,6 +62,16 @@ $g = Invoke-RestMethod http://127.0.0.1:3001/product-graph
 $g.summary | ConvertTo-Json -Depth 6
 ```
 
+## Dogfood An External Workspace
+
+No model provider or API key is required. This scans the target workspace, stores graph data under `.tmp-dogfood-data/<workspace-hash>` inside the OpenAgentGraph repo, and writes `GRAPH_REPORT.md` into the target workspace root.
+
+```powershell
+npm run dogfood -- --workspace "C:\path with spaces\your-project"
+```
+
+Read `GRAPH_REPORT.md` first. Trust indexed areas, but inspect source directly when the report warns that C#/.NET coverage is file-level only or partial.
+
 ## Generate The Compact Handoff
 
 No model provider or API key is required for the handoff report.

@@ -11,6 +11,9 @@ import type {
   ProductSourceRef,
   ScanBreakerStatus,
   ScanProgressSnapshot,
+  SkipDiagnostic,
+  SkipReason,
+  WorkspaceKernelProfile,
 } from "@openagentgraph/shared";
 import {
   DEFAULT_LIGHTWEIGHT_SCAN_LIMITS,
@@ -22,6 +25,30 @@ import {
   scanBreakerDiagnostics,
   updateScanBreakerNear,
 } from "./scanProgress.js";
+import {
+  BASE_SKIPPED_DIRECTORIES,
+  detectWorkspaceScanProfile,
+  isDotNetConfigExtension,
+  isDotNetSourceExtension,
+  isTypeScriptScannableExtension,
+  isUnsupportedSourceExtension,
+  normalizeScannerProjectPath,
+  pathContainsSkippedDirectory,
+  recordSkippedDirectory,
+  recordSourceExtension,
+  workspaceProfileDiagnostics,
+  workspaceProfileToMetadata,
+  type WorkspaceScanProfile,
+} from "./scannerHygiene.js";
+import {
+  augmentDotNetWorkspaceGraph,
+  createDotNetSymbolLookup,
+  DOTNET_SCANNER_VERSION,
+  indexDotNetFile,
+  registerDotNetSymbolNode,
+} from "./kernel/dotnetScanner.js";
+import { IgnoreEngine } from "./kernel/ignoreEngine.js";
+import { detectWorkspaceKernelProfile, kernelProfileDiagnostics } from "./kernel/workspaceDetection.js";
 
 const SCANNER_VERSION = "1";
 const MAX_PRODUCT_NODE_ID_LENGTH = 128;
@@ -30,45 +57,15 @@ const MAX_PRODUCT_NODE_SUMMARY_LENGTH = 1_000;
 const MAX_PRODUCT_EDGE_LABEL_LENGTH = 180;
 const SCANNABLE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"] as const;
 const SCANNABLE_EXTENSION_SET = new Set<string>(SCANNABLE_EXTENSIONS);
+const PRODUCT_GRAPH_EXTENSION_SET = new Set(
+  [...SCANNABLE_EXTENSIONS, ".cs", ".xaml", ".csproj", ".sln", ".props", ".targets"]
+);
 const MAX_DEPENDENCY_METADATA_LENGTH = 480;
 const MAX_METHOD_METADATA_LENGTH = 480;
 const TSCONFIG_CANDIDATE_PATTERN = /^tsconfig(?:[.-].*)?\.json$/i;
 const MAX_SEMANTIC_CONFIG_PATHS = 8;
 const SYNTHETIC_SEMANTIC_CONFIG_FILENAME = "openagentgraph.synthetic.tsconfig.json";
-const SKIPPED_DIRECTORIES = new Set([
-  ".cache",
-  ".git",
-  ".next",
-  ".mypy_cache",
-  ".output",
-  ".playwright-mcp",
-  ".pytest_cache",
-  ".ruff_cache",
-  ".svelte-kit",
-  ".tmp-dev-logs",
-  ".turbo",
-  ".tox",
-  ".venv",
-  ".vercel",
-  ".vscode-test",
-  "__pycache__",
-  "build",
-  "coverage",
-  "data",
-  "dist",
-  "dist-electron",
-  "dist-main",
-  "dist-renderer",
-  "htmlcov",
-  "node_modules",
-  "out",
-  "playwright-report",
-  "release",
-  "storybook-static",
-  "test-results",
-  "venv",
-  "webview-dist",
-]);
+
 
 export interface CodebaseScanSummary {
   fileCount: number;
@@ -100,6 +97,10 @@ export interface CodebaseScanSummary {
   };
   progress: ScanProgressSnapshot;
   diagnostics: string[];
+  workspaceProfile?: WorkspaceScanProfile;
+  kernelProfile?: WorkspaceKernelProfile;
+  skippedCountsByReason?: Partial<Record<SkipReason, number>>;
+  skipDiagnostics?: SkipDiagnostic[];
 }
 
 export interface CodebaseScanPlan {
@@ -121,11 +122,16 @@ interface ScanFile {
 interface ScanStats {
   skippedFileCount: number;
   skippedDirectoryCount: number;
+  skippedDirectoryCounts: Map<string, number>;
+  skippedCountsByReason: Map<SkipReason, number>;
+  skipDiagnostics: SkipDiagnostic[];
+  sourceExtensionCounts: Map<string, number>;
   totalBytes: number;
   filesScanned: number;
   partial: boolean;
   breakers: ScanBreakerStatus;
   progress: ScanProgressSnapshot;
+  ignoreEngine: IgnoreEngine;
 }
 
 type DependencyKind = "import" | "export" | "dynamic_import" | "require";
@@ -317,6 +323,7 @@ async function collectFiles(
   }
 ): Promise<{ files: ScanFile[]; stats: ScanStats }> {
   const realRoot = await safeRealpath(root);
+  const ignoreEngine = await IgnoreEngine.load(realRoot);
   const pending = [{ absolutePath: realRoot, depth: 0 }];
   const files: ScanFile[] = [];
   const limits = normalizeScanBreakerLimits(input.limits, DEFAULT_LIGHTWEIGHT_SCAN_LIMITS);
@@ -325,10 +332,15 @@ async function collectFiles(
   const stats: ScanStats = {
     skippedFileCount: 0,
     skippedDirectoryCount: 0,
+    skippedDirectoryCounts: new Map<string, number>(),
+    skippedCountsByReason: new Map<SkipReason, number>(),
+    skipDiagnostics: [],
+    sourceExtensionCounts: new Map<string, number>(),
     totalBytes: 0,
     partial: false,
     filesScanned: 0,
     breakers,
+    ignoreEngine,
     progress: buildScanProgressSnapshot({
       scanId: input.scanId,
       scope: "product_codebase",
@@ -376,12 +388,22 @@ async function collectFiles(
     }
 
     const current = pending.shift()!;
+    const currentProjectPath = normalizeScannerProjectPath(path.relative(realRoot, current.absolutePath)) || ".";
+    await ignoreEngine.enterDirectory(currentProjectPath, current.absolutePath);
     let entries: Array<{ name: string; isFile: () => boolean; isDirectory: () => boolean; isSymbolicLink: () => boolean }>;
     try {
       entries = await fs.readdir(current.absolutePath, { withFileTypes: true });
     } catch {
       stats.skippedDirectoryCount += 1;
       stats.partial = true;
+      const unreadableDirectoryPath = normalizeScannerProjectPath(path.relative(realRoot, current.absolutePath)) || ".";
+      ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+        path: unreadableDirectoryPath,
+        decision: {
+          reason: "unreadable",
+          detail: "Directory could not be read during codebase scan.",
+        },
+      });
       publishProgress("A directory could not be read.");
       continue;
     }
@@ -410,9 +432,17 @@ async function collectFiles(
         }
       }
 
+      const projectPath = normalizeScannerProjectPath(path.relative(realRoot, absolutePath));
+
       if (entry.isDirectory()) {
-        if (SKIPPED_DIRECTORIES.has(entry.name)) {
+        const directoryDecision = ignoreEngine.shouldSkip(projectPath, true);
+        if (directoryDecision) {
           stats.skippedDirectoryCount += 1;
+          recordSkippedDirectory(stats.skippedDirectoryCounts, entry.name);
+          ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+            path: projectPath,
+            decision: directoryDecision,
+          });
           continue;
         }
         if (current.depth >= limits.maxDepth) {
@@ -422,8 +452,15 @@ async function collectFiles(
             stats.breakers,
             "maxDepth",
             current.depth + 1,
-            `Codebase scan skipped ${normalizeProjectPath(path.relative(realRoot, absolutePath))} because directory depth exceeded ${limits.maxDepth}.`
+            `Codebase scan skipped ${projectPath} because directory depth exceeded ${limits.maxDepth}.`
           );
+          ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+            path: projectPath,
+            decision: {
+              reason: "breaker",
+              detail: `Directory depth exceeded ${limits.maxDepth}.`,
+            },
+          });
           publishProgress("Directory depth breaker hit.");
           continue;
         }
@@ -433,17 +470,53 @@ async function collectFiles(
 
       if (!entry.isFile()) {
         stats.skippedFileCount += 1;
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: {
+            reason: "unsupported",
+            detail: "Entry is not a regular file.",
+          },
+        });
+        continue;
+      }
+
+      const fileIgnoreDecision = ignoreEngine.shouldSkip(projectPath, false);
+      if (fileIgnoreDecision) {
+        stats.skippedFileCount += 1;
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: fileIgnoreDecision,
+        });
         continue;
       }
 
       const extension = path.extname(entry.name).toLowerCase();
-      if (!SCANNABLE_EXTENSION_SET.has(extension)) continue;
+      if (!PRODUCT_GRAPH_EXTENSION_SET.has(extension)) {
+        if (isUnsupportedSourceExtension(extension)) {
+          stats.skippedFileCount += 1;
+          ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+            path: projectPath,
+            decision: {
+              reason: "unsupported",
+              detail: `Extension '${extension}' is detected source code but not indexed by the codebase scanner in base v1.`,
+            },
+          });
+        }
+        continue;
+      }
 
       let fileStat;
       try {
         fileStat = await fs.stat(absolutePath);
       } catch {
         stats.skippedFileCount += 1;
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: {
+            reason: "unreadable",
+            detail: "File could not be stat'd during codebase scan.",
+          },
+        });
         continue;
       }
 
@@ -454,8 +527,15 @@ async function collectFiles(
           stats.breakers,
           "maxFileBytes",
           fileStat.size,
-          `Codebase scan skipped ${normalizeProjectPath(path.relative(realRoot, absolutePath))} because it exceeds ${limits.maxFileBytes} bytes.`
+          `Codebase scan skipped ${projectPath} because it exceeds ${limits.maxFileBytes} bytes.`
         );
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: {
+            reason: "too_large",
+            detail: `File exceeds ${limits.maxFileBytes} bytes.`,
+          },
+        });
         publishProgress("Single-file size breaker hit.");
         continue;
       }
@@ -469,6 +549,13 @@ async function collectFiles(
           stats.totalBytes + fileStat.size,
           `Codebase scan skipped remaining source once total bytes exceeded ${limits.maxTotalBytes}.`
         );
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: {
+            reason: "breaker",
+            detail: `Total scanned bytes would exceed ${limits.maxTotalBytes}.`,
+          },
+        });
         publishProgress("Total source bytes breaker hit.");
         break;
       }
@@ -482,6 +569,13 @@ async function collectFiles(
           files.length + 1,
           `Codebase scan skipped remaining source once file count exceeded ${limits.maxFiles}.`
         );
+        ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
+          path: projectPath,
+          decision: {
+            reason: "breaker",
+            detail: `File count would exceed ${limits.maxFiles}.`,
+          },
+        });
         publishProgress("File count breaker hit.");
         break;
       }
@@ -492,6 +586,7 @@ async function collectFiles(
         relativePath: normalizeProjectPath(path.relative(realRoot, absolutePath)),
         size: fileStat.size,
       });
+      recordSourceExtension(stats.sourceExtensionCounts, extension);
       stats.filesScanned = files.length;
       if (files.length % 100 === 0) {
         publishProgress("Collecting source files.");
@@ -811,14 +906,9 @@ function directoryDepth(workspaceRoot: string, directory: string) {
   return relativePath.split("/").filter(Boolean).length;
 }
 
-function pathContainsSkippedDirectory(workspaceRoot: string, candidatePath: string) {
-  const relativePath = normalizeProjectPath(path.relative(workspaceRoot, candidatePath));
-  return relativePath.split("/").some((segment) => SKIPPED_DIRECTORIES.has(segment));
-}
-
 function semanticConfigExcludes(excludes: readonly string[] | undefined) {
   const merged = new Set(excludes ?? []);
-  for (const directoryName of SKIPPED_DIRECTORIES) {
+  for (const directoryName of BASE_SKIPPED_DIRECTORIES) {
     merged.add(directoryName);
     merged.add(`${directoryName}/**`);
     merged.add(`**/${directoryName}`);
@@ -843,7 +933,7 @@ function createSemanticParseConfigHost(workspaceRoot: string): ts.ParseConfigHos
       return entries.filter((entryPath) => {
         const resolvedPath = path.resolve(entryPath);
         return isInsideOrSameRoot(workspaceRoot, resolvedPath)
-          && !pathContainsSkippedDirectory(workspaceRoot, resolvedPath);
+          && !pathContainsSkippedDirectory(normalizeProjectPath(path.relative(workspaceRoot, resolvedPath)));
       });
     },
     realpath: ts.sys.realpath,
@@ -862,7 +952,7 @@ async function discoverSemanticConfigCandidates(
     if (budgetReason) return { candidates: [] as SemanticConfigCandidate[], fallbackReason: budgetReason };
     let currentDirectory = path.dirname(file.absolutePath);
     while (isInsideOrSameRoot(workspaceRoot, currentDirectory)) {
-      if (!pathContainsSkippedDirectory(workspaceRoot, currentDirectory)) {
+      if (!pathContainsSkippedDirectory(normalizeProjectPath(path.relative(workspaceRoot, currentDirectory)))) {
         directories.add(currentDirectory);
       }
       const nextDirectory = path.dirname(currentDirectory);
@@ -883,7 +973,7 @@ async function discoverSemanticConfigCandidates(
     for (const entry of entries) {
       if (!entry.isFile() || !TSCONFIG_CANDIDATE_PATTERN.test(entry.name)) continue;
       const configPath = path.join(directory, entry.name);
-      if (pathContainsSkippedDirectory(workspaceRoot, configPath)) continue;
+      if (pathContainsSkippedDirectory(normalizeProjectPath(path.relative(workspaceRoot, configPath)))) continue;
       const canonicalPath = semanticCanonicalPath(configPath);
       if (configPaths.has(canonicalPath)) continue;
       configPaths.set(canonicalPath, {
@@ -1333,12 +1423,85 @@ function communityKeyForFilePath(filePath: string) {
   return { key: ".", title: "root", communityKind: "root" };
 }
 
+async function buildScannedDotNetFile(
+  file: ScanFile,
+  scanId: string,
+  scannedAt: string
+): Promise<ScannedFileResult> {
+  let body: string;
+  try {
+    body = await fs.readFile(file.absolutePath, "utf8");
+  } catch {
+    return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };
+  }
+
+  const extension = path.extname(file.relativePath).toLowerCase();
+  const hash = contentHash(body);
+  const fileNodeId = stableProductId("code-scan:file", file.relativePath);
+  const dotnetRole = isDotNetConfigExtension(extension) ? "config" : "source";
+  const indexed = indexDotNetFile({
+    filePath: file.relativePath,
+    extension,
+    body,
+    sizeBytes: file.size,
+    scanId,
+    scannedAt,
+    stableId: stableProductId,
+    compactMetadata,
+    sourceRef: codeScanSourceRef,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  const fileNode: ProductGraphNode = {
+    id: fileNodeId,
+    kind: "code_file",
+    title: file.relativePath.slice(0, MAX_PRODUCT_NODE_TITLE_LENGTH),
+    summary: `Scanned ${dotnetRole} file (${Math.round(file.size / 1024)} KB).`.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
+    status: "planned",
+    tags: ["code", "code-scan", dotnetRole === "config" ? "code-config" : "code-source", "dotnet-t0"],
+    source: codeScanSourceRef(file.relativePath),
+    metadata: compactMetadata({
+      scannerVersion: SCANNER_VERSION,
+      scanId,
+      scannedAt,
+      contentHash: hash,
+      scannerSourceFile: file.relativePath,
+      fileSizeBytes: file.size,
+      scannerLanguage: "csharp",
+      scannerIndexingMode: "t0",
+      scannerDotNetVersion: DOTNET_SCANNER_VERSION,
+      scannerDotNetRole: dotnetRole,
+      scannerSemanticSupported: false,
+      ...indexed.fileMetadata,
+    }),
+    createdAt: scannedAt,
+    updatedAt: scannedAt,
+  };
+
+  return {
+    file,
+    fileNode,
+    symbolNodes: indexed.symbolNodes,
+    edges: indexed.edges,
+    dependencySpecs: [],
+    skippedFileCount: 0,
+  };
+}
+
 async function buildScannedFile(
   file: ScanFile,
   scanId: string,
   scannedAt: string,
   options: { promoteMethodNodes?: boolean } = {}
 ): Promise<ScannedFileResult> {
+  const extension = path.extname(file.relativePath).toLowerCase();
+  if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension)) {
+    return buildScannedDotNetFile(file, scanId, scannedAt);
+  }
+  if (!isTypeScriptScannableExtension(extension)) {
+    return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };
+  }
+
   let body: string;
   try {
     body = await fs.readFile(file.absolutePath, "utf8");
@@ -2115,6 +2278,20 @@ export async function scanWorkspaceCodebase(input: {
     limits: input.scanLimits,
     onProgress: input.onProgress,
   });
+  const workspaceProfile = await detectWorkspaceScanProfile(workspaceRoot, {
+    sourceExtensionCounts: stats.sourceExtensionCounts,
+    skippedDirectoryCounts: stats.skippedDirectoryCounts,
+  });
+  const kernelProfile = await detectWorkspaceKernelProfile(workspaceRoot, {
+    ignoreEngine: stats.ignoreEngine,
+    ignoreRules: stats.ignoreEngine.rules,
+    sourceExtensionCounts: stats.sourceExtensionCounts,
+    skippedCountsByReason: stats.skippedCountsByReason,
+    warnings: workspaceProfile.warnings,
+  });
+  const semanticEligibleFiles = files.filter((file) =>
+    isTypeScriptScannableExtension(path.extname(file.relativePath).toLowerCase())
+  );
   input.onProgress?.(buildScanProgressSnapshot({
     scanId,
     scope: "product_codebase",
@@ -2135,6 +2312,9 @@ export async function scanWorkspaceCodebase(input: {
   const scannedFileRecords: Array<{ filePath: string; fileNodeId: string }> = [];
   let skippedFileCount = stats.skippedFileCount;
 
+  const dotnetFileBodies = new Map<string, string>();
+  const dotnetSymbolLookup = createDotNetSymbolLookup();
+
   for (const file of files) {
     const scannedFile = await buildScannedFile(file, scanId, scannedAt, {
       promoteMethodNodes: input.promoteMethodNodes,
@@ -2148,16 +2328,55 @@ export async function scanWorkspaceCodebase(input: {
     nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
     for (const symbolNode of scannedFile.symbolNodes) {
       nodesById.set(symbolNode.id, symbolNode);
+      registerDotNetSymbolNode(dotnetSymbolLookup, {
+        filePath: scannedFile.file.relativePath,
+        symbolId: symbolNode.id,
+        kind: typeof symbolNode.metadata?.scannerSymbolKind === "string"
+          ? symbolNode.metadata.scannerSymbolKind
+          : undefined,
+        name: typeof symbolNode.metadata?.scannerSymbolName === "string"
+          ? symbolNode.metadata.scannerSymbolName
+          : undefined,
+        parentType: typeof symbolNode.metadata?.scannerSymbolParentType === "string"
+          ? symbolNode.metadata.scannerSymbolParentType
+          : undefined,
+      });
     }
     for (const edge of scannedFile.edges) {
       edgesById.set(edge.id, edge);
     }
+    const extension = path.extname(file.relativePath).toLowerCase();
+    if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension) || extension === ".xaml") {
+      try {
+        dotnetFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+      } catch {
+        // File bodies are optional for workspace-level .NET graph augmentation.
+      }
+    }
+  }
+
+  const dotnetWorkspace = augmentDotNetWorkspaceGraph({
+    workspaceRoot,
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => dotnetFileBodies.has(file.relativePath))
+      .map((file) => ({ relativePath: file.relativePath, body: dotnetFileBodies.get(file.relativePath) })),
+    fileNodeIdsByPath,
+    symbolLookup: dotnetSymbolLookup,
+    stableId: stableProductId,
+    compactMetadata,
+    sourceRef: codeScanSourceRef,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  for (const edge of dotnetWorkspace.edges) {
+    edgesById.set(edge.id, edge);
   }
 
   let semanticAnalysis: SemanticAnalysisContext;
   const semanticLimits = normalizeScanBreakerLimits(input.semanticScanLimits, DEFAULT_SEMANTIC_SCAN_LIMITS);
   const semanticBreakers = createScanBreakerStatus(semanticLimits);
-  const semanticBudget = createSemanticAnalysisBudget(files, {
+  const semanticBudget = createSemanticAnalysisBudget(semanticEligibleFiles, {
     maxFiles: input.semanticAnalysisBudget?.maxFiles ?? semanticLimits.maxFiles,
     maxTotalBytes: input.semanticAnalysisBudget?.maxTotalBytes ?? semanticLimits.maxTotalBytes,
     maxDurationMs: input.semanticAnalysisBudget?.maxDurationMs ?? semanticLimits.maxDurationMs,
@@ -2176,7 +2395,7 @@ export async function scanWorkspaceCodebase(input: {
     message: "Running TypeScript semantic analysis when available.",
   }));
   try {
-    semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, files, semanticBudget);
+    semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, semanticEligibleFiles, semanticBudget);
   } catch (error) {
     semanticAnalysis = {
       enabled: true,
@@ -2187,7 +2406,7 @@ export async function scanWorkspaceCodebase(input: {
       configCount: 0,
       configuredFileCount: 0,
       syntheticFileCount: 0,
-      unconfiguredFileCount: files.length,
+      unconfiguredFileCount: semanticEligibleFiles.length,
       configPaths: [],
     };
   }
@@ -2283,6 +2502,7 @@ export async function scanWorkspaceCodebase(input: {
       scannerSemanticMaxFileBytes: semanticBreakers.limits.maxFileBytes,
       scannerSemanticMaxDepth: semanticBreakers.limits.maxDepth,
       scannerSemanticMaxDurationMs: semanticBreakers.limits.maxDurationMs,
+      ...workspaceProfileToMetadata(workspaceProfile),
     },
   });
   for (const communityNode of communityGraph.communityNodes) {
@@ -2310,6 +2530,9 @@ export async function scanWorkspaceCodebase(input: {
   const nodes = [...nodesById.values()].sort((left, right) => left.id.localeCompare(right.id));
   const edges = [...edgesById.values()].sort((left, right) => left.id.localeCompare(right.id));
   const diagnostics = [
+    ...workspaceProfileDiagnostics(workspaceProfile),
+    ...kernelProfileDiagnostics(kernelProfile),
+    stats.ignoreEngine.diagnosticsSummary(stats.skippedCountsByReason),
     ...scanBreakerDiagnostics(stats.breakers),
     ...scanBreakerDiagnostics(semanticBreakers),
     ...(semanticFallbackReason ? [`Semantic analysis: ${semanticFallbackReason}`] : []),
@@ -2364,6 +2587,10 @@ export async function scanWorkspaceCodebase(input: {
       },
       progress,
       diagnostics,
+      workspaceProfile,
+      kernelProfile,
+      skippedCountsByReason: stats.ignoreEngine.skippedCountsRecord(stats.skippedCountsByReason),
+      skipDiagnostics: stats.skipDiagnostics,
     },
   };
 }

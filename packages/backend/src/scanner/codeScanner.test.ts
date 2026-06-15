@@ -299,6 +299,57 @@ describe("code scanner", () => {
     expect(plan.nodes.map((node) => node.title)).not.toContain(".next/server/page.js");
   });
 
+  it("indexes dotnet source and config files while skipping bin and obj output", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    fs.mkdirSync(path.join(workspaceRoot, "src"), { recursive: true });
+    fs.mkdirSync(path.join(workspaceRoot, "bin", "Release"), { recursive: true });
+    fs.mkdirSync(path.join(workspaceRoot, "obj", "Debug"), { recursive: true });
+    fs.mkdirSync(path.join(workspaceRoot, "graphify-out"), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, "App.sln"), "Microsoft Visual Studio Solution File\n");
+    fs.writeFileSync(path.join(workspaceRoot, "src", "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");
+    fs.writeFileSync(
+      path.join(workspaceRoot, "src", "Player.cs"),
+      [
+        "namespace Demo;",
+        "public interface IPlayer { }",
+        "public class PlayerService { }",
+      ].join("\n")
+    );
+    fs.writeFileSync(path.join(workspaceRoot, "src", "MainWindow.xaml"), "<Window xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" />\n");
+    fs.writeFileSync(path.join(workspaceRoot, "bin", "Release", "libvlc.js"), "export const generated = true;\n");
+    fs.writeFileSync(path.join(workspaceRoot, "obj", "Debug", "App.g.cs"), "public class Generated { }\n");
+    fs.writeFileSync(path.join(workspaceRoot, "graphify-out", "graph.json"), "{}\n");
+
+    const plan = await scanWorkspaceCodebase({
+      workspaceRoot,
+      projection: makeProjection(),
+    });
+
+    const titles = plan.nodes.map((node) => node.title);
+    expect(titles).toEqual(expect.arrayContaining([
+      "App.sln",
+      "src/App.csproj",
+      "src/Player.cs",
+      "src/MainWindow.xaml",
+    ]));
+    expect(titles).not.toContain("bin/Release/libvlc.js");
+    expect(titles).not.toContain("obj/Debug/App.g.cs");
+    expect(titles).not.toContain("graphify-out/graph.json");
+
+    const symbols = plan.nodes.filter((node) => node.kind === "code_symbol");
+    expect(symbols.map((node) => node.title)).toEqual(expect.arrayContaining([
+      "IPlayer (interface)",
+      "PlayerService (class)",
+    ]));
+    expect(symbols.every((node) => !node.body)).toBe(true);
+    expect(plan.summary.workspaceProfile?.detectedProjectTypes).toEqual(expect.arrayContaining(["dotnet"]));
+    expect(plan.summary.kernelProfile?.activeScannerIds).toEqual(expect.arrayContaining(["dotnet"]));
+    expect(plan.summary.skippedCountsByReason?.global ?? 0).toBeGreaterThan(0);
+    expect(plan.summary.diagnostics.join("\n")).toContain("T0 structural indexing");
+    expect(plan.summary.diagnostics.join("\n")).toContain("Skipped paths by reason");
+    expect(plan.summary.skippedDirectoryCount).toBeGreaterThanOrEqual(3);
+  });
+
   it("marks emergency breaker hits with visible diagnostics", async () => {
     const workspaceRoot = makeTempWorkspace();
     fs.mkdirSync(path.join(workspaceRoot, "src"), { recursive: true });

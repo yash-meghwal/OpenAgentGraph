@@ -9,6 +9,7 @@ data/
 .playwright-mcp/
 test-results/
 .tmp-dev-logs/
+.tmp-dogfood-data/
 mcps/
 packages/vscode-extension/.vscode-test/
 packages/vscode-extension/webview-dist/

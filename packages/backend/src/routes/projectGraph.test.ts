@@ -22,11 +22,13 @@ function writeFile(filePath: string, contents: string) {
 const operatorHeaders = { "x-openagentgraph-actor-id": "operator" };
 
 describe("project graph scanner", () => {
-  afterEach(() => {
+  afterEach(async () => {
     for (const workspaceRoot of tempWorkspacePaths.splice(0)) {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
     setAppConfigForTests(undefined);
+    const { resetProjectGraphScanStateForTests } = await import("./projectGraph.js");
+    resetProjectGraphScanStateForTests();
   });
 
   it("excludes generated folders while preserving source, import, and test links", async () => {
@@ -69,7 +71,37 @@ describe("project graph scanner", () => {
     });
     expect(graph.breakers?.project.limits.maxFiles).toBeGreaterThanOrEqual(20_000);
     expect(graph.progress?.phase).toBe("completed");
-    expect(graph.diagnostics).toEqual([]);
+    expect(graph.diagnostics?.[0]).toContain("Detected project types");
+    expect(graph.diagnostics?.join("\n")).toContain("Skipped generated folders");
+  });
+
+  it("includes dotnet source and config files while excluding bin and obj output", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    writeFile(path.join(workspaceRoot, "App.sln"), "Microsoft Visual Studio Solution File\n");
+    writeFile(path.join(workspaceRoot, "src", "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");
+    writeFile(path.join(workspaceRoot, "src", "Player.cs"), "public class Player { }\n");
+    writeFile(path.join(workspaceRoot, "src", "MainWindow.xaml"), "<Window />\n");
+    writeFile(path.join(workspaceRoot, "bin", "Release", "lib.js"), "export const generated = true;\n");
+    writeFile(path.join(workspaceRoot, "obj", "Debug", "App.g.cs"), "public class Generated { }\n");
+
+    const graph = await buildProjectGraph(workspaceRoot);
+    const paths = new Set(graph.nodes.map((node) => node.path));
+    const fileKinds = new Map(
+      graph.nodes
+        .filter((node) => node.path.endsWith(".cs") || node.path.endsWith(".sln") || node.path.endsWith(".xaml"))
+        .map((node) => [node.path, node.kind])
+    );
+
+    expect(paths).toContain("App.sln");
+    expect(paths).toContain("src/App.csproj");
+    expect(paths).toContain("src/Player.cs");
+    expect(paths).toContain("src/MainWindow.xaml");
+    expect(paths).not.toContain("bin/Release/lib.js");
+    expect(paths).not.toContain("obj/Debug/App.g.cs");
+    expect(fileKinds.get("src/Player.cs")).toBe("source");
+    expect(fileKinds.get("src/MainWindow.xaml")).toBe("source");
+    expect(fileKinds.get("App.sln")).toBe("config");
+    expect(graph.diagnostics?.join("\n")).toContain("dotnet");
   });
 
   it("stops traversal when a global project graph breaker is hit", async () => {
@@ -96,6 +128,34 @@ describe("project graph scanner", () => {
       limit: 1,
     });
     expect(graph.diagnostics?.join("\n")).toContain("file count exceeded 1");
+  });
+
+  it("accepts empty project graph scan POST requests without Content-Type", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    const dataDir = makeTempWorkspace();
+    writeFile(path.join(workspaceRoot, "src", "app.ts"), "export const app = true;\n");
+    setAppConfigForTests(loadAppConfig({
+      NODE_ENV: "test",
+      DATA_DIR: dataDir,
+      OPENAGENTGRAPH_WORKSPACE_ROOT: workspaceRoot,
+    }));
+    const app = Fastify();
+    const { projectGraphRoutes } = await import("./projectGraph.js");
+    await app.register(projectGraphRoutes);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/project-graph/scan-jobs",
+      headers: operatorHeaders,
+      payload: "",
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      scope: "project_graph",
+      status: expect.stringMatching(/^(queued|running)$/),
+    });
+    await app.close();
   });
 
   it("requires operator access to start project graph scan jobs", async () => {

@@ -25,6 +25,8 @@
     "gate:check": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/gate.js",
     "handoff:print": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/handoff.js",
     "handoff:write": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/handoff.js --output GRAPH_REPORT.md",
+    "dogfood": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/dogfood.js",
+    "verify:graph": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/verifyGraph.js",
     "docker:build": "docker build -t openagentgraph-backend .",
     "typecheck": "npx tsc --noEmit --pretty false -p packages/frontend/tsconfig.json && npx tsc --noEmit --pretty false -p packages/electron/tsconfig.json && npx tsc --noEmit --pretty false -p packages/vscode-extension/tsconfig.json",
     "verify": "npm run build && npm run typecheck && npm run test --workspaces --if-present && npm run gate:check -- --mode hard --allow-empty",

@@ -1,6 +1,6 @@
 import type { ScannerCapability, ScannerPluginDefinition, ScannerSupportTier } from "@openagentgraph/shared";
 
-export const SCANNER_REGISTRY_VERSION = "1.0";
+export const SCANNER_REGISTRY_VERSION = "1.1";
 
 const DEFAULT_HANDOFF_SECTIONS = [
   "source_trust",
@@ -13,6 +13,15 @@ const DEFAULT_HANDOFF_SECTIONS = [
   "commands",
 ] as const;
 
+const T1_HANDOFF_SECTIONS = [
+  "source_trust",
+  "project_type",
+  "read_these_first",
+  "communities",
+  "risks_and_gaps",
+  "commands",
+] as const;
+
 function plugin(input: ScannerPluginDefinition): ScannerPluginDefinition {
   return input;
 }
@@ -21,7 +30,19 @@ export const SCANNER_REGISTRY: ScannerPluginDefinition[] = [
   plugin({
     id: "typescript",
     label: "TypeScript/JavaScript",
-    projectTypes: ["typescript", "javascript", "node", "ts-js-monorepo", "ts-js-app"],
+    projectTypes: [
+      "typescript",
+      "javascript",
+      "node",
+      "ts-js-monorepo",
+      "ts-js-app",
+      "next-app",
+      "react-spa",
+      "vue-app",
+      "angular-app",
+      "svelte-app",
+      "node-backend",
+    ],
     tier: "T0",
     capabilities: [
       "project_detection",
@@ -38,7 +59,7 @@ export const SCANNER_REGISTRY: ScannerPluginDefinition[] = [
   plugin({
     id: "dotnet",
     label: "C#/.NET",
-    projectTypes: ["dotnet", "csharp-solution", "csharp-desktop"],
+    projectTypes: ["dotnet", "csharp-solution", "csharp-desktop", "aspnet-web"],
     tier: "T0",
     capabilities: [
       "project_detection",
@@ -53,49 +74,66 @@ export const SCANNER_REGISTRY: ScannerPluginDefinition[] = [
     warnings: ["C#/.NET: T0 structural indexing; Roslyn semantic resolution is not enabled in base yet."],
   }),
   plugin({
-    id: "rust",
-    label: "Rust",
-    projectTypes: ["rust", "rust-crate", "rust-workspace"],
-    tier: "T2",
-    capabilities: ["project_detection", "file_discovery", "handoff_sections"],
+    id: "python",
+    label: "Python",
+    projectTypes: ["python", "python-app", "django-app", "fastapi-app", "python-ml"],
+    tier: "T1",
+    capabilities: ["project_detection", "file_discovery", "symbols", "dependencies", "tests", "handoff_sections"],
     semanticSupported: false,
-    handoffSections: ["source_trust", "project_type", "risks_and_gaps", "commands"],
-    warnings: ["Rust scanner is marker/file-level only in Phase 1."],
+    handoffSections: [...T1_HANDOFF_SECTIONS],
+    warnings: ["Python: T1 structural indexing; AST-level semantic edges are not enabled in base yet."],
   }),
   plugin({
     id: "go",
     label: "Go",
     projectTypes: ["go", "go-module"],
-    tier: "T2",
-    capabilities: ["project_detection", "file_discovery", "handoff_sections"],
+    tier: "T1",
+    capabilities: ["project_detection", "file_discovery", "symbols", "dependencies", "tests", "handoff_sections"],
     semanticSupported: false,
-    handoffSections: ["source_trust", "project_type", "risks_and_gaps", "commands"],
-    warnings: ["Go scanner is marker/file-level only in Phase 1."],
+    handoffSections: [...T1_HANDOFF_SECTIONS],
+    warnings: ["Go: T1 structural indexing; go/types semantic edges are not enabled in base yet."],
+  }),
+  plugin({
+    id: "rust",
+    label: "Rust",
+    projectTypes: ["rust", "rust-crate", "rust-workspace"],
+    tier: "T1",
+    capabilities: ["project_detection", "file_discovery", "symbols", "dependencies", "handoff_sections"],
+    semanticSupported: false,
+    handoffSections: [...T1_HANDOFF_SECTIONS],
+    warnings: ["Rust: T1 structural indexing; rust-analyzer semantic edges are not enabled in base yet."],
+  }),
+  plugin({
+    id: "terraform",
+    label: "Terraform/IaC",
+    projectTypes: ["terraform", "terraform-iac", "pulumi-iac", "k8s-manifests", "docker-compose"],
+    tier: "T1",
+    capabilities: ["project_detection", "file_discovery", "symbols", "dependencies", "handoff_sections"],
+    semanticSupported: false,
+    handoffSections: [...T1_HANDOFF_SECTIONS],
+    warnings: ["Terraform/IaC: T1 config indexing; full IaC graph resolution is not enabled in base yet."],
   }),
   plugin({
     id: "java",
     label: "Java/Kotlin",
-    projectTypes: ["java", "java-maven", "java-gradle"],
+    projectTypes: ["java", "java-maven", "java-gradle", "kotlin-android"],
     tier: "T2",
     capabilities: ["project_detection", "file_discovery", "handoff_sections"],
     semanticSupported: false,
     handoffSections: ["source_trust", "project_type", "risks_and_gaps", "commands"],
-    warnings: ["Java scanner is marker/file-level only in Phase 1."],
-  }),
-  plugin({
-    id: "python",
-    label: "Python",
-    projectTypes: ["python", "python-app"],
-    tier: "T2",
-    capabilities: ["project_detection", "file_discovery", "handoff_sections"],
-    semanticSupported: false,
-    handoffSections: ["source_trust", "project_type", "risks_and_gaps", "commands"],
-    warnings: ["Python scanner is marker/file-level only in Phase 1."],
+    warnings: ["Java/Kotlin scanner is marker/file-level only in Phase 4."],
   }),
   plugin({
     id: "generic",
     label: "Generic polyglot",
-    projectTypes: ["generic", "mixed-polyglot", "documentation-corpus", "empty-greenfield"],
+    projectTypes: [
+      "generic",
+      "generic-polyglot",
+      "mixed-polyglot",
+      "documentation-corpus",
+      "empty-greenfield",
+      "design-assets",
+    ],
     tier: "T3",
     capabilities: ["project_detection", "file_discovery", "handoff_sections"],
     semanticSupported: false,

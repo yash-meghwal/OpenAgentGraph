@@ -331,6 +331,36 @@ export interface AgentPlanProposalRecord extends AgentPlanProposal {
   dismissalReason?: string;
 }
 
+export interface AgentCodeContextNodeSummary {
+  id: string;
+  kind: string;
+  label: string;
+  path?: string;
+}
+
+export interface AgentCodeContextSlice {
+  source: "unified_code_graph";
+  workspaceRoot: string;
+  generatedAt: string;
+  primaryLens: string;
+  readTheseFirst: AgentCodeContextNodeSummary[];
+  godNodes: Array<{
+    label: string;
+    summary: string;
+    topFiles: string[];
+    topSymbols: string[];
+  }>;
+  focusNodes: AgentCodeContextNodeSummary[];
+  focusEdges: Array<{
+    kind: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+    provenance: string;
+  }>;
+  linkedRunPaths: string[];
+  truncated: boolean;
+}
+
 export interface AgentContextPack {
   graphId: string;
   generatedAt: string;
@@ -351,6 +381,14 @@ export interface AgentContextPack {
   frontier: GraphFrontierNodeSummary[];
   recentAgentActivity: AgentActivityRecord[];
   planProposals: AgentPlanProposalRecord[];
+  codeContext?: AgentCodeContextSlice;
+  fusionChecks?: Array<{
+    code: string;
+    title: string;
+    severity: "fail" | "warn" | "info";
+    detail: string;
+    count?: number;
+  }>;
   instructions: string[];
 }
 

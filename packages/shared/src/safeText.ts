@@ -1,5 +1,7 @@
 const WINDOWS_ABSOLUTE_PATH =
   /\b[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\b/g;
+const WINDOWS_SLASH_ABSOLUTE_PATH =
+  /\b[A-Za-z]:\/(?:[^/:*?"<>|\r\n]+\/)*[^/:*?"<>|\r\n]+\b/g;
 const WINDOWS_TEMP_PATH =
   /\b[A-Za-z]:\\Users\\[^\\]+\\AppData\\Local\\Temp\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\b/gi;
 const POSIX_ABSOLUTE_PATH =
@@ -54,6 +56,7 @@ function sanitizePathMatch(match: string, workspaceRoot?: string): string {
 
   if (
     /^[A-Za-z]:\\Users\\[^\\]+/i.test(match) ||
+    /^[A-Za-z]:\/Users\/[^/]+/i.test(match) ||
     /^\/Users\/[^/]+/i.test(match) ||
     /^\/home\/[^/]+/i.test(match)
   ) {
@@ -79,6 +82,9 @@ export function sanitizeOperationalText(
     sanitizePathMatch(match, options?.workspaceRoot)
   );
   sanitized = sanitized.replace(WINDOWS_ABSOLUTE_PATH, (match) =>
+    sanitizePathMatch(match, options?.workspaceRoot)
+  );
+  sanitized = sanitized.replace(WINDOWS_SLASH_ABSOLUTE_PATH, (match) =>
     sanitizePathMatch(match, options?.workspaceRoot)
   );
   sanitized = sanitized.replace(POSIX_ABSOLUTE_PATH, (match) =>

@@ -21,6 +21,7 @@ export const BASE_SKIPPED_DIRECTORIES = [
   ".turbo",
   ".tox",
   ".venv",
+  ".terraform",
   ".vercel",
   ".vs",
   ".vscode-test",
@@ -65,19 +66,18 @@ export const TYPESCRIPT_SCANNABLE_EXTENSIONS = [
 
 export const DOTNET_SOURCE_EXTENSIONS = [".cs", ".xaml"] as const;
 export const DOTNET_CONFIG_EXTENSIONS = [".csproj", ".sln", ".props", ".targets"] as const;
+export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [".py", ".go", ".rs", ".tf", ".tfvars", ".md", ".rst"] as const;
 
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSIONS = [
   ...TYPESCRIPT_SCANNABLE_EXTENSIONS,
   ...DOTNET_SOURCE_EXTENSIONS,
   ...DOTNET_CONFIG_EXTENSIONS,
+  ...ECOSYSTEM_SCANNABLE_EXTENSIONS,
 ] as const;
 
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET = new Set<string>(PRODUCT_GRAPH_SCANNABLE_EXTENSIONS);
 
 export const UNSUPPORTED_SOURCE_EXTENSIONS = [
-  ".py",
-  ".rs",
-  ".go",
   ".java",
   ".kt",
   ".kts",
@@ -134,12 +134,16 @@ export const WORKSPACE_MARKER_FILES = [
   { marker: "build.gradle.kts", projectType: "java" },
   { marker: "requirements.txt", projectType: "python" },
   { marker: "pyproject.toml", projectType: "python" },
+  { marker: "manage.py", projectType: "django-app" },
+  { marker: ".terraform.lock.hcl", projectType: "terraform-iac" },
 ] as const;
 
 export const WORKSPACE_MARKER_GLOBS = [
   { pattern: /^tsconfig(?:[.-].*)?\.json$/i, projectType: "typescript" },
+  { pattern: /^next\.config\.(?:js|mjs|cjs|ts)$/i, projectType: "next-app" },
   { pattern: /\.csproj$/i, projectType: "dotnet" },
   { pattern: /\.sln$/i, projectType: "dotnet" },
+  { pattern: /\.tf$/i, projectType: "terraform-iac" },
 ] as const;
 
 export const FILE_LEVEL_ONLY_LANGUAGE_WARNING =
@@ -147,6 +151,18 @@ export const FILE_LEVEL_ONLY_LANGUAGE_WARNING =
 
 export const DOTNET_T0_SCANNER_NOTICE =
   "C#/.NET: T0 structural indexing (types, members, project topology, XAML links); Roslyn semantic edges not yet enabled.";
+
+export const PYTHON_T1_SCANNER_NOTICE =
+  "Python: T1 structural indexing (classes, functions, imports); AST-level semantic edges not yet enabled.";
+
+export const GO_T1_SCANNER_NOTICE =
+  "Go: T1 structural indexing (packages, functions, structs, imports); go/types semantic edges not yet enabled.";
+
+export const RUST_T1_SCANNER_NOTICE =
+  "Rust: T1 structural indexing (modules, functions, structs, traits, use); rust-analyzer semantic edges not yet enabled.";
+
+export const TERRAFORM_T1_SCANNER_NOTICE =
+  "Terraform: T1 config indexing (resources, modules, variables); full IaC graph resolution not yet enabled.";
 
 export type DetectedProjectType =
   | "dotnet"
@@ -157,6 +173,11 @@ export type DetectedProjectType =
   | "go"
   | "java"
   | "python"
+  | "django-app"
+  | "next-app"
+  | "terraform"
+  | "terraform-iac"
+  | "documentation-corpus"
   | "generic";
 
 export interface WorkspaceScanProfile {
@@ -208,6 +229,17 @@ export function isDotNetSourceExtension(extension: string) {
 
 export function isDotNetConfigExtension(extension: string) {
   return (DOTNET_CONFIG_EXTENSIONS as readonly string[]).includes(extension.toLowerCase());
+}
+
+export function isEcosystemScannableExtension(extension: string) {
+  return (ECOSYSTEM_SCANNABLE_EXTENSIONS as readonly string[]).includes(extension.toLowerCase());
+}
+
+export function isEcosystemConfigFileName(fileName: string) {
+  return fileName === "go.mod"
+    || fileName === "Cargo.toml"
+    || fileName === "pyproject.toml"
+    || fileName === "manage.py";
 }
 
 export function isProductGraphScannableExtension(extension: string) {
@@ -360,6 +392,18 @@ export function buildWorkspaceScanProfile(input: {
   if (hasDotNet) {
     warnings.push(DOTNET_T0_SCANNER_NOTICE);
   }
+  if (detected.includes("python") || (extensionCounts[".py"] ?? 0) > 0) {
+    warnings.push(PYTHON_T1_SCANNER_NOTICE);
+  }
+  if (detected.includes("go") || (extensionCounts[".go"] ?? 0) > 0) {
+    warnings.push(GO_T1_SCANNER_NOTICE);
+  }
+  if (detected.includes("rust") || (extensionCounts[".rs"] ?? 0) > 0) {
+    warnings.push(RUST_T1_SCANNER_NOTICE);
+  }
+  if ((extensionCounts[".tf"] ?? 0) > 0) {
+    warnings.push(TERRAFORM_T1_SCANNER_NOTICE);
+  }
   if (hasDotNet && !hasTypeScript && (extensionCounts[".cs"] ?? 0) === 0) {
     warnings.push("Detected .NET project markers but no .cs source files were indexed. Confirm workspace root and build output skips.");
   }
@@ -400,6 +444,18 @@ export async function detectWorkspaceScanProfile(
     }
     if (extension === ".js" || extension === ".jsx" || extension === ".mjs" || extension === ".cjs") {
       detectedProjectTypes.add("javascript");
+    }
+    if (extension === ".py") {
+      detectedProjectTypes.add("python");
+    }
+    if (extension === ".go") {
+      detectedProjectTypes.add("go");
+    }
+    if (extension === ".rs") {
+      detectedProjectTypes.add("rust");
+    }
+    if (extension === ".tf" || extension === ".tfvars") {
+      detectedProjectTypes.add("terraform");
     }
   }
 

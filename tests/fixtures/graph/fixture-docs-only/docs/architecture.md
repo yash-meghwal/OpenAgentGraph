@@ -1,0 +1,5 @@
+# Architecture
+
+## Components
+
+System map.

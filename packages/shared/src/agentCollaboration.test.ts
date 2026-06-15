@@ -20,6 +20,7 @@ function makeNode(input: Partial<Node> & Pick<Node, "id" | "title" | "status">):
     baselineGoalVersionId: "goal-1",
     activeGoalVersionId: "goal-1",
     dependsOnNodeIds: input.dependsOnNodeIds ?? [],
+    evidence: input.evidence,
     createdAt: input.createdAt ?? "2026-04-16T10:00:00.000Z",
     updatedAt: input.updatedAt ?? "2026-04-16T10:00:00.000Z",
   };
@@ -212,6 +213,17 @@ describe("agent collaboration helpers", () => {
           title: `Ready ${workspaceFile}`,
           humanSummary: `Check ${homeFile} and ${secretToken}`,
           status: "ready",
+          evidence: {
+            fileDiffs: [{ path: workspaceFile, changeType: "updated", summary: "Touched workspace file" }],
+            commandResults: [],
+            toolCallLog: [],
+            workspaceChecksum: "after",
+            workspaceChecksumBefore: "before",
+            workspaceChecksumAfter: "after",
+            metadata: {
+              filePath: workspaceFile,
+            },
+          },
         }),
       ],
       agentActivity: [
@@ -272,7 +284,39 @@ describe("agent collaboration helpers", () => {
       ],
     });
 
-    const pack = buildAgentContextPack(projection, { workspaceRoot });
+    const pack = buildAgentContextPack(projection, {
+      workspaceRoot,
+      codeGraph: {
+        schemaVersion: "1",
+        workspaceRoot,
+        generatedAt: "2026-06-15T12:00:00.000Z",
+        activeScannerIds: ["typescript"],
+        diagnostics: [],
+        nodes: [
+          {
+            id: "file-secret",
+            kind: "code_file",
+            label: workspaceFile,
+            path: workspaceFile,
+          },
+          {
+            id: "sym-secret",
+            kind: "symbol",
+            label: `Secret symbol ${secretToken}`,
+            path: workspaceFile,
+          },
+        ],
+        edges: [
+          {
+            id: "edge-secret",
+            sourceNodeId: "file-secret",
+            targetNodeId: "sym-secret",
+            kind: "declares",
+            provenance: "extracted",
+          },
+        ],
+      },
+    });
     const frontier = buildGraphFrontier(projection, { workspaceRoot });
     const serialized = JSON.stringify({ pack, frontier });
 
@@ -285,5 +329,49 @@ describe("agent collaboration helpers", () => {
     expect(serialized).toContain("<home>/private/outside.txt");
     expect(serialized).toContain("<home>/private/posix-secret.ts");
     expect(pack.graph.goal).toContain("OPENAI_API_KEY=<redacted-secret>");
+    expect(pack.codeContext?.workspaceRoot).toBe("<workspace>");
+    expect(pack.codeContext?.linkedRunPaths).toContain("<workspace>/packages/backend/src/secret.ts");
+  });
+
+  it("enriches agent context with bounded code neighborhoods when a code graph is provided", () => {
+    const projection = makeProjection({
+      graph: {
+        id: "graph-1",
+        title: "Playback work",
+        goal: "Improve MainViewModel playback flow",
+        status: "running",
+        originalGoalVersionId: "goal-1",
+        activeGoalVersionId: "goal-1",
+        createdAt: "2026-04-16T10:00:00.000Z",
+        updatedAt: "2026-04-16T10:00:00.000Z",
+      },
+      nodes: [
+        makeNode({ id: "ready", title: "Wire playback service", status: "ready", intent: "Connect MainViewModel to PlaybackService" }),
+      ],
+    });
+
+    const pack = buildAgentContextPack(projection, {
+      nodeId: "ready",
+      codeGraph: {
+        schemaVersion: "1",
+        workspaceRoot: "/workspace",
+        generatedAt: "2026-06-15T12:00:00.000Z",
+        activeScannerIds: ["dotnet"],
+        diagnostics: [],
+        nodes: [
+          { id: "file:vm", kind: "code_file", label: "ViewModels/MainViewModel.cs", path: "ViewModels/MainViewModel.cs" },
+          { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "ViewModels/MainViewModel.cs" },
+          { id: "sym:svc", kind: "symbol", label: "PlaybackService (class)", path: "Services/PlaybackService.cs" },
+        ],
+        edges: [
+          { id: "e1", sourceNodeId: "sym:vm", targetNodeId: "sym:svc", kind: "references", provenance: "inferred" },
+        ],
+      },
+    });
+
+    expect(pack.codeContext?.focusNodes.some((node) => /MainViewModel|PlaybackService/i.test(node.label))).toBe(true);
+    expect(pack.codeContext?.readTheseFirst.length).toBeGreaterThan(0);
+    expect(pack.codeContext?.primaryLens).toBeTruthy();
+    expect(pack.instructions.some((line) => line.includes("codeContext"))).toBe(true);
   });
 });

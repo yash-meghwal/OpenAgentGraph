@@ -18,6 +18,8 @@ describe("scanner registry", () => {
     expect(getScannerPlugin("typescript")?.tier).toBe("T0");
     expect(scannerHasCapability(getScannerPlugin("typescript")!, "semantic")).toBe(true);
     expect(getScannerPlugin("dotnet")?.tier).toBe("T0");
+    expect(getScannerPlugin("python")?.tier).toBe("T1");
+    expect(getScannerPlugin("terraform")?.tier).toBe("T1");
   });
 
   it("activates multiple scanners for mixed polyglot workspaces", () => {

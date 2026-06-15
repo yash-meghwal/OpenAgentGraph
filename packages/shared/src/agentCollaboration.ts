@@ -1,3 +1,9 @@
+import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import {
+  buildAgentCodeContextSlice,
+  evaluateOagFusionChecks,
+  type GraphHandoffFreshnessResult,
+} from "./graphFusion.js";
 import type {
   ActorIdentity,
   AgentActivityRecord,
@@ -10,6 +16,7 @@ import type {
   Node,
   OpenAgentGraphAgentIdentity,
 } from "./types";
+import type { ProductGraphProjection } from "./productGraph.js";
 import { sanitizeOperationalText } from "./safeText";
 
 const DEFAULT_FRONTIER_LIMIT = 8;
@@ -28,6 +35,11 @@ export interface BuildAgentContextPackOptions {
   proposalLimit?: number;
   generatedAt?: string;
   workspaceRoot?: string;
+  codeGraph?: UnifiedCodeGraph;
+  kernelProfile?: WorkspaceKernelProfile;
+  handoffFreshness?: GraphHandoffFreshnessResult;
+  productGraph?: ProductGraphProjection;
+  previousSymbolCount?: number;
 }
 
 export interface AgentSchedulingSummary {
@@ -207,6 +219,30 @@ function openProposals(projection: GraphProjection, limit: number, workspaceRoot
     }));
 }
 
+function collectLinkedRunPaths(projection: GraphProjection, selectedNode?: Node) {
+  const paths = new Set<string>();
+  const addPath = (value: string | undefined) => {
+    if (!value) return;
+    const normalized = value.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+    if (normalized) paths.add(normalized);
+  };
+
+  const nodesToInspect = selectedNode
+    ? [selectedNode]
+    : projection.nodes.filter((node) => node.status === "running" || node.status === "ready");
+
+  for (const node of nodesToInspect) {
+    for (const diff of node.evidence?.fileDiffs ?? []) {
+      addPath(diff.path);
+    }
+    for (const [key, value] of Object.entries(node.evidence?.metadata ?? {})) {
+      if (/path|file/i.test(key) && typeof value === "string") addPath(value);
+    }
+  }
+
+  return [...paths];
+}
+
 export function buildAgentContextPack(
   projection: GraphProjection,
   options: BuildAgentContextPackOptions = {}
@@ -218,6 +254,29 @@ export function buildAgentContextPack(
   });
   const selectedNode = options.nodeId
     ? projection.nodes.find((node) => node.id === options.nodeId)
+    : undefined;
+  const focusQuery = [
+    selectedNode?.title,
+    selectedNode?.humanSummary,
+    selectedNode?.intent,
+    projection.graph.goal,
+  ].filter(Boolean).join(" ");
+  const fusion = options.codeGraph
+    ? evaluateOagFusionChecks({
+        graph: options.codeGraph,
+        kernelProfile: options.kernelProfile,
+        handoffFreshness: options.handoffFreshness,
+        productGraph: options.productGraph,
+        previousSymbolCount: options.previousSymbolCount,
+      })
+    : undefined;
+  const codeContext = options.codeGraph
+    ? buildAgentCodeContextSlice(options.codeGraph, {
+        focusQuery,
+        linkedRunPaths: collectLinkedRunPaths(projection, selectedNode),
+        kernelProfile: options.kernelProfile,
+        workspaceRoot: options.workspaceRoot,
+      })
     : undefined;
 
   return {
@@ -243,11 +302,16 @@ export function buildAgentContextPack(
     frontier,
     recentAgentActivity: recentActivity(projection, options.activityLimit ?? DEFAULT_ACTIVITY_LIMIT, options.workspaceRoot),
     planProposals: openProposals(projection, options.proposalLimit ?? DEFAULT_PROPOSAL_LIMIT, options.workspaceRoot),
+    ...(codeContext ? { codeContext } : {}),
+    ...(fusion ? { fusionChecks: fusion.checks } : {}),
     instructions: [
       "Read GRAPH_REPORT.md first when it exists, then use this context pack for live run state.",
       "Use frontier nodes for orientation; do not treat external agent progress as runner completion.",
+      "Use codeContext for bounded code neighborhoods; verify source files directly before editing.",
       "Submit bounded progress, evidence, or plan proposals instead of writing source bodies into OAG.",
-      "Verify source files directly before editing.",
+      ...(fusion?.checks.some((check) => check.code === "stale_handoff")
+        ? ["Refresh GRAPH_REPORT.md or rerun graph export because the handoff is stale relative to the code graph."]
+        : []),
     ],
   };
 }

@@ -164,6 +164,36 @@ export interface OpenAgentGraphFrontierResponse {
   planProposals: OpenAgentGraphAgentPlanProposalRecord[];
 }
 
+export interface OpenAgentGraphAgentCodeContextNodeSummary {
+  id: string;
+  kind: string;
+  label: string;
+  path?: string;
+}
+
+export interface OpenAgentGraphAgentCodeContextSlice {
+  source: "unified_code_graph";
+  workspaceRoot: string;
+  generatedAt: string;
+  primaryLens: string;
+  readTheseFirst: OpenAgentGraphAgentCodeContextNodeSummary[];
+  godNodes: Array<{
+    label: string;
+    summary: string;
+    topFiles: string[];
+    topSymbols: string[];
+  }>;
+  focusNodes: OpenAgentGraphAgentCodeContextNodeSummary[];
+  focusEdges: Array<{
+    kind: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+    provenance: string;
+  }>;
+  linkedRunPaths: string[];
+  truncated: boolean;
+}
+
 export interface OpenAgentGraphAgentContextPack {
   graphId: string;
   generatedAt: string;
@@ -186,6 +216,14 @@ export interface OpenAgentGraphAgentContextPack {
   frontier: OpenAgentGraphFrontierNodeSummary[];
   recentAgentActivity: OpenAgentGraphAgentActivityRecord[];
   planProposals: OpenAgentGraphAgentPlanProposalRecord[];
+  codeContext?: OpenAgentGraphAgentCodeContextSlice;
+  fusionChecks?: Array<{
+    code: string;
+    title: string;
+    severity: "fail" | "warn" | "info";
+    detail: string;
+    count?: number;
+  }>;
   instructions: string[];
 }
 

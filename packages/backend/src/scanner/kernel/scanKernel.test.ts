@@ -32,9 +32,17 @@ describe("scan kernel", () => {
     expect(result.scanPlan.summary.skippedCountsByReason?.gitignore ?? 0).toBeGreaterThan(0);
   });
 
-  it("records unsupported diagnostics for python source files", async () => {
-    const result = await runKernelWorkspaceScan(fixtureRoot("unsupported-python"));
+  it("indexes python source files with the T1 ecosystem scanner", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-python-app"));
     expect(result.kernelProfile.activeScannerIds).toEqual(expect.arrayContaining(["python"]));
+    const indexedPaths = result.scanPlan.nodes
+      .filter((node) => node.kind === "code_file")
+      .map((node) => node.title);
+    expect(indexedPaths).toContain("src/app.py");
+  });
+
+  it("records unsupported diagnostics for ruby source files", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("unsupported-ruby"));
     expect(result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0).toBeGreaterThan(0);
     expect(result.scanPlan.summary.diagnostics.join("\n")).toContain("unsupported=");
   });

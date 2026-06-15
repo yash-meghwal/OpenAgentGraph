@@ -1,0 +1,1 @@
+export function generated() { return true; }

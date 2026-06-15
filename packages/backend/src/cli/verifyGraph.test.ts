@@ -14,16 +14,23 @@ describe("verifyGraph cli", () => {
       "--json",
     ]);
     expect(payload.passed).toBe(true);
-    expect(payload.fixtureCount).toBeGreaterThanOrEqual(8);
+    expect(payload.fixtureCount).toBeGreaterThanOrEqual(15);
     expect(payload.results.map((result) => result.fixture)).toEqual(expect.arrayContaining([
       "mixed-dotnet-node",
       "wrapper-layout",
       "gitignore-dist",
       "empty-greenfield",
       "nested-gitignore",
-      "unsupported-python",
+      "fixture-python-app",
+      "unsupported-ruby",
       "dockerignore-artifacts",
       "fixture-csharp-wpf",
+      "fixture-next-app",
+      "fixture-python-django",
+      "fixture-go-module",
+      "fixture-rust-workspace",
+      "fixture-terraform",
+      "fixture-docs-only",
     ]));
   });
 });

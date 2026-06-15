@@ -60,6 +60,9 @@ function extensionType(extension: string): string | undefined {
       return "java";
     case ".py":
       return "python";
+    case ".tf":
+    case ".tfvars":
+      return "terraform-iac";
     default:
       return undefined;
   }
@@ -201,9 +204,27 @@ export async function detectWorkspaceKernelProfile(
     if (typeId) detectedTypes.add(typeId);
   }
 
+  const codeExtensionKeys = new Set([
+    ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt",
+  ]);
+  const docExtensionKeys = new Set([".md", ".rst", ".txt"]);
+  const codeCount = [...sourceExtensionCounts.entries()]
+    .filter(([extension]) => codeExtensionKeys.has(extension))
+    .reduce((sum, [, count]) => sum + count, 0);
+  const docCount = [...sourceExtensionCounts.entries()]
+    .filter(([extension]) => docExtensionKeys.has(extension))
+    .reduce((sum, [, count]) => sum + count, 0);
+  if (codeCount === 0 && docCount >= 3) {
+    detectedTypes.add("documentation-corpus");
+  }
+
   if (detectedTypes.size === 0) {
     const totalIndexed = [...sourceExtensionCounts.values()].reduce((sum, count) => sum + count, 0);
-    detectedTypes.add(totalIndexed === 0 ? "empty-greenfield" : "generic");
+    if (totalIndexed === 0 || (codeCount === 0 && totalIndexed < 3)) {
+      detectedTypes.add("empty-greenfield");
+    } else {
+      detectedTypes.add("generic");
+    }
   }
 
   if (detectedTypes.size > 1 && !detectedTypes.has("mixed-polyglot")) {
@@ -262,6 +283,10 @@ export function kernelProfileToLegacyTypes(profile: WorkspaceKernelProfile): Det
     go: "go",
     java: "java",
     python: "python",
+    "django-app": "python",
+    "terraform-iac": "terraform",
+    "next-app": "typescript",
+    "documentation-corpus": "generic",
   };
   const legacy = new Set<DetectedProjectType>();
   for (const typeId of [profile.primaryType, ...profile.secondaryTypes]) {

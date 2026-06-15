@@ -30,6 +30,8 @@ import {
   detectWorkspaceScanProfile,
   isDotNetConfigExtension,
   isDotNetSourceExtension,
+  isEcosystemConfigFileName,
+  isEcosystemScannableExtension,
   isTypeScriptScannableExtension,
   isUnsupportedSourceExtension,
   normalizeScannerProjectPath,
@@ -47,6 +49,11 @@ import {
   indexDotNetFile,
   registerDotNetSymbolNode,
 } from "./kernel/dotnetScanner.js";
+import {
+  augmentEcosystemWorkspaceGraph,
+  ECOSYSTEM_SCANNER_VERSION,
+  indexEcosystemFile,
+} from "./kernel/ecosystemScanner.js";
 import { IgnoreEngine } from "./kernel/ignoreEngine.js";
 import { detectWorkspaceKernelProfile, kernelProfileDiagnostics } from "./kernel/workspaceDetection.js";
 
@@ -58,8 +65,27 @@ const MAX_PRODUCT_EDGE_LABEL_LENGTH = 180;
 const SCANNABLE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"] as const;
 const SCANNABLE_EXTENSION_SET = new Set<string>(SCANNABLE_EXTENSIONS);
 const PRODUCT_GRAPH_EXTENSION_SET = new Set(
-  [...SCANNABLE_EXTENSIONS, ".cs", ".xaml", ".csproj", ".sln", ".props", ".targets"]
+  [
+    ...SCANNABLE_EXTENSIONS,
+    ".cs",
+    ".xaml",
+    ".csproj",
+    ".sln",
+    ".props",
+    ".targets",
+    ".py",
+    ".go",
+    ".rs",
+    ".tf",
+    ".tfvars",
+    ".md",
+    ".rst",
+  ]
 );
+
+function isProductGraphScannableFile(fileName: string, extension: string) {
+  return PRODUCT_GRAPH_EXTENSION_SET.has(extension) || isEcosystemConfigFileName(fileName);
+}
 const MAX_DEPENDENCY_METADATA_LENGTH = 480;
 const MAX_METHOD_METADATA_LENGTH = 480;
 const TSCONFIG_CANDIDATE_PATTERN = /^tsconfig(?:[.-].*)?\.json$/i;
@@ -491,7 +517,7 @@ async function collectFiles(
       }
 
       const extension = path.extname(entry.name).toLowerCase();
-      if (!PRODUCT_GRAPH_EXTENSION_SET.has(extension)) {
+      if (!isProductGraphScannableFile(entry.name, extension)) {
         if (isUnsupportedSourceExtension(extension)) {
           stats.skippedFileCount += 1;
           ignoreEngine.recordSkip(stats.skippedCountsByReason, stats.skipDiagnostics, {
@@ -1423,6 +1449,71 @@ function communityKeyForFilePath(filePath: string) {
   return { key: ".", title: "root", communityKind: "root" };
 }
 
+async function buildScannedEcosystemFile(
+  file: ScanFile,
+  scanId: string,
+  scannedAt: string
+): Promise<ScannedFileResult> {
+  let body: string;
+  try {
+    body = await fs.readFile(file.absolutePath, "utf8");
+  } catch {
+    return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };
+  }
+
+  const extension = path.extname(file.relativePath).toLowerCase();
+  const fileName = path.basename(file.relativePath);
+  const hash = contentHash(body);
+  const fileNodeId = stableProductId("code-scan:file", file.relativePath);
+  const indexed = indexEcosystemFile({
+    filePath: file.relativePath,
+    fileName,
+    extension,
+    body,
+    sizeBytes: file.size,
+    scanId,
+    scannedAt,
+    stableId: stableProductId,
+    compactMetadata,
+    sourceRef: codeScanSourceRef,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  const role = isEcosystemConfigFileName(fileName) ? "config" : extension === ".md" || extension === ".rst" ? "doc" : "source";
+  const fileNode: ProductGraphNode = {
+    id: fileNodeId,
+    kind: "code_file",
+    title: file.relativePath.slice(0, MAX_PRODUCT_NODE_TITLE_LENGTH),
+    summary: `Scanned ${role} file (${Math.round(file.size / 1024)} KB).`.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
+    status: "planned",
+    tags: ["code", "code-scan", role === "config" ? "code-config" : role === "doc" ? "code-doc" : "code-source", "ecosystem-t1"],
+    source: codeScanSourceRef(file.relativePath),
+    metadata: compactMetadata({
+      scannerVersion: SCANNER_VERSION,
+      scanId,
+      scannedAt,
+      contentHash: hash,
+      scannerSourceFile: file.relativePath,
+      fileSizeBytes: file.size,
+      scannerEcosystemVersion: ECOSYSTEM_SCANNER_VERSION,
+      scannerIndexingMode: "t1",
+      scannerSemanticSupported: false,
+      ...indexed.fileMetadata,
+    }),
+    createdAt: scannedAt,
+    updatedAt: scannedAt,
+  };
+
+  return {
+    file,
+    fileNode,
+    symbolNodes: indexed.symbolNodes,
+    edges: indexed.edges,
+    dependencySpecs: [],
+    skippedFileCount: 0,
+  };
+}
+
 async function buildScannedDotNetFile(
   file: ScanFile,
   scanId: string,
@@ -1495,8 +1586,12 @@ async function buildScannedFile(
   options: { promoteMethodNodes?: boolean } = {}
 ): Promise<ScannedFileResult> {
   const extension = path.extname(file.relativePath).toLowerCase();
+  const fileName = path.basename(file.relativePath);
   if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension)) {
     return buildScannedDotNetFile(file, scanId, scannedAt);
+  }
+  if (isEcosystemScannableExtension(extension) || isEcosystemConfigFileName(fileName)) {
+    return buildScannedEcosystemFile(file, scanId, scannedAt);
   }
   if (!isTypeScriptScannableExtension(extension)) {
     return { file, fileNode: undefined, symbolNodes: [], edges: [], dependencySpecs: [], skippedFileCount: 1 };
@@ -2353,6 +2448,37 @@ export async function scanWorkspaceCodebase(input: {
         // File bodies are optional for workspace-level .NET graph augmentation.
       }
     }
+  }
+
+  const ecosystemFileBodies = new Map<string, string>();
+  for (const file of files) {
+    const extension = path.extname(file.relativePath).toLowerCase();
+    const fileName = path.basename(file.relativePath);
+    if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
+      continue;
+    }
+    try {
+      ecosystemFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+    } catch {
+      // File bodies are optional for workspace-level ecosystem graph augmentation.
+    }
+  }
+  const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => ecosystemFileBodies.has(file.relativePath))
+      .map((file) => ({
+        relativePath: file.relativePath,
+        body: ecosystemFileBodies.get(file.relativePath) ?? "",
+      })),
+    fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  for (const edge of ecosystemWorkspace.edges) {
+    edgesById.set(edge.id, edge);
   }
 
   const dotnetWorkspace = augmentDotNetWorkspaceGraph({

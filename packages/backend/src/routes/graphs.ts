@@ -1,3 +1,4 @@
+import path from "path";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
@@ -14,6 +15,7 @@ import type {
   NodeEvidenceMetadataValue,
 } from "@openagentgraph/shared";
 import { buildAgentContextPack, buildAgentSchedulingSummary } from "@openagentgraph/shared";
+import { resolveWorkspaceCodeContext } from "../cli/graphWorkspace.js";
 import * as repo from "../db/graphRepo.js";
 import { canActorPerform, permissionMessage, resolveActor, resolveAuth, type ProtectedAction } from "../auth/actors.js";
 import { DEFAULT_PROVIDER_BASE_URLS, PROVIDER_DISPLAY_NAMES, getAppConfig } from "../config.js";
@@ -703,12 +705,16 @@ export async function graphRoutes(app: FastifyInstance) {
     }
 
     const config = getAppConfig();
+    const workspaceRoot = config.workspace.root ? path.resolve(config.workspace.root) : undefined;
+    const codeContext = workspaceRoot ? await resolveWorkspaceCodeContext(workspaceRoot) : undefined;
     return buildAgentContextPack(projection, {
       nodeId: req.query.nodeId,
       frontierLimit: boundedLimit(req.query.frontierLimit, 8, 50),
       activityLimit: boundedLimit(req.query.activityLimit, 8, 50),
       proposalLimit: boundedLimit(req.query.proposalLimit, 8, 50),
       workspaceRoot: config.workspace.root,
+      codeGraph: codeContext?.codeGraph,
+      handoffFreshness: codeContext?.handoffFreshness,
     });
   });
 

@@ -123,15 +123,111 @@ async function verifyFixture(fixturesRoot: string, fixtureName: string): Promise
         errors.push("Expected gitignore skip counts for nested generated/ output.");
       }
       break;
-    case "unsupported-python":
+    case "fixture-python-app":
       if (!result.kernelProfile.activeScannerIds.includes("python")) {
         errors.push("Expected python scanner to be active.");
       }
+      if (!indexedPaths.includes("src/app.py")) {
+        errors.push("Expected src/app.py to be indexed with T1 python scanner.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("main"))) {
+        errors.push("Expected python symbols to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "unsupported-ruby":
       if ((result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0) <= 0) {
-        errors.push("Expected unsupported skip counts for .py source files.");
+        errors.push("Expected unsupported skip counts for .rb source files.");
       }
       if (result.scanPlan.summary.diagnostics.join("\n").includes("No skipped paths recorded.")) {
         errors.push("Unsupported-language repos must not report 'No skipped paths recorded.'");
+      }
+      break;
+    case "fixture-next-app":
+      if (!result.kernelProfile.activeScannerIds.includes("typescript")) {
+        errors.push("Expected typescript scanner to be active.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.includes("next.config.ts"))) {
+        errors.push("Expected next.config.ts workspace marker.");
+      }
+      if (!indexedPaths.includes("app/page.tsx")) {
+        errors.push("Expected app/page.tsx to be indexed.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".next/"))) {
+        errors.push(".next/ build output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-python-django":
+      if (!result.kernelProfile.activeScannerIds.includes("python")) {
+        errors.push("Expected python scanner to be active.");
+      }
+      if (!indexedPaths.includes("myapp/models.py")) {
+        errors.push("Expected myapp/models.py to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("User"))) {
+        errors.push("Expected Django model symbols to be indexed.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".venv/"))) {
+        errors.push(".venv/ must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-go-module":
+      if (!result.kernelProfile.activeScannerIds.includes("go")) {
+        errors.push("Expected go scanner to be active.");
+      }
+      if (!indexedPaths.includes("go.mod")) {
+        errors.push("Expected go.mod to be indexed.");
+      }
+      if (!indexedPaths.includes("internal/service/service.go")) {
+        errors.push("Expected service.go to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("Runner"))) {
+        errors.push("Expected Go struct symbols to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-rust-workspace":
+      if (!result.kernelProfile.activeScannerIds.includes("rust")) {
+        errors.push("Expected rust scanner to be active.");
+      }
+      if (!indexedPaths.includes("Cargo.toml")) {
+        errors.push("Expected workspace Cargo.toml to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("CoreService"))) {
+        errors.push("Expected Rust struct symbols to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-terraform":
+      if (!result.kernelProfile.activeScannerIds.includes("terraform")) {
+        errors.push("Expected terraform scanner to be active.");
+      }
+      if (!indexedPaths.includes("main.tf")) {
+        errors.push("Expected main.tf to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("aws_s3_bucket"))) {
+        errors.push("Expected Terraform resource symbols to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "terraform_module")) {
+        errors.push("Expected Terraform module edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".terraform/"))) {
+        errors.push(".terraform/ cache must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-docs-only":
+      if (!result.kernelProfile.secondaryTypes.includes("documentation-corpus")
+        && result.kernelProfile.primaryType !== "documentation-corpus") {
+        errors.push("Expected documentation-corpus project type.");
+      }
+      if (!indexedPaths.includes("docs/architecture.md")) {
+        errors.push("Expected docs/architecture.md to be indexed.");
+      }
+      if (result.scanPlan.nodes.some((node) => node.kind === "code_symbol")) {
+        errors.push("Docs-only fixture should not emit code symbols.");
       }
       break;
     case "fixture-csharp-wpf":

@@ -36,7 +36,7 @@ import {
 } from "../db/productGraphRepo.js";
 import { getGraphProjection as getExecutionGraphProjection } from "../db/graphRepo.js";
 import { incrementFailureMetric, incrementMetric } from "../observability/metrics.js";
-import { scanWorkspaceCodebase } from "../scanner/codeScanner.js";
+import { scanWorkspaceCodebase, type CodebaseScanSummary } from "../scanner/codeScanner.js";
 import {
   buildScanProgressSnapshot,
   createScanBreakerStatus,
@@ -2188,7 +2188,7 @@ export type ProductGraphCodebaseScanResult = {
   message: string;
   scanId: string;
   scannedAt: string;
-  scanned: Awaited<ReturnType<typeof scanWorkspaceCodebase>>["summary"];
+  scanned: CodebaseScanSummary;
 };
 
 export type ProductGraphScanJob = ScanJobStatus<ProductGraphCodebaseScanResult> & {
@@ -2199,6 +2199,21 @@ export type ProductGraphScanJob = ScanJobStatus<ProductGraphCodebaseScanResult> 
 export const PRODUCT_SCAN_JOB_TTL_MS = 10 * 60 * 1_000;
 export const productGraphScanJobs = new Map<string, ProductGraphScanJob>();
 export const codebaseScanState = { inProgress: false };
+
+function publicCodebaseScanSummary(summary: CodebaseScanSummary): CodebaseScanSummary {
+  return {
+    ...summary,
+    ...(summary.kernelProfile
+      ? {
+        kernelProfile: {
+          ...summary.kernelProfile,
+          root: "<workspace>",
+          effectiveRoots: summary.kernelProfile.effectiveRoots.map(() => "<workspace>"),
+        },
+      }
+      : {}),
+  };
+}
 
 export async function runProductGraphCodebaseScan(
   actor: ActorIdentity,
@@ -2267,7 +2282,7 @@ export async function runProductGraphCodebaseScan(
     message: "Codebase scan completed.",
     scanId: scanPlan.scanId,
     scannedAt: scanPlan.scannedAt,
-    scanned: scanPlan.summary,
+    scanned: publicCodebaseScanSummary(scanPlan.summary),
   };
 }
 

@@ -1,6 +1,8 @@
 import type {
   ActorIdentity,
   AuthMode,
+  GraphTaskLensId,
+  WorkspaceGraphOperationalContext,
   ProductEdgeKind,
   ProductGraphEdge,
   ProductGraphCodexPlanningPrompt,
@@ -403,4 +405,13 @@ export async function fetchProductGraphCodebaseScanJob(
 ): Promise<ProductGraphCodebaseScanJobStatus> {
   const response = await productGraphFetch(`/product-graph/codebase/scan-jobs/${encodeURIComponent(jobId)}`, undefined, options);
   return response.json() as Promise<ProductGraphCodebaseScanJobStatus>;
+}
+
+export async function fetchWorkspaceGraphOperational(
+  lens: GraphTaskLensId = "all",
+  options?: ProductGraphApiOptions
+): Promise<WorkspaceGraphOperationalContext> {
+  const suffix = lens === "all" ? "" : `?lens=${encodeURIComponent(lens)}`;
+  const response = await productGraphFetch(`/product-graph/workspace-graph${suffix}`, undefined, options);
+  return response.json() as Promise<WorkspaceGraphOperationalContext>;
 }

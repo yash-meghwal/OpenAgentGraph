@@ -184,6 +184,51 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
+    case "fixture-java-maven":
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active.");
+      }
+      if (!indexedPaths.includes("pom.xml")) {
+        errors.push("Expected pom.xml to be indexed.");
+      }
+      if (!indexedPaths.includes("src/main/java/com/example/checkout/CheckoutService.java")) {
+        errors.push("Expected CheckoutService.java to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("CheckoutService"))) {
+        errors.push("Expected Java class symbols to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("process"))) {
+        errors.push("Expected Java method symbols to be indexed.");
+      }
+      const orderImportEdge = result.scanPlan.edges.find(
+        (edge) =>
+          edge.metadata?.scannerRelation === "import"
+          && edge.metadata?.scannerImportPath === "com.example.checkout.model.Order"
+      );
+      if (!orderImportEdge) {
+        errors.push("Expected CheckoutService import edge for com.example.checkout.model.Order.");
+      } else {
+        const orderSymbol = result.scanPlan.nodes.find(
+          (node) => node.kind === "code_symbol" && node.title.includes("Order (class)")
+        );
+        if (!orderSymbol || orderImportEdge.targetNodeId !== orderSymbol.id) {
+          errors.push("Expected Order import to resolve to the workspace Order class symbol.");
+        }
+      }
+      const knownNodeIds = new Set(result.scanPlan.nodes.map((node) => node.id));
+      const danglingImportEdges = result.scanPlan.edges.filter(
+        (edge) =>
+          edge.metadata?.scannerRelation === "import"
+          && (!knownNodeIds.has(edge.sourceNodeId) || !knownNodeIds.has(edge.targetNodeId))
+      );
+      if (danglingImportEdges.length > 0) {
+        errors.push(`Expected no dangling Java/Kotlin import edges (${danglingImportEdges.length} found).`);
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("/target/"))) {
+        errors.push("target/ build output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
     case "fixture-go-module":
       if (!result.kernelProfile.activeScannerIds.includes("go")) {
         errors.push("Expected go scanner to be active.");

@@ -32,6 +32,7 @@ import {
   isDotNetSourceExtension,
   isEcosystemConfigFileName,
   isEcosystemScannableExtension,
+  isProductGraphScannableExtension,
   isScriptScannableExtension,
   isTypeScriptScannableExtension,
   isUnsupportedSourceExtension,
@@ -50,6 +51,7 @@ import {
   indexDotNetFile,
   registerDotNetSymbolNode,
 } from "./kernel/dotnetScanner.js";
+import { runDotNetRoslynSemanticAnalysis, type DotNetRoslynSemanticResult } from "./kernel/dotnetRoslynSemantic.js";
 import {
   augmentEcosystemWorkspaceGraph,
   ECOSYSTEM_SCANNER_VERSION,
@@ -65,30 +67,9 @@ const MAX_PRODUCT_NODE_SUMMARY_LENGTH = 1_000;
 const MAX_PRODUCT_EDGE_LABEL_LENGTH = 180;
 const SCANNABLE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"] as const;
 const SCANNABLE_EXTENSION_SET = new Set<string>(SCANNABLE_EXTENSIONS);
-const PRODUCT_GRAPH_EXTENSION_SET = new Set(
-  [
-    ...SCANNABLE_EXTENSIONS,
-    ".cs",
-    ".xaml",
-    ".csproj",
-    ".sln",
-    ".props",
-    ".targets",
-    ".py",
-    ".go",
-    ".rs",
-    ".tf",
-    ".tfvars",
-    ".md",
-    ".rst",
-    ".ps1",
-    ".sh",
-    ".bash",
-  ]
-);
 
 function isProductGraphScannableFile(fileName: string, extension: string) {
-  return PRODUCT_GRAPH_EXTENSION_SET.has(extension) || isEcosystemConfigFileName(fileName);
+  return isProductGraphScannableExtension(extension) || isEcosystemConfigFileName(fileName);
 }
 const MAX_DEPENDENCY_METADATA_LENGTH = 480;
 const MAX_METHOD_METADATA_LENGTH = 480;
@@ -2416,6 +2397,7 @@ export async function scanWorkspaceCodebase(input: {
   scanLimits?: Partial<ScanBreakerStatus["limits"]>;
   semanticScanLimits?: Partial<ScanBreakerStatus["limits"]>;
   semanticAnalysisBudget?: SemanticAnalysisBudgetOptions;
+  disableDotNetRoslynSemantic?: boolean;
   onProgress?: (snapshot: ScanProgressSnapshot) => void;
 }): Promise<CodebaseScanPlan> {
   const start = Date.now();
@@ -2531,9 +2513,13 @@ export async function scanWorkspaceCodebase(input: {
     stableId: stableProductId,
     compactMetadata,
     maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
   });
   for (const edge of ecosystemWorkspace.edges) {
     edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of ecosystemWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
   }
 
   const dotnetWorkspace = augmentDotNetWorkspaceGraph({
@@ -2552,6 +2538,32 @@ export async function scanWorkspaceCodebase(input: {
   });
   for (const edge of dotnetWorkspace.edges) {
     edgesById.set(edge.id, edge);
+  }
+
+  let dotnetRoslynSemantic: DotNetRoslynSemanticResult | undefined;
+  if (kernelProfile.activeScannerIds.includes("dotnet")) {
+    const solutionPath = files.find((file) => file.relativePath.toLowerCase().endsWith(".sln"))?.relativePath;
+    const projectPaths = files
+      .filter((file) => file.relativePath.toLowerCase().endsWith(".csproj"))
+      .map((file) => file.relativePath)
+      .slice(0, 8);
+    dotnetRoslynSemantic = await runDotNetRoslynSemanticAnalysis({
+      workspaceRoot,
+      solutionPath,
+      projectPaths,
+      symbolLookup: dotnetSymbolLookup,
+      knownNodeIds: new Set(nodesById.keys()),
+      scanId,
+      scannedAt,
+      stableId: stableProductId,
+      compactMetadata,
+      sourceRef: codeScanSourceRef,
+      maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+      disabled: input.disableDotNetRoslynSemantic,
+    });
+    for (const edge of dotnetRoslynSemantic.edges) {
+      edgesById.set(edge.id, edge);
+    }
   }
 
   let semanticAnalysis: SemanticAnalysisContext;
@@ -2717,6 +2729,7 @@ export async function scanWorkspaceCodebase(input: {
     ...scanBreakerDiagnostics(stats.breakers),
     ...scanBreakerDiagnostics(semanticBreakers),
     ...(semanticFallbackReason ? [`Semantic analysis: ${semanticFallbackReason}`] : []),
+    ...(dotnetRoslynSemantic?.diagnostics ?? []),
   ];
   const progress = buildScanProgressSnapshot({
     scanId,
@@ -2748,7 +2761,7 @@ export async function scanWorkspaceCodebase(input: {
       unresolvedDependencyCount: dependencyGraph.unresolvedDependencyCount,
       semanticAnalysisEnabled: semanticAnalysis.enabled,
       semanticAnalysisSucceeded,
-      semanticEdgeCount: semanticModuleEdgeCount + semanticSymbolEdges.length,
+      semanticEdgeCount: semanticModuleEdgeCount + semanticSymbolEdges.length + (dotnetRoslynSemantic?.edgeCount ?? 0),
       semanticResolutionCount: dependencyGraph.semanticResolutionCount,
       semanticConfigCount: semanticAnalysis.configCount,
       semanticConfiguredFileCount: semanticAnalysis.configuredFileCount,
@@ -2772,6 +2785,204 @@ export async function scanWorkspaceCodebase(input: {
       kernelProfile,
       skippedCountsByReason: stats.ignoreEngine.skippedCountsRecord(stats.skippedCountsByReason),
       skipDiagnostics: stats.skipDiagnostics,
+    },
+  };
+}
+
+function resolveSafeRelativeScanPath(workspaceRoot: string, relativePath: string) {
+  const normalized = normalizeProjectPath(relativePath);
+  if (!normalized || path.isAbsolute(normalized) || normalized === ".." || normalized.startsWith("../")) {
+    return undefined;
+  }
+  const absolutePath = path.resolve(workspaceRoot, normalized);
+  const relative = path.relative(workspaceRoot, absolutePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return undefined;
+  }
+  return normalized.replace(/\\/g, "/");
+}
+
+export async function scanWorkspaceRelativePaths(input: {
+  workspaceRoot: string;
+  relativePaths: string[];
+}): Promise<Pick<CodebaseScanPlan, "scanId" | "scannedAt" | "nodes" | "edges" | "summary">> {
+  const start = Date.now();
+  const scanId = createHash("sha1").update(`${input.workspaceRoot}:partial:${start}`).digest("hex").slice(0, 12);
+  const scannedAt = new Date(start).toISOString();
+  const workspaceRoot = await safeRealpath(input.workspaceRoot);
+  const normalizedPaths = [...new Set(
+    input.relativePaths
+      .map((value) => resolveSafeRelativeScanPath(workspaceRoot, value))
+      .filter((value): value is string => Boolean(value))
+  )].sort();
+  const nodesById = new Map<string, ProductGraphNode>();
+  const edgesById = new Map<string, ProductGraphEdge>();
+  const fileNodeIdsByPath = new Map<string, string>();
+  const dotnetFileBodies = new Map<string, string>();
+  const dotnetSymbolLookup = createDotNetSymbolLookup();
+  const files: ScanFile[] = [];
+
+  for (const relativePath of normalizedPaths) {
+    const absolutePath = path.join(workspaceRoot, relativePath);
+    let stat;
+    try {
+      stat = await fs.stat(absolutePath);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    files.push({
+      absolutePath,
+      relativePath,
+      size: stat.size,
+    });
+  }
+
+  for (const file of files) {
+    const scannedFile = await buildScannedFile(file, scanId, scannedAt);
+    if (!scannedFile.fileNode) continue;
+    fileNodeIdsByPath.set(file.relativePath, scannedFile.fileNode.id);
+    nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
+    for (const symbolNode of scannedFile.symbolNodes) {
+      nodesById.set(symbolNode.id, symbolNode);
+      registerDotNetSymbolNode(dotnetSymbolLookup, {
+        filePath: file.relativePath,
+        symbolId: symbolNode.id,
+        kind: typeof symbolNode.metadata?.scannerSymbolKind === "string"
+          ? symbolNode.metadata.scannerSymbolKind
+          : undefined,
+        name: typeof symbolNode.metadata?.scannerSymbolName === "string"
+          ? symbolNode.metadata.scannerSymbolName
+          : undefined,
+        parentType: typeof symbolNode.metadata?.scannerSymbolParentType === "string"
+          ? symbolNode.metadata.scannerSymbolParentType
+          : undefined,
+      });
+    }
+    for (const edge of scannedFile.edges) {
+      edgesById.set(edge.id, edge);
+    }
+    const extension = path.extname(file.relativePath).toLowerCase();
+    if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension) || extension === ".xaml") {
+      try {
+        dotnetFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+      } catch {
+        // optional
+      }
+    }
+  }
+
+  const ecosystemFileBodies = new Map<string, string>();
+  for (const file of files) {
+    const extension = path.extname(file.relativePath).toLowerCase();
+    const fileName = path.basename(file.relativePath);
+    if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
+      continue;
+    }
+    try {
+      ecosystemFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+    } catch {
+      // optional
+    }
+  }
+
+  const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => ecosystemFileBodies.has(file.relativePath))
+      .map((file) => ({
+        relativePath: file.relativePath,
+        body: ecosystemFileBodies.get(file.relativePath) ?? "",
+      })),
+    fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of ecosystemWorkspace.edges) {
+    edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of ecosystemWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
+  }
+
+  const dotnetWorkspace = augmentDotNetWorkspaceGraph({
+    workspaceRoot,
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => dotnetFileBodies.has(file.relativePath))
+      .map((file) => ({ relativePath: file.relativePath, body: dotnetFileBodies.get(file.relativePath) })),
+    fileNodeIdsByPath,
+    symbolLookup: dotnetSymbolLookup,
+    stableId: stableProductId,
+    compactMetadata,
+    sourceRef: codeScanSourceRef,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  for (const edge of dotnetWorkspace.edges) {
+    edgesById.set(edge.id, edge);
+  }
+
+  const nodes = [...nodesById.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const edges = [...edgesById.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const kernelProfile = await detectWorkspaceKernelProfile(workspaceRoot, {
+    ignoreEngine: (await IgnoreEngine.load(workspaceRoot)),
+    ignoreRules: (await IgnoreEngine.load(workspaceRoot)).rules,
+    sourceExtensionCounts: new Map(),
+    skippedCountsByReason: new Map(),
+  });
+
+  return {
+    scanId,
+    scannedAt,
+    nodes,
+    edges,
+    summary: {
+      fileCount: nodes.filter((node) => node.kind === "code_file").length,
+      symbolCount: nodes.filter((node) => node.kind === "code_symbol").length,
+      communityCount: 0,
+      edgeCount: edges.length,
+      dependencyEdgeCount: 0,
+      externalDependencyCount: 0,
+      unresolvedDependencyCount: 0,
+      semanticAnalysisEnabled: false,
+      semanticAnalysisSucceeded: false,
+      semanticEdgeCount: 0,
+      semanticResolutionCount: 0,
+      semanticConfigCount: 0,
+      semanticConfiguredFileCount: 0,
+      semanticSyntheticFileCount: 0,
+      semanticUnconfiguredFileCount: 0,
+      semanticConfigPaths: [],
+      skippedFileCount: 0,
+      skippedDirectoryCount: 0,
+      archivedNodeCount: 0,
+      archivedEdgeCount: 0,
+      durationMs: Date.now() - start,
+      partial: true,
+      breakers: {
+        lightweight: createScanBreakerStatus(normalizeScanBreakerLimits(undefined, DEFAULT_LIGHTWEIGHT_SCAN_LIMITS)),
+        semantic: createScanBreakerStatus(normalizeScanBreakerLimits(undefined, DEFAULT_SEMANTIC_SCAN_LIMITS)),
+      },
+      progress: buildScanProgressSnapshot({
+        scanId,
+        scope: "product_codebase",
+        phase: "completed",
+        startedAtMs: start,
+        filesScanned: files.length,
+        bytesScanned: files.reduce((sum, file) => sum + file.size, 0),
+        skippedFileCount: 0,
+        skippedDirectoryCount: 0,
+        breakers: createScanBreakerStatus(normalizeScanBreakerLimits(undefined, DEFAULT_LIGHTWEIGHT_SCAN_LIMITS)),
+        message: "Partial codebase scan completed.",
+      }),
+      diagnostics: [`Partial scan updated ${files.length} file(s).`],
+      kernelProfile,
+      skippedCountsByReason: {},
+      skipDiagnostics: [],
     },
   };
 }

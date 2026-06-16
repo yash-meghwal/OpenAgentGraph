@@ -201,6 +201,100 @@ describe("DashboardView empty states", () => {
     expect(markup).toContain("Graph scans, Code Map, Project Graph, and GRAPH_REPORT.md work with no provider key.");
   });
 
+  it("renders graph operational panel with fusion warnings and read-first guidance", () => {
+    useStore.setState({
+      dashboard: [],
+      dashboardLoading: false,
+      onboardingDismissed: true,
+      runtimeStatus: "connected",
+      runtimeFallbackLikely: false,
+      runtimeEnvironmentMode: "development",
+      apiBaseDisplay: "/api",
+      runtimeHealthSummary: "Backend connected.",
+      runtimeMessage: "",
+      sessionLifecycle: "signed_in",
+      authMode: "dev_header",
+      authMessage: "Signed in as Operator.",
+      currentActor: { actorId: "operator", displayName: "Operator", role: "operator" },
+      providerStatus: {
+        configured: false,
+        provider: "unset",
+        source: "unset",
+        message: "AI provider is not configured.",
+      },
+      providerConfigSaving: false,
+      providerConfigMessage: "",
+      productGraphHandoff: null,
+      productGraphHandoffLoading: false,
+      productGraphHandoffError: "",
+      workspaceGraphOperationalLoading: false,
+      workspaceGraphOperationalError: "",
+      workspaceGraphLens: "all",
+      workspaceGraphOperational: {
+        available: true,
+        lens: "all",
+        primaryLens: "backend-runtime",
+        scopedNodeCount: 20,
+        scopedEdgeCount: 30,
+        fusion: {
+          ok: false,
+          hardFailCount: 1,
+          warnCount: 0,
+          checks: [
+            {
+              code: "stale_handoff",
+              title: "Stale handoff",
+              severity: "fail",
+              detail: "GRAPH_REPORT.md is older than graph.json.",
+            },
+          ],
+        },
+        readTheseFirst: [{ id: "n1", kind: "code_file", label: "src/app.ts", path: "src/app.ts" }],
+        godNodes: [
+          {
+            id: "god:src",
+            label: "src",
+            memberCount: 3,
+            topFiles: ["src/app.ts"],
+            topSymbols: [],
+            summary: "src hub with 3 connected nodes.",
+          },
+        ],
+      },
+      fetchGraphs: async () => undefined,
+      loadWorkspaceGraphOperational: async () => useStore.getState().workspaceGraphOperational!,
+      setWorkspaceGraphLens: () => undefined,
+      loadProductGraphHandoff: async () => {
+        throw new Error("not needed");
+      },
+      loadProviderStatus: async () => ({
+        configured: false,
+        provider: "unset",
+        source: "unset",
+        message: "AI provider is not configured.",
+      }),
+      clearRuntimeProviderConfig: async () => ({
+        configured: false,
+        provider: "unset",
+        source: "unset",
+        message: "AI provider is not configured.",
+      }),
+    });
+
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+    act(() => {
+      renderer = TestRenderer.create(<DashboardView />);
+    });
+    const markup = JSON.stringify(renderer!.toJSON());
+
+    expect(markup).toContain("Graph operational panel");
+    expect(markup).toContain("Graph lens selector");
+    expect(markup).toContain("Fusion checks");
+    expect(markup).toContain("Read these first");
+    expect(markup).toContain("src/app.ts");
+    expect(markup).not.toContain("export function");
+  });
+
   it("switches custom provider setup away from the Ollama base URL default", () => {
     useStore.setState({
       dashboard: [],

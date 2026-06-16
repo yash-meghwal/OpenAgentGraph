@@ -12,7 +12,7 @@ import type {
   ProductGraphProjection,
   ProductGraphProjectionNode,
   ProductGraphReadyTaskCandidateSummary,
-  ProductGraphTaskScopeId,
+  GraphTaskLensId,
   ProductGraphTrace,
   ProductNodeKind,
   ProductNodeStatus,
@@ -1551,21 +1551,21 @@ export function codeMapQuickFilterAllowsNode(
   return quickFilter === "all" || nodeIds.has(node.id);
 }
 
-export function codeMapTaskScopeAllowsNode(
+export function codeMapLensAllowsNode(
   node: ProductGraphProjectionNode,
-  taskScope: ProductGraphTaskScopeId,
+  lensId: GraphTaskLensId,
   nodeIds: Set<string>
 ) {
-  return taskScope === "all" || !isCodeMapNode(node) || nodeIds.has(node.id);
+  return lensId === "all" || !isCodeMapNode(node) || nodeIds.has(node.id);
 }
 
-export function codeMapTaskScopeAllowsEdge(
+export function codeMapLensAllowsEdge(
   edge: ProductGraphEdge,
   nodesById: Map<string, ProductGraphProjectionNode>,
-  taskScope: ProductGraphTaskScopeId,
+  lensId: GraphTaskLensId,
   nodeIds: Set<string>
 ) {
-  if (taskScope === "all") return true;
+  if (lensId === "all") return true;
   const sourceNode = nodesById.get(edge.sourceNodeId);
   const targetNode = nodesById.get(edge.targetNodeId);
   const codeEndpoints = [sourceNode, targetNode].filter((node): node is ProductGraphProjectionNode =>

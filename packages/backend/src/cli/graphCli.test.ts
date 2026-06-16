@@ -90,8 +90,9 @@ describe("graph cli", () => {
     const { runGraphExportCli } = await import("./graphExport.js");
     const result = await runGraphExportCli(["--workspace", workspaceRoot, "--json", "--html", "--wiki", "--report"]);
 
-    expect(result.writtenPaths.length).toBe(4);
+    expect(result.writtenPaths.length).toBe(5);
     expect(fs.existsSync(path.join(workspaceRoot, ".oag", "graph.json"))).toBe(true);
+    expect(fs.existsSync(path.join(workspaceRoot, ".oag", "graph-manifest.json"))).toBe(true);
     expect(fs.existsSync(path.join(workspaceRoot, ".oag", "graph.html"))).toBe(true);
     expect(fs.existsSync(path.join(workspaceRoot, ".oag", "wiki", "index.md"))).toBe(true);
     expect(fs.existsSync(path.join(workspaceRoot, "GRAPH_REPORT.md"))).toBe(true);

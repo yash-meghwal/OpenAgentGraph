@@ -1,3 +1,4 @@
+import { graphLensIdsForPath, type GraphTaskLensId } from "./graphLenses.js";
 import type { ActorIdentity } from "./types";
 
 export type ProductNodeKind =
@@ -1744,6 +1745,74 @@ export function buildProductGraphTaskScopeNodeIds(
 
   for (const [fileId, scopes] of fileScopeIdsById.entries()) {
     if (scopes.has(scopeId)) nodeIds.add(fileId);
+  }
+
+  for (const [symbolId, fileId] of symbolFileIds.entries()) {
+    if (nodeIds.has(fileId)) nodeIds.add(symbolId);
+  }
+
+  for (const [communityId, fileIds] of communityFileIds.entries()) {
+    if (fileIds.some((fileId) => nodeIds.has(fileId))) nodeIds.add(communityId);
+  }
+
+  return nodeIds;
+}
+
+export function productGraphLensIdsForNode(node: ProductGraphProjectionNode): GraphTaskLensId[] {
+  const scopes = new Set<GraphTaskLensId>();
+  for (const pathValue of taskScopeMetadataPaths(node)) {
+    for (const lensId of graphLensIdsForPath(pathValue)) {
+      scopes.add(lensId);
+    }
+  }
+  if (node.kind === "code_community") scopes.add("backend-runtime");
+  if (node.kind === "code_symbol" && /viewmodel|view|page|component/i.test(node.title)) scopes.add("frontend");
+  if (node.kind === "code_symbol" && /test/i.test(node.title)) scopes.add("tests");
+  return [...scopes];
+}
+
+export function buildProductGraphLensNodeIds(
+  projection: ProductGraphProjection,
+  lensId: GraphTaskLensId
+) {
+  const nodeIds = new Set<string>();
+  if (lensId === "all") {
+    for (const node of projection.nodes) {
+      if (isTraceCodeNode(node)) nodeIds.add(node.id);
+    }
+    return nodeIds;
+  }
+
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const fileLensIdsById = new Map<string, Set<GraphTaskLensId>>();
+  const symbolFileIds = new Map<string, string>();
+  const communityFileIds = new Map<string, string[]>();
+
+  for (const node of projection.nodes) {
+    if (node.kind === "code_file") {
+      fileLensIdsById.set(node.id, new Set(productGraphLensIdsForNode(node)));
+    } else if (node.kind === "code_community") {
+      const lensIds = productGraphLensIdsForNode(node);
+      if (lensIds.includes(lensId)) nodeIds.add(node.id);
+    }
+  }
+
+  for (const edge of projection.edges) {
+    if (edge.kind !== "belongs_to") continue;
+    const source = nodesById.get(edge.sourceNodeId);
+    const target = nodesById.get(edge.targetNodeId);
+    if (source?.kind === "code_symbol" && target?.kind === "code_file") {
+      symbolFileIds.set(source.id, target.id);
+    }
+    if (source?.kind === "code_file" && target?.kind === "code_community") {
+      const files = communityFileIds.get(target.id) ?? [];
+      files.push(source.id);
+      communityFileIds.set(target.id, files);
+    }
+  }
+
+  for (const [fileId, lensIds] of fileLensIdsById.entries()) {
+    if (lensIds.has(lensId)) nodeIds.add(fileId);
   }
 
   for (const [symbolId, fileId] of symbolFileIds.entries()) {

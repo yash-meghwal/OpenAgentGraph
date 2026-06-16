@@ -1,10 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
 
-export const SCANNER_HYGIENE_VERSION = "1.2";
+export const SCANNER_HYGIENE_VERSION = "1.3";
 
 export const BASE_SKIPPED_DIRECTORIES = [
   ".cache",
+  ".oag",
   ".git",
   ".gradle",
   ".idea",
@@ -66,7 +67,18 @@ export const TYPESCRIPT_SCANNABLE_EXTENSIONS = [
 
 export const DOTNET_SOURCE_EXTENSIONS = [".cs", ".xaml"] as const;
 export const DOTNET_CONFIG_EXTENSIONS = [".csproj", ".sln", ".props", ".targets"] as const;
-export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [".py", ".go", ".rs", ".tf", ".tfvars", ".md", ".rst"] as const;
+export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".kts",
+  ".tf",
+  ".tfvars",
+  ".md",
+  ".rst",
+] as const;
 export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
 
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSIONS = [
@@ -80,9 +92,6 @@ export const PRODUCT_GRAPH_SCANNABLE_EXTENSIONS = [
 export const PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET = new Set<string>(PRODUCT_GRAPH_SCANNABLE_EXTENSIONS);
 
 export const UNSUPPORTED_SOURCE_EXTENSIONS = [
-  ".java",
-  ".kt",
-  ".kts",
   ".rb",
   ".php",
   ".swift",
@@ -149,10 +158,10 @@ export const WORKSPACE_MARKER_GLOBS = [
 ] as const;
 
 export const FILE_LEVEL_ONLY_LANGUAGE_WARNING =
-  "C#/.NET: file-level indexing only; semantic edges unsupported in base v1.2.";
+  "C#/.NET: T0 structural indexing; optional Roslyn semantic edges when helper is available.";
 
 export const DOTNET_T0_SCANNER_NOTICE =
-  "C#/.NET: T0 structural indexing (types, members, project topology, XAML links); Roslyn semantic edges not yet enabled.";
+  "C#/.NET: T0 structural indexing (types, members, project topology, XAML links); optional Roslyn semantic edges when helper is available.";
 
 export const PYTHON_T1_SCANNER_NOTICE =
   "Python: T1 structural indexing (classes, functions, imports); AST-level semantic edges not yet enabled.";
@@ -165,6 +174,9 @@ export const RUST_T1_SCANNER_NOTICE =
 
 export const TERRAFORM_T1_SCANNER_NOTICE =
   "Terraform: T1 config indexing (resources, modules, variables); full IaC graph resolution not yet enabled.";
+
+export const JAVA_KOTLIN_T1_SCANNER_NOTICE =
+  "Java/Kotlin: T1 structural indexing (packages, classes, interfaces, imports); javac/kotlinc semantic edges not yet enabled.";
 
 export type DetectedProjectType =
   | "dotnet"
@@ -245,7 +257,10 @@ export function isEcosystemConfigFileName(fileName: string) {
   return fileName === "go.mod"
     || fileName === "Cargo.toml"
     || fileName === "pyproject.toml"
-    || fileName === "manage.py";
+    || fileName === "manage.py"
+    || fileName === "pom.xml"
+    || fileName === "build.gradle"
+    || fileName === "build.gradle.kts";
 }
 
 export function isProductGraphScannableExtension(extension: string) {
@@ -410,6 +425,14 @@ export function buildWorkspaceScanProfile(input: {
   if ((extensionCounts[".tf"] ?? 0) > 0) {
     warnings.push(TERRAFORM_T1_SCANNER_NOTICE);
   }
+  if (
+    detected.includes("java")
+    || (extensionCounts[".java"] ?? 0) > 0
+    || (extensionCounts[".kt"] ?? 0) > 0
+    || (extensionCounts[".kts"] ?? 0) > 0
+  ) {
+    warnings.push(JAVA_KOTLIN_T1_SCANNER_NOTICE);
+  }
   if (hasDotNet && !hasTypeScript && (extensionCounts[".cs"] ?? 0) === 0) {
     warnings.push("Detected .NET project markers but no .cs source files were indexed. Confirm workspace root and build output skips.");
   }
@@ -462,6 +485,9 @@ export async function detectWorkspaceScanProfile(
     }
     if (extension === ".tf" || extension === ".tfvars") {
       detectedProjectTypes.add("terraform");
+    }
+    if (extension === ".java" || extension === ".kt" || extension === ".kts") {
+      detectedProjectTypes.add("java");
     }
   }
 

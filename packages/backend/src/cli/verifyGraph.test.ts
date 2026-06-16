@@ -1,9 +1,10 @@
 import path from "path";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { runVerifyGraphCli } from "./verifyGraph.js";
 
 function repoRoot() {
-  return path.resolve(process.cwd(), "..", "..");
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 }
 
 describe("verifyGraph cli", () => {
@@ -14,7 +15,7 @@ describe("verifyGraph cli", () => {
       "--json",
     ]);
     expect(payload.passed).toBe(true);
-    expect(payload.fixtureCount).toBeGreaterThanOrEqual(18);
+    expect(payload.fixtureCount).toBeGreaterThanOrEqual(19);
     expect(payload.results.map((result) => result.fixture)).toEqual(expect.arrayContaining([
       "mixed-dotnet-node",
       "wrapper-layout",
@@ -30,6 +31,7 @@ describe("verifyGraph cli", () => {
       "fixture-empty",
       "fixture-next-app",
       "fixture-python-django",
+      "fixture-java-maven",
       "fixture-go-module",
       "fixture-rust-workspace",
       "fixture-terraform",
@@ -38,5 +40,5 @@ describe("verifyGraph cli", () => {
     expect(payload.releaseGates.passed).toBe(true);
     expect(payload.releaseGates.querySuccessRate).toBeGreaterThanOrEqual(0.8);
     expect(payload.releaseGates.misleadingHandoffRate).toBe(0);
-  });
+  }, 120_000);
 });

@@ -3,6 +3,16 @@
   "version": "0.0.1",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./graphIncremental": {
+      "types": "./dist/graphIncremental.d.ts",
+      "default": "./dist/graphIncremental.js"
+    }
+  },
   "files": [
     "dist"
   ],

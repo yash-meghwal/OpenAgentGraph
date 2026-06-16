@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   ActorIdentity,
   GraphProjection,
+  GraphTaskLensId,
   ProductEdgeKind,
   ProductGraphCodexPlanningPrompt,
   ProductGraphEdge,
@@ -19,6 +20,7 @@ import type {
   ScanJobStatus,
   ScanProgressSnapshot,
 } from "@openagentgraph/shared";
+import { GRAPH_TASK_LENS_DEFINITIONS } from "@openagentgraph/shared";
 import {
   buildProductGraphCodexPlanningPrompt,
   buildProductGraphHandoffReport,
@@ -45,6 +47,7 @@ import {
   formatHandoffWorkspaceRootForReport,
   isPathInsideRoot,
 } from "../productGraphHandoffTrust.js";
+import { buildWorkspaceGraphOperationalContext } from "../cli/graphOperational.js";
 
 import {
   AcceptCodexPlanRequest,
@@ -86,6 +89,31 @@ export async function productGraphRoutes(app: FastifyInstance) {
   app.get("/product-graph/handoff", async () => {
     const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
     return buildProductGraphHandoffReport(projection, await buildProductGraphHandoffOptions({ projection }));
+  });
+
+  app.get<{ Querystring: { lens?: string } }>("/product-graph/workspace-graph", async (req, reply) => {
+    const workspaceRoot = await resolveProductGraphWorkspaceRoot();
+    if (!workspaceRoot) {
+      return {
+        available: false,
+        unavailableReason: "workspace_not_configured",
+        unavailableDetail: "Configure workspace.root before loading graph operational context.",
+        lens: "all" as const,
+      };
+    }
+
+    const lensIds = new Set(GRAPH_TASK_LENS_DEFINITIONS.map((definition) => definition.id));
+    const requestedLens = req.query.lens?.trim();
+    const lens = requestedLens && lensIds.has(requestedLens as GraphTaskLensId)
+      ? (requestedLens as GraphTaskLensId)
+      : "all";
+
+    const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
+    return buildWorkspaceGraphOperationalContext({
+      workspaceRoot,
+      lens,
+      productGraph: projection,
+    });
   });
 
   app.post("/product-graph/handoff/write", async (req, reply) => {

@@ -169,6 +169,11 @@ export function isResolvedDotNetRelationshipEdge(
     "test_target",
     "inherits",
     "implements",
+    "semantic_calls",
+    "semantic_inherits",
+    "semantic_implements",
+    "semantic_constructor",
+    "semantic_tests",
   ].includes(relation)) {
     return true;
   }

@@ -8,6 +8,7 @@ export const GRAPH_RELEASE_FIXTURE_IDS = [
   "fixture-csharp-media-player",
   "fixture-next-app",
   "fixture-python-django",
+  "fixture-java-maven",
   "fixture-go-module",
   "fixture-rust-workspace",
   "fixture-terraform",
@@ -62,6 +63,12 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     fixture: "fixture-python-django",
     query: "User model django",
     seedPattern: /User/i,
+  },
+  {
+    fixture: "fixture-java-maven",
+    query: "CheckoutService order",
+    seedPattern: /CheckoutService/i,
+    resultPattern: /Order/i,
   },
   {
     fixture: "fixture-go-module",

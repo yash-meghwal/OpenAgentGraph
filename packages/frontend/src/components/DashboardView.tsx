@@ -15,6 +15,7 @@ import {
   getRuntimeBannerTone,
 } from "../lib/productCopy.js";
 import type { ProductGraphHandoffResult } from "../lib/productGraphApi.js";
+import { GraphOperationalPanel } from "./GraphOperationalPanel.js";
 
 const severityColor = {
   critical: "#fc8181",
@@ -739,6 +740,10 @@ export function DashboardView() {
     productGraphHandoff,
     productGraphHandoffLoading,
     productGraphHandoffError,
+    workspaceGraphOperational,
+    workspaceGraphLens,
+    workspaceGraphOperationalLoading,
+    workspaceGraphOperationalError,
     agentFrontierGraphId,
     agentFrontier,
     agentFrontierSummary,
@@ -767,6 +772,8 @@ export function DashboardView() {
     setDashboardSort,
     loadProviderStatus,
     loadProductGraphHandoff,
+    loadWorkspaceGraphOperational,
+    setWorkspaceGraphLens,
     loadAgentFrontier,
     loadAgentContext,
     acceptAgentPlanProposal,
@@ -798,6 +805,17 @@ export function DashboardView() {
     if (productGraphHandoff || productGraphHandoffLoading || productGraphHandoffError) return;
     void loadProductGraphHandoff().catch(() => undefined);
   }, [loadProductGraphHandoff, productGraphHandoff, productGraphHandoffError, productGraphHandoffLoading]);
+
+  useEffect(() => {
+    if (workspaceGraphOperational || workspaceGraphOperationalLoading || workspaceGraphOperationalError) return;
+    void loadWorkspaceGraphOperational(workspaceGraphLens).catch(() => undefined);
+  }, [
+    loadWorkspaceGraphOperational,
+    workspaceGraphLens,
+    workspaceGraphOperational,
+    workspaceGraphOperationalError,
+    workspaceGraphOperationalLoading,
+  ]);
 
   const presentedItems = useMemo(() => {
     const filtered = filterDashboardItems(dashboard, dashboardFilter);
@@ -953,6 +971,19 @@ export function DashboardView() {
             handoffError={productGraphHandoffError}
             providerStatus={providerStatus}
           />
+          <GraphOperationalPanel
+            context={workspaceGraphOperational}
+            selectedLens={workspaceGraphLens}
+            loading={workspaceGraphOperationalLoading}
+            error={workspaceGraphOperationalError}
+            onSelectLens={(lens) => {
+              setWorkspaceGraphLens(lens);
+              void loadWorkspaceGraphOperational(lens).catch(() => undefined);
+            }}
+            onRefresh={() => {
+              void loadWorkspaceGraphOperational(workspaceGraphLens).catch(() => undefined);
+            }}
+          />
           <ProviderSetupCard
             providerStatus={providerStatus}
             providerConfigSaving={providerConfigSaving}
@@ -1039,6 +1070,20 @@ export function DashboardView() {
         handoffLoading={productGraphHandoffLoading}
         handoffError={productGraphHandoffError}
         providerStatus={providerStatus}
+      />
+
+      <GraphOperationalPanel
+        context={workspaceGraphOperational}
+        selectedLens={workspaceGraphLens}
+        loading={workspaceGraphOperationalLoading}
+        error={workspaceGraphOperationalError}
+        onSelectLens={(lens) => {
+          setWorkspaceGraphLens(lens);
+          void loadWorkspaceGraphOperational(lens).catch(() => undefined);
+        }}
+        onRefresh={() => {
+          void loadWorkspaceGraphOperational(workspaceGraphLens).catch(() => undefined);
+        }}
       />
 
       <ProviderSetupCard

@@ -1,21 +1,9 @@
-import fs from "fs/promises";
-import path from "path";
-import {
-  renderUnifiedGraphHandoffReport,
-  renderUnifiedGraphHtml,
-  renderUnifiedGraphWiki,
-} from "@openagentgraph/shared";
+import { buildGraphIncrementalManifest } from "@openagentgraph/shared/graphIncremental";
+import { collectWorkspaceFileFingerprints } from "../scanner/kernel/graphFingerprints.js";
+import { GRAPH_INCREMENTAL_TOOL_VERSION } from "../scanner/kernel/graphIncrementalScan.js";
 import { runKernelWorkspaceScan } from "../scanner/kernel/scanKernel.js";
-import {
-  GRAPH_EXPORT_DIR_NAME,
-  GRAPH_HANDOFF_FILE_NAME,
-  GRAPH_HTML_FILE_NAME,
-  GRAPH_JSON_FILE_NAME,
-  GRAPH_WIKI_INDEX_FILE_NAME,
-  readPreviousSymbolCount,
-  requireWorkspaceOption,
-  resolveGraphArtifactPath,
-} from "./graphWorkspace.js";
+import { writeGraphArtifacts } from "./graphArtifactsWrite.js";
+import { requireWorkspaceOption } from "./graphWorkspace.js";
 import { readRequiredCliValue } from "./productGraphDataDir.js";
 
 interface GraphExportCliOptions {
@@ -82,50 +70,25 @@ function parseGraphExportArgv(argv: string[]) {
 export async function runGraphExportCli(argv = process.argv.slice(2)) {
   const { options, formats } = parseGraphExportArgv(argv);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
-  const previousSymbolCount = await readPreviousSymbolCount(workspaceRoot);
   const scanResult = await runKernelWorkspaceScan(workspaceRoot);
   const graph = scanResult.unifiedGraph;
-  const reportWrittenAt = new Date().toISOString();
+  const fingerprintResult = await collectWorkspaceFileFingerprints(workspaceRoot);
+  const manifest = buildGraphIncrementalManifest({
+    graph,
+    kernelProfile: scanResult.kernelProfile,
+    incrementalToolVersion: GRAPH_INCREMENTAL_TOOL_VERSION,
+    ignoreRuleFingerprint: fingerprintResult.ignoreRuleFingerprint,
+    files: fingerprintResult.files,
+  });
 
-  const writtenPaths: string[] = [];
-  if (formats.writeJson) {
-    const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_JSON_FILE_NAME));
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, `${JSON.stringify(graph, null, 2)}\n`, "utf8");
-    writtenPaths.push(outputPath);
-  }
-  if (formats.writeHtml) {
-    const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_HTML_FILE_NAME));
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphHtml(graph, { kernelProfile: scanResult.kernelProfile }), "utf8");
-    writtenPaths.push(outputPath);
-  }
-  if (formats.writeWiki) {
-    const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_WIKI_INDEX_FILE_NAME));
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphWiki(graph), "utf8");
-    writtenPaths.push(outputPath);
-  }
-  if (formats.writeReport) {
-    const outputPath = resolveGraphArtifactPath(workspaceRoot, GRAPH_HANDOFF_FILE_NAME);
-    await fs.writeFile(
-      outputPath,
-      renderUnifiedGraphHandoffReport(graph, {
-        kernelProfile: scanResult.kernelProfile,
-        handoffPath: GRAPH_HANDOFF_FILE_NAME,
-        handoffFreshness: {
-          isStale: false,
-          handoffPath: GRAPH_HANDOFF_FILE_NAME,
-          graphGeneratedAt: graph.generatedAt,
-          handoffUpdatedAt: reportWrittenAt,
-          detail: "Handoff written during graph export.",
-        },
-        previousSymbolCount,
-      }),
-      "utf8"
-    );
-    writtenPaths.push(outputPath);
-  }
+  const writtenPaths = await writeGraphArtifacts(workspaceRoot, graph, {
+    writeJson: formats.writeJson,
+    writeHtml: formats.writeHtml,
+    writeWiki: formats.writeWiki,
+    writeReport: formats.writeReport,
+    manifest,
+    kernelProfile: scanResult.kernelProfile,
+  });
 
   const payload = {
     status: "graph_export_complete",

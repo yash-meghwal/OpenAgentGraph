@@ -427,6 +427,34 @@ describe("product graph routes", () => {
     await app.close();
   });
 
+  it("returns workspace graph operational context without requiring a provider", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    setProductGraphRouteTestConfig({ workspaceRoot });
+    const codeFile = projectionNode({
+      id: "file:checkout",
+      kind: "code_file",
+      title: "packages/frontend/src/CheckoutStatus.tsx",
+      metadata: {
+        scannerSourcePath: "packages/frontend/src/CheckoutStatus.tsx",
+      },
+    });
+    repoMocks.getProductGraphProjection.mockResolvedValue(makeProjection({ nodes: [codeFile] }));
+
+    const app = Fastify();
+    await app.register(productGraphRoutes);
+    const response = await app.inject({
+      method: "GET",
+      url: "/product-graph/workspace-graph",
+    });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.available).toBe(false);
+    expect(body.unavailableReason).toBe("no_graph_export");
+    expect(body.lens).toBe("all");
+    await app.close();
+  });
+
   it("returns a product graph trace for an existing node", async () => {
     const requirement = projectionNode({
       id: "requirement:checkout-status",

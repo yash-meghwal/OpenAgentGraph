@@ -1,9 +1,14 @@
 import path from "path";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { runKernelWorkspaceScan } from "./scanKernel.js";
 
+function repoRoot() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+}
+
 function fixtureRoot(...segments: string[]) {
-  return path.resolve(process.cwd(), "..", "..", "tests", "fixtures", "graph", ...segments);
+  return path.resolve(repoRoot(), "tests", "fixtures", "graph", ...segments);
 }
 
 describe("scan kernel", () => {
@@ -30,6 +35,25 @@ describe("scan kernel", () => {
     expect(indexedPaths).toContain("package/src/index.ts");
     expect(indexedPaths.some((title) => title.includes("package/generated/"))).toBe(false);
     expect(result.scanPlan.summary.skippedCountsByReason?.gitignore ?? 0).toBeGreaterThan(0);
+  });
+
+  it("resolves java import edges to workspace symbols without dangling endpoints", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-java-maven"));
+    const nodesById = new Map(result.scanPlan.nodes.map((node) => [node.id, node]));
+    const orderImport = result.scanPlan.edges.find(
+      (edge) =>
+        edge.metadata?.scannerRelation === "import"
+        && edge.metadata?.scannerImportPath === "com.example.checkout.model.Order"
+    );
+    expect(orderImport).toBeDefined();
+    expect(nodesById.get(orderImport!.targetNodeId)?.title).toContain("Order");
+
+    const danglingImportEdges = result.scanPlan.edges.filter(
+      (edge) =>
+        edge.metadata?.scannerRelation === "import"
+        && (!nodesById.has(edge.sourceNodeId) || !nodesById.has(edge.targetNodeId))
+    );
+    expect(danglingImportEdges).toEqual([]);
   });
 
   it("indexes python source files with the T1 ecosystem scanner", async () => {

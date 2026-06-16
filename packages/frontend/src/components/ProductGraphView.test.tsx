@@ -8,7 +8,7 @@ import type {
   ProductGraphTrace,
 } from "@openagentgraph/shared";
 import {
-  buildProductGraphTaskScopeNodeIds,
+  buildProductGraphLensNodeIds,
   buildProductGraphTrace,
   findProductGraphAcceptanceCriterionEvidenceForNode,
   findProductGraphAcceptanceEvidenceGaps,
@@ -41,8 +41,8 @@ import {
   codeMapFilterAllowsNode,
   codeMapFiltersForFocusedNode,
   codeMapQuickFilterAllowsNode,
-  codeMapTaskScopeAllowsEdge,
-  codeMapTaskScopeAllowsNode,
+  codeMapLensAllowsEdge,
+  codeMapLensAllowsNode,
   detectCodeMapDependencyCycles,
   findCodeMapOrphanFiles,
   findLinkedRunFilesForTask,
@@ -2778,15 +2778,15 @@ describe("ProductGraphView", () => {
     expect(markup).toContain('aria-label="Show code communities"');
     expect(markup).toContain('aria-label="Show dependency edges"');
     expect(markup).toContain('aria-label="Show semantic edges"');
-    expect(markup).toContain('aria-label="Code map task lenses"');
-    expect(markup).toContain('aria-label="Show Frontend task lens"');
+    expect(markup).toContain('aria-label="Code map graph lenses"');
+    expect(markup).toContain('aria-label="Show Frontend graph lens"');
     expect(markup).toContain('aria-pressed="true"');
-    expect(markup).toContain('title="React, renderer, UI, browser, and dashboard source."');
-    expect(markup).toContain('aria-label="Show Backend/runtime task lens"');
-    expect(markup).toContain('aria-label="Show Extension task lens"');
-    expect(markup).toContain('aria-label="Show Tests task lens"');
-    expect(markup).toContain('aria-label="Show Provider/AI task lens"');
-    expect(markup).toContain('aria-label="Show Handoff/docs task lens"');
+    expect(markup).toContain('title="UI, components, views, pages, and client routes."');
+    expect(markup).toContain('aria-label="Show Backend/runtime graph lens"');
+    expect(markup).toContain('aria-label="Show Docs/handoff graph lens"');
+    expect(markup).toContain('aria-label="Show Tests graph lens"');
+    expect(markup).toContain('aria-label="Show Provider/AI graph lens"');
+    expect(markup).toContain('aria-label="Show Security graph lens"');
     expect(markup).toContain('aria-label="Code map quick filters"');
     expect(markup).toContain('aria-label="Clear Code Map quick filter"');
     expect(markup).toContain("Normal filters");
@@ -2963,21 +2963,21 @@ describe("ProductGraphView", () => {
     })).toBeUndefined();
   });
 
-  it("applies Code Map task scope lenses without hiding relevant dependency edges", () => {
+  it("applies Code Map graph lenses without hiding relevant dependency edges", () => {
     const productGraph = makeTaskScopeCodeMapProductGraph();
     const nodesById = new Map(productGraph.nodes.map((node) => [node.id, node]));
     const frontendFile = nodesById.get("file:frontend-app")!;
     const backendRuntimeFile = nodesById.get("file:backend-runtime")!;
     const productNode = makeProductGraph().nodes[0]!;
     const dependencyEdge = productGraph.edges.find((edge) => edge.id === "edge-frontend-runtime")!;
-    const frontendNodeIds = buildProductGraphTaskScopeNodeIds(productGraph, "frontend");
-    const backendRuntimeNodeIds = buildProductGraphTaskScopeNodeIds(productGraph, "backend-runtime");
+    const frontendNodeIds = buildProductGraphLensNodeIds(productGraph, "frontend");
+    const backendRuntimeNodeIds = buildProductGraphLensNodeIds(productGraph, "backend-runtime");
 
-    expect(codeMapTaskScopeAllowsNode(frontendFile, "frontend", frontendNodeIds)).toBe(true);
-    expect(codeMapTaskScopeAllowsNode(backendRuntimeFile, "frontend", frontendNodeIds)).toBe(false);
-    expect(codeMapTaskScopeAllowsNode(productNode, "frontend", frontendNodeIds)).toBe(true);
-    expect(codeMapTaskScopeAllowsEdge(dependencyEdge, nodesById, "frontend", frontendNodeIds)).toBe(true);
-    expect(codeMapTaskScopeAllowsNode(backendRuntimeFile, "backend-runtime", backendRuntimeNodeIds)).toBe(true);
+    expect(codeMapLensAllowsNode(frontendFile, "frontend", frontendNodeIds)).toBe(true);
+    expect(codeMapLensAllowsNode(backendRuntimeFile, "frontend", frontendNodeIds)).toBe(false);
+    expect(codeMapLensAllowsNode(productNode, "frontend", frontendNodeIds)).toBe(true);
+    expect(codeMapLensAllowsEdge(dependencyEdge, nodesById, "frontend", frontendNodeIds)).toBe(true);
+    expect(codeMapLensAllowsNode(backendRuntimeFile, "backend-runtime", backendRuntimeNodeIds)).toBe(true);
     expect(frontendNodeIds.has("community:frontend")).toBe(true);
     expect(frontendNodeIds.has("community:backend")).toBe(false);
   });
@@ -3278,7 +3278,7 @@ describe("ProductGraphView", () => {
     expect(semanticFilterButton().props.style.background).toBe("#1e3a5f");
   });
 
-  it("shows a clear empty state for task lenses with no scanned files", () => {
+  it("shows a clear empty state for graph lenses with no scanned files", () => {
     const baseGraph = makeTaskScopeCodeMapProductGraph("backend-only");
     const productNode = makeProductGraph().nodes[0]!;
     const productGraph: ProductGraphProjection = {
@@ -3295,21 +3295,21 @@ describe("ProductGraphView", () => {
     };
     const renderer = renderInteractiveProductGraph(productGraph);
 
-    clickByAriaLabel(renderer, "Show Frontend task lens");
+    clickByAriaLabel(renderer, "Show Frontend graph lens");
 
     const rendered = JSON.stringify(renderer.toJSON());
-    expect(rendered).toContain("No scanned files matched the Frontend task lens.");
+    expect(rendered).toContain("No scanned files matched the Frontend graph lens.");
     expect(rendered).toContain(productNode.title);
   });
 
-  it("keeps runtime source visible in the Backend/runtime task lens", () => {
+  it("keeps runtime source visible in the Backend/runtime graph lens", () => {
     const renderer = renderInteractiveProductGraph(makeTaskScopeCodeMapProductGraph());
 
-    clickByAriaLabel(renderer, "Show Backend/runtime task lens");
+    clickByAriaLabel(renderer, "Show Backend/runtime graph lens");
 
     const rendered = JSON.stringify(renderer.toJSON());
     expect(rendered).toContain("packages/backend/src/runtime.ts");
-    expect(rendered).not.toContain("No scanned files matched the Backend/runtime task lens.");
+    expect(rendered).not.toContain("No scanned files matched the Backend/runtime graph lens.");
   });
 
   it("detects self-dependency cycles and reports bounded cycle overflow", () => {
@@ -5835,7 +5835,7 @@ describe("ProductGraphView", () => {
     expect(initialMarkup).toContain('" of "');
     expect(initialMarkup).toContain(`"${nodeCount}"`);
     expect(initialMarkup).toContain('" matching nodes"');
-    expect(initialMarkup).toContain("Use search, filters, quick filters, or task lenses to narrow large graphs");
+    expect(initialMarkup).toContain("Use search, filters, quick filters, or graph lenses to narrow large graphs");
     expect(initialMarkup).toContain("packages/frontend/src/LargeFile0.ts");
     expect(initialMarkup).not.toContain(`packages/frontend/src/LargeFile${PRODUCT_GRAPH_NODE_CARD_RENDER_LIMIT + 1}.ts`);
 

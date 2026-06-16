@@ -27,8 +27,16 @@ jobs:
           node-version: 20.19.0
           cache: npm
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Build Roslyn semantic helper
+        run: npm run build:roslyn-helper --workspace=packages/backend
 
       - name: Typecheck shared
         run: npm run build --workspace=packages/shared

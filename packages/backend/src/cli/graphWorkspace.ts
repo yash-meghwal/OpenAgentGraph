@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import type { GraphTaskLensId, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
+import type { GraphIncrementalManifest, GraphTaskLensId, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
 import {
   CODE_GRAPH_SCHEMA_VERSION,
   evaluateHandoffFreshness,
@@ -13,6 +13,7 @@ import { readRequiredCliValue } from "./productGraphDataDir.js";
 
 export const GRAPH_EXPORT_DIR_NAME = ".oag";
 export const GRAPH_JSON_FILE_NAME = "graph.json";
+export const GRAPH_MANIFEST_FILE_NAME = "graph-manifest.json";
 export const GRAPH_HTML_FILE_NAME = "graph.html";
 export const GRAPH_WIKI_INDEX_FILE_NAME = "wiki/index.md";
 export const GRAPH_HANDOFF_FILE_NAME = "GRAPH_REPORT.md";
@@ -205,6 +206,16 @@ export async function readPreviousSymbolCount(workspaceRoot: string): Promise<nu
   try {
     const cached = JSON.parse(await fs.readFile(cachedGraphPath, "utf8")) as UnifiedCodeGraph;
     return cached.nodes.filter((node) => node.kind === "symbol").length;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function tryLoadCachedGraphManifest(workspaceRoot: string): Promise<GraphIncrementalManifest | undefined> {
+  const manifestPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_MANIFEST_FILE_NAME));
+  if (!(await fileExists(manifestPath))) return undefined;
+  try {
+    return JSON.parse(await fs.readFile(manifestPath, "utf8")) as GraphIncrementalManifest;
   } catch {
     return undefined;
   }

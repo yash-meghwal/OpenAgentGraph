@@ -24,7 +24,7 @@ import type {
   ProductGraphProjection,
   ProductGraphProjectionNode,
   ProductGraphReadyTaskCandidateSummary,
-  ProductGraphTaskScopeId,
+  GraphTaskLensId,
   ProductGraphTrace,
   ProductNodeKind,
   ProductNodeStatus,
@@ -34,8 +34,8 @@ import type {
 import {
   findProductGraphAcceptanceCriterionEvidenceForNode,
   findProductGraphAcceptanceEvidenceGaps,
-  buildProductGraphTaskScopeNodeIds,
-  PRODUCT_GRAPH_TASK_SCOPE_DEFINITIONS,
+  buildProductGraphLensNodeIds,
+  GRAPH_TASK_LENS_DEFINITIONS,
   hasProductGraphAcceptanceVerification,
   summarizeProductGraphAcceptanceEvidenceHealth,
   summarizeProductGraphCodeIntentDrift,
@@ -128,8 +128,8 @@ import {
   codeMapFiltersForFocusedNode,
   codeMapNodeDetails,
   codeMapQuickFilterAllowsNode,
-  codeMapTaskScopeAllowsEdge,
-  codeMapTaskScopeAllowsNode,
+  codeMapLensAllowsEdge,
+  codeMapLensAllowsNode,
   edgeLabel,
   edgeMetadataText,
   findLikelyCodeAreasForTask,
@@ -364,7 +364,7 @@ export function ProductGraphContent({
   const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>("all");
   const [codeMapFilters, setCodeMapFilters] = useState<CodeMapFilterState>(DEFAULT_CODE_MAP_FILTERS);
   const [codeMapQuickFilter, setCodeMapQuickFilter] = useState<CodeMapQuickFilter>("all");
-  const [codeMapTaskScope, setCodeMapTaskScope] = useState<ProductGraphTaskScopeId>("all");
+  const [codeMapLens, setCodeMapLens] = useState<GraphTaskLensId>("all");
   const [codeMapThemeId, setCodeMapThemeId] = useState<GraphThemeId>(() => readStoredGraphThemeId());
   const [codeMapExplorerSelection, setCodeMapExplorerSelection] = useState<CodeMapExplorerSelection | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -433,11 +433,11 @@ export function ProductGraphContent({
     );
   }, [codeMapQuickFilter, productGraph]);
   const codeMapQuickFilterActive = codeMapQuickFilter !== "all";
-  const codeMapTaskScopeNodeIds = useMemo(() => {
-    if (!productGraph || codeMapTaskScope === "all") return new Set<string>();
-    return buildProductGraphTaskScopeNodeIds(productGraph, codeMapTaskScope);
-  }, [codeMapTaskScope, productGraph]);
-  const codeMapTaskScopeActive = codeMapTaskScope !== "all";
+  const codeMapLensNodeIds = useMemo(() => {
+    if (!productGraph || codeMapLens === "all") return new Set<string>();
+    return buildProductGraphLensNodeIds(productGraph, codeMapLens);
+  }, [codeMapLens, productGraph]);
+  const codeMapLensActive = codeMapLens !== "all";
   const codeMapExplorerView = useMemo(() => {
     if (!productGraph || !codeMapExplorerSelection) return null;
     return buildCodeMapExplorerView(productGraph, codeMapExplorerSelection);
@@ -453,7 +453,7 @@ export function ProductGraphContent({
           ? codeMapQuickFilterAllowsNode(node, codeMapQuickFilter, codeMapQuickFilterNodeIds)
           : codeMapFilterAllowsNode(node, codeMapFilters)
       )
-      .filter((node) => codeMapExplorerView || codeMapTaskScopeAllowsNode(node, codeMapTaskScope, codeMapTaskScopeNodeIds))
+      .filter((node) => codeMapExplorerView || codeMapLensAllowsNode(node, codeMapLens, codeMapLensNodeIds))
       .filter((node) => codeMapExplorerView || codeMapQuickFilterActive || kindFilter === "all" || node.kind === kindFilter)
       .filter((node) => codeMapExplorerView || codeMapQuickFilterActive || statusFilter === "all" || node.status === statusFilter)
       .filter((node) => codeMapExplorerView || codeMapQuickFilterActive || nodeMatchesQuery(node, deferredQuery));
@@ -463,8 +463,8 @@ export function ProductGraphContent({
     codeMapQuickFilter,
     codeMapQuickFilterActive,
     codeMapQuickFilterNodeIds,
-    codeMapTaskScope,
-    codeMapTaskScopeNodeIds,
+    codeMapLens,
+    codeMapLensNodeIds,
     deferredQuery,
     kindFilter,
     productGraph,
@@ -486,7 +486,7 @@ export function ProductGraphContent({
 
   useEffect(() => {
     setVisibleNodeRenderLimit(PRODUCT_GRAPH_NODE_CARD_RENDER_LIMIT);
-  }, [codeMapExplorerSelection, codeMapFilters, codeMapQuickFilter, codeMapTaskScope, deferredQuery, kindFilter, statusFilter]);
+  }, [codeMapExplorerSelection, codeMapFilters, codeMapQuickFilter, codeMapLens, deferredQuery, kindFilter, statusFilter]);
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNode?.id ?? null;
@@ -508,10 +508,10 @@ export function ProductGraphContent({
         if (codeMapQuickFilter === "semantic") return isSemanticCodeEdge(edge, nodesById);
         return codeMapFilterAllowsEdge(edge, codeMapFilters, nodesById);
       })
-      .filter((edge) => codeMapExplorerView || codeMapTaskScopeAllowsEdge(edge, nodesById, codeMapTaskScope, codeMapTaskScopeNodeIds))
+      .filter((edge) => codeMapExplorerView || codeMapLensAllowsEdge(edge, nodesById, codeMapLens, codeMapLensNodeIds))
       .filter((edge) => edge.sourceNodeId === selectedNode.id || edge.targetNodeId === selectedNode.id)
       .slice(0, 10);
-  }, [codeMapExplorerView, codeMapFilters, codeMapQuickFilter, codeMapTaskScope, codeMapTaskScopeNodeIds, nodesById, productGraph, selectedNode]);
+  }, [codeMapExplorerView, codeMapFilters, codeMapQuickFilter, codeMapLens, codeMapLensNodeIds, nodesById, productGraph, selectedNode]);
 
   const selectedBlockingQuestions = useMemo(() => {
     if (!selectedNode?.blockedByNodeIds.length) return [];
@@ -806,25 +806,25 @@ export function ProductGraphContent({
   const codeMapCommunityGroups = useMemo(() => {
     if (!productGraph) return [];
     const groups = buildCodeMapCommunityGroups(productGraph);
-    if (codeMapTaskScope === "all") return groups;
+    if (codeMapLens === "all") return groups;
     return groups
-      .filter((group) => codeMapTaskScopeNodeIds.has(group.summary.node.id))
+      .filter((group) => codeMapLensNodeIds.has(group.summary.node.id))
       .map((group) => {
-        const scopedFiles = group.files.filter((file) => codeMapTaskScopeNodeIds.has(file.id));
+        const scopedFiles = group.files.filter((file) => codeMapLensNodeIds.has(file.id));
         return {
           ...group,
           files: scopedFiles,
           hiddenFileCount: Math.max(0, group.hiddenFileCount + group.files.length - scopedFiles.length),
         };
       });
-  }, [codeMapTaskScope, codeMapTaskScopeNodeIds, productGraph]);
+  }, [codeMapLens, codeMapLensNodeIds, productGraph]);
   const codeMapDependencyHotspots = useMemo(() => {
     if (!productGraph) return [];
     const hotspots = buildCodeMapDependencyHotspots(productGraph);
-    return codeMapTaskScope === "all"
+    return codeMapLens === "all"
       ? hotspots
-      : hotspots.filter((hotspot) => codeMapTaskScopeNodeIds.has(hotspot.node.id));
-  }, [codeMapTaskScope, codeMapTaskScopeNodeIds, productGraph]);
+      : hotspots.filter((hotspot) => codeMapLensNodeIds.has(hotspot.node.id));
+  }, [codeMapLens, codeMapLensNodeIds, productGraph]);
   const codeMapHasData = codeMapSummary.fileCount + codeMapSummary.symbolCount + codeMapSummary.communityCount > 0;
   const productIntentNodeCount = productGraph
     ? (
@@ -840,22 +840,22 @@ export function ProductGraphContent({
     productIntentNodeCount === 0 &&
     acceptanceEvidenceHealth.acceptanceCriteriaCount === 0 &&
     readyTaskCandidateHealth.plannedTaskCount === 0;
-  const codeMapTaskScopeOptions = useMemo(() => {
+  const codeMapLensOptions = useMemo(() => {
     if (!productGraph) {
-      return PRODUCT_GRAPH_TASK_SCOPE_DEFINITIONS.map((definition) => ({ ...definition, count: 0 }));
+      return GRAPH_TASK_LENS_DEFINITIONS.map((definition) => ({ ...definition, count: 0 }));
     }
-    return PRODUCT_GRAPH_TASK_SCOPE_DEFINITIONS.map((definition) => {
+    return GRAPH_TASK_LENS_DEFINITIONS.map((definition) => {
       const scopedNodeIds = definition.id === "all"
         ? new Set(productGraph.nodes.filter(isCodeMapNode).map((node) => node.id))
-        : buildProductGraphTaskScopeNodeIds(productGraph, definition.id);
+        : buildProductGraphLensNodeIds(productGraph, definition.id);
       const count = productGraph.nodes.filter((node) => node.kind === "code_file" && scopedNodeIds.has(node.id)).length;
       return { ...definition, count };
     });
   }, [productGraph]);
-  const activeTaskScopeOption = codeMapTaskScopeOptions.find((definition) => definition.id === codeMapTaskScope);
-  const activeTaskScopeDefinition = activeTaskScopeOption ?? PRODUCT_GRAPH_TASK_SCOPE_DEFINITIONS[0]!;
-  const codeMapTaskScopeHasNoFiles =
-    codeMapTaskScopeActive && codeMapHasData && (activeTaskScopeOption?.count ?? 0) === 0;
+  const activeLensOption = codeMapLensOptions.find((definition) => definition.id === codeMapLens);
+  const activeLensDefinition = activeLensOption ?? GRAPH_TASK_LENS_DEFINITIONS[0]!;
+  const codeMapLensHasNoFiles =
+    codeMapLensActive && codeMapHasData && (activeLensOption?.count ?? 0) === 0;
   const firstDependencyCycle = codeMapArchitectureHealth.dependencyCycles[0];
   const dependencyCycleCountLabel = codeMapArchitectureHealth.dependencyCycleSearchLimited
     ? codeMapArchitectureHealth.dependencyCycleCount > 0
@@ -1113,20 +1113,20 @@ export function ProductGraphContent({
     if (!productGraph || selectedNode?.kind !== "code_file") return [];
     return productGraph.edges
       .filter((edge) => codeMapFilterAllowsEdge(edge, codeMapFilters, nodesById))
-      .filter((edge) => codeMapTaskScopeAllowsEdge(edge, nodesById, codeMapTaskScope, codeMapTaskScopeNodeIds))
+      .filter((edge) => codeMapLensAllowsEdge(edge, nodesById, codeMapLens, codeMapLensNodeIds))
       .filter((edge) => isDependencyCodeEdge(edge, nodesById))
       .filter((edge) => edge.sourceNodeId === selectedNode.id || edge.targetNodeId === selectedNode.id)
       .slice(0, 8);
-  }, [codeMapFilters, codeMapTaskScope, codeMapTaskScopeNodeIds, nodesById, productGraph, selectedNode]);
+  }, [codeMapFilters, codeMapLens, codeMapLensNodeIds, nodesById, productGraph, selectedNode]);
   const selectedSemanticCodeEdges = useMemo(() => {
     if (!productGraph || selectedNode?.kind !== "code_symbol") return [];
     return productGraph.edges
       .filter((edge) => codeMapFilterAllowsEdge(edge, codeMapFilters, nodesById))
-      .filter((edge) => codeMapTaskScopeAllowsEdge(edge, nodesById, codeMapTaskScope, codeMapTaskScopeNodeIds))
+      .filter((edge) => codeMapLensAllowsEdge(edge, nodesById, codeMapLens, codeMapLensNodeIds))
       .filter((edge) => isSemanticCodeEdge(edge, nodesById))
       .filter((edge) => edge.sourceNodeId === selectedNode.id || edge.targetNodeId === selectedNode.id)
       .slice(0, 8);
-  }, [codeMapFilters, codeMapTaskScope, codeMapTaskScopeNodeIds, nodesById, productGraph, selectedNode]);
+  }, [codeMapFilters, codeMapLens, codeMapLensNodeIds, nodesById, productGraph, selectedNode]);
   const selectedNodeDescription = selectedNode
     ? isCodeMapNode(selectedNode)
       ? selectedNode.summary
@@ -1277,9 +1277,9 @@ export function ProductGraphContent({
     setCodeMapQuickFilter((currentFilter) => (currentFilter === nextFilter ? "all" : nextFilter));
   }
 
-  function updateCodeMapTaskScope(nextScope: ProductGraphTaskScopeId) {
+  function updateCodeMapLens(nextLens: GraphTaskLensId) {
     setCodeMapExplorerSelection(null);
-    setCodeMapTaskScope(nextScope);
+    setCodeMapLens(nextLens);
   }
 
   function openCodeMapExplorer(selection: CodeMapExplorerSelection) {
@@ -3147,23 +3147,23 @@ export function ProductGraphContent({
             <>
               <div
                 role="group"
-                aria-label="Code map task lenses"
+                aria-label="Code map graph lenses"
                 style={{ display: "grid", gap: 6, border: "1px solid #263244", borderRadius: 10, padding: 9 }}
               >
                 <div style={{ color: "#c4b5fd", fontSize: 10, fontWeight: 900, textTransform: "uppercase" }}>
-                  Task lenses
+                  Graph lenses
                 </div>
-                {codeMapTaskScopeOptions.map((option) => (
+                {codeMapLensOptions.map((option) => (
                   <button
                     key={option.id}
                     type="button"
-                    aria-label={`Show ${option.label} task lens`}
-                    aria-pressed={codeMapTaskScope === option.id}
+                    aria-label={`Show ${option.label} graph lens`}
+                    aria-pressed={codeMapLens === option.id}
                     title={option.description}
-                    onClick={() => updateCodeMapTaskScope(option.id)}
+                    onClick={() => updateCodeMapLens(option.id)}
                     style={{
-                      background: codeMapTaskScope === option.id ? "#1e3a5f" : "transparent",
-                      border: `1px solid ${codeMapTaskScope === option.id ? "#8b5cf6" : "#263244"}`,
+                      background: codeMapLens === option.id ? "#1e3a5f" : "transparent",
+                      border: `1px solid ${codeMapLens === option.id ? "#8b5cf6" : "#263244"}`,
                       borderRadius: 8,
                       color: option.count > 0 || option.id === "all" ? "#cbd5e1" : "#64748b",
                       cursor: "pointer",
@@ -3487,10 +3487,10 @@ export function ProductGraphContent({
           </div>
         ) : null}
 
-        {(visibleNodes.length === 0 && productGraph.nodes.length > 0) || codeMapTaskScopeHasNoFiles ? (
+        {(visibleNodes.length === 0 && productGraph.nodes.length > 0) || codeMapLensHasNoFiles ? (
           <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 14, padding: 18, color: "#94a3b8", fontSize: 13 }}>
-            {codeMapTaskScopeHasNoFiles
-              ? `No scanned files matched the ${activeTaskScopeDefinition.label} task lens.`
+            {codeMapLensHasNoFiles
+              ? `No scanned files matched the ${activeLensDefinition.label} graph lens.`
               : "No product graph nodes match these filters."}
           </div>
         ) : null}
@@ -3643,7 +3643,7 @@ export function ProductGraphContent({
                 Showing {renderedVisibleNodeCount} of {visibleNodes.length} matching nodes
               </div>
               <div style={{ color: "#94a3b8", fontSize: 11, lineHeight: 1.4 }}>
-                Use search, filters, quick filters, or task lenses to narrow large graphs without changing scanned data.
+                Use search, filters, quick filters, or graph lenses to narrow large graphs without changing scanned data.
               </div>
             </div>
             <button

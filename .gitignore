@@ -13,6 +13,8 @@ test-results/
 mcps/
 packages/vscode-extension/.vscode-test/
 packages/vscode-extension/webview-dist/
+packages/backend/scanner-tools/**/bin/
+packages/backend/scanner-tools/**/obj/
 
 # Local sibling working copies / exports — never commit into the base repo
 /OpenAgentGraph-base-review/

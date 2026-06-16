@@ -7,7 +7,9 @@ import {
   parseSolutionFile,
   parseXamlFile,
 } from "./dotnetScanner.js";
+import { probeRoslynHelperAvailability } from "./dotnetRoslynSemantic.js";
 import { runKernelWorkspaceScan } from "./scanKernel.js";
+import { scanWorkspaceCodebase } from "../codeScanner.js";
 
 function fixtureRoot(...segments: string[]) {
   return path.resolve(process.cwd(), "..", "..", "tests", "fixtures", "graph", ...segments);
@@ -123,5 +125,131 @@ describe("dotnet scanner", () => {
       (edge) => edge.metadata?.scannerRelation === "inherits" && edge.label?.includes("Window")
     );
     expect(inheritsWindow).toBeUndefined();
+  });
+
+  it("emits Roslyn semantic call edges when helper is available", async () => {
+    const probe = await probeRoslynHelperAvailability();
+    if (!probe.available) return;
+
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-csharp-wpf"));
+    const semanticCalls = result.scanPlan.edges.filter(
+      (edge) => edge.metadata?.scannerRelation === "semantic_calls"
+    );
+    expect(result.scanPlan.summary.diagnostics.join("\n")).toMatch(/C# semantic: enabled/i);
+    expect(semanticCalls.length).toBeGreaterThan(0);
+
+    const playCall = semanticCalls.find((edge) => edge.label?.includes("Play"));
+    expect(playCall).toBeDefined();
+    expect(playCall?.kind).toBe("uses");
+  });
+
+  it("keeps T0 scan successful when Roslyn helper is disabled", async () => {
+    const result = await scanWorkspaceCodebase({
+      workspaceRoot: fixtureRoot("fixture-csharp-wpf"),
+      projection: {
+        schemaVersion: "1",
+        productGraphId: "test",
+        nodes: [],
+        edges: [],
+        events: [],
+        summary: {
+          nodeCount: 0,
+          edgeCount: 0,
+          nodesByKind: {},
+          edgesByKind: {},
+          unresolvedOpenQuestionCount: 0,
+          blockedTaskCount: 0,
+        },
+      },
+      disableDotNetRoslynSemantic: true,
+    });
+
+    expect(result.summary.diagnostics.join("\n")).toMatch(/C# semantic: unavailable/i);
+    expect(result.nodes.some((node) => node.title.includes("MainViewModel"))).toBe(true);
+  });
+
+  it("falls back to T0 when solution path is invalid", async () => {
+    const probe = await probeRoslynHelperAvailability();
+    if (!probe.available) return;
+
+    const { runDotNetRoslynSemanticAnalysis } = await import("./dotnetRoslynSemantic.js");
+    const { createDotNetSymbolLookup } = await import("./dotnetScanner.js");
+    const result = await runDotNetRoslynSemanticAnalysis({
+      workspaceRoot: fixtureRoot("fixture-csharp-wpf"),
+      solutionPath: "Missing.sln",
+      symbolLookup: createDotNetSymbolLookup(),
+      knownNodeIds: new Set(),
+      scanId: "invalid-sln",
+      scannedAt: new Date().toISOString(),
+      stableId: (prefix, raw) => `${prefix}:${raw}`,
+      compactMetadata: (values) => values as Record<string, string>,
+      sourceRef: (projectPath) => ({ kind: "code_scan", label: "Codebase scan", path: projectPath }),
+      maxEdgeLabelLength: 180,
+    });
+
+    expect(result.succeeded).toBe(false);
+    expect(result.fallbackReason).toMatch(/Solution not found/i);
+  });
+
+  it("rejects solution paths that escape the workspace", async () => {
+    const probe = await probeRoslynHelperAvailability();
+    if (!probe.available) return;
+
+    const { runDotNetRoslynSemanticAnalysis } = await import("./dotnetRoslynSemantic.js");
+    const { createDotNetSymbolLookup } = await import("./dotnetScanner.js");
+    const result = await runDotNetRoslynSemanticAnalysis({
+      workspaceRoot: fixtureRoot("fixture-csharp-wpf"),
+      solutionPath: "../../../outside.sln",
+      symbolLookup: createDotNetSymbolLookup(),
+      knownNodeIds: new Set(),
+      scanId: "escape-sln",
+      scannedAt: new Date().toISOString(),
+      stableId: (prefix, raw) => `${prefix}:${raw}`,
+      compactMetadata: (values) => values as Record<string, string>,
+      sourceRef: (projectPath) => ({ kind: "code_scan", label: "Codebase scan", path: projectPath }),
+      maxEdgeLabelLength: 180,
+    });
+
+    expect(result.succeeded).toBe(false);
+    expect(result.fallbackReason).toMatch(/Path escapes workspace/i);
+  });
+
+  it("does not emit dangling Roslyn semantic edges", async () => {
+    const probe = await probeRoslynHelperAvailability();
+    if (!probe.available) return;
+
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-csharp-wpf"));
+    const knownNodeIds = new Set(result.scanPlan.nodes.map((node) => node.id));
+    const danglingSemantic = result.scanPlan.edges.filter(
+      (edge) =>
+        typeof edge.metadata?.scannerRelation === "string"
+        && edge.metadata.scannerRelation.startsWith("semantic_")
+        && !isResolvedDotNetRelationshipEdge(edge, knownNodeIds)
+    );
+    expect(danglingSemantic).toEqual([]);
+  });
+
+  it("bounds Roslyn semantic output via helper limits", async () => {
+    const probe = await probeRoslynHelperAvailability();
+    if (!probe.available) return;
+
+    const { runDotNetRoslynSemanticAnalysis } = await import("./dotnetRoslynSemantic.js");
+    const { createDotNetSymbolLookup } = await import("./dotnetScanner.js");
+    const result = await runDotNetRoslynSemanticAnalysis({
+      workspaceRoot: fixtureRoot("fixture-csharp-wpf"),
+      solutionPath: "SampleMediaPlayer.sln",
+      symbolLookup: createDotNetSymbolLookup(),
+      knownNodeIds: new Set(),
+      scanId: "bound-test",
+      scannedAt: new Date().toISOString(),
+      stableId: (prefix, raw) => `${prefix}:${raw}`,
+      compactMetadata: (values) => values as Record<string, string>,
+      sourceRef: (projectPath) => ({ kind: "code_scan", label: "Codebase scan", path: projectPath }),
+      maxEdgeLabelLength: 180,
+      limits: { maxEdges: 0, maxDurationMs: 5_000, maxFiles: 50, maxOutputBytes: 2_000_000 },
+    });
+
+    expect(result.enabled).toBe(true);
+    expect(result.edges).toEqual([]);
   });
 });

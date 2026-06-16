@@ -28,6 +28,7 @@ import type {
   GraphFrontierNodeSummary,
   GraphProjection,
   GraphStatus,
+  GraphTaskLensId,
   GoalPacket,
   Node,
   NodeOutputPayload,
@@ -42,6 +43,7 @@ import type {
   ScanJobStatus,
   ScanProgressSnapshot,
   SimilarRunSummary,
+  WorkspaceGraphOperationalContext,
 } from "@openagentgraph/shared";
 import { apiUrl, frontendRuntimeConfig } from "./runtime.js";
 import { LARGE_GRAPH_NODE_THRESHOLD, type GraphDetailMode } from "./graphRuntime.js";
@@ -53,6 +55,7 @@ import {
   fetchProductGraphCodexPlan as fetchProductGraphCodexPlanRequest,
   fetchProductGraphCodebaseScanJob as fetchProductGraphCodebaseScanJobRequest,
   fetchProductGraphHandoff as fetchProductGraphHandoffRequest,
+  fetchWorkspaceGraphOperational as fetchWorkspaceGraphOperationalRequest,
   fetchProductGraph as fetchProductGraphRequest,
   fetchProductGraphTrace as fetchProductGraphTraceRequest,
   importProductGraphSpecKit as importProductGraphSpecKitRequest,
@@ -681,6 +684,10 @@ interface AppState {
   productGraphHandoffWriting: boolean;
   productGraphHandoffError: string;
   productGraphHandoffMessage: string;
+  workspaceGraphOperational: WorkspaceGraphOperationalContext | null;
+  workspaceGraphLens: GraphTaskLensId;
+  workspaceGraphOperationalLoading: boolean;
+  workspaceGraphOperationalError: string;
   nodes: Node[];
   edges: Edge[];
   events: GraphEvent[];
@@ -761,6 +768,8 @@ interface AppState {
   loadProductGraphTrace: (nodeId: string) => Promise<ProductGraphTrace>;
   loadProductGraphCodexPlan: (taskNodeId: string) => Promise<ProductGraphCodexPlanningPrompt>;
   loadProductGraphHandoff: () => Promise<ProductGraphHandoffResult>;
+  loadWorkspaceGraphOperational: (lens?: GraphTaskLensId) => Promise<WorkspaceGraphOperationalContext>;
+  setWorkspaceGraphLens: (lens: GraphTaskLensId) => void;
   writeProductGraphHandoff: () => Promise<WriteProductGraphHandoffResult>;
   acceptProductGraphCodexPlan: (
     input: AcceptProductGraphCodexPlanInput
@@ -908,6 +917,10 @@ export const useStore = create<AppState>((set, get) => ({
   productGraphHandoffWriting: false,
   productGraphHandoffError: "",
   productGraphHandoffMessage: "",
+  workspaceGraphOperational: null,
+  workspaceGraphLens: "all",
+  workspaceGraphOperationalLoading: false,
+  workspaceGraphOperationalError: "",
   nodes: [],
   edges: [],
   events: [],
@@ -1520,6 +1533,40 @@ export const useStore = create<AppState>((set, get) => ({
       applyRequestError(set, error);
       throw error;
     }
+  },
+
+  loadWorkspaceGraphOperational: async (lens) => {
+    const selectedLens = lens ?? get().workspaceGraphLens;
+    set({
+      workspaceGraphOperationalLoading: true,
+      workspaceGraphOperationalError: "",
+      workspaceGraphLens: selectedLens,
+    });
+    try {
+      const state = get();
+      const context = await fetchWorkspaceGraphOperationalRequest(selectedLens, {
+        auth: productGraphAuth(state),
+      });
+      set({
+        workspaceGraphOperational: context,
+        workspaceGraphOperationalLoading: false,
+        workspaceGraphOperationalError: "",
+        workspaceGraphLens: context.lens,
+      });
+      return context;
+    } catch (error) {
+      const requestError = error as Error;
+      set({
+        workspaceGraphOperationalLoading: false,
+        workspaceGraphOperationalError:
+          requestError.message || "Workspace graph operational context could not be loaded.",
+      });
+      throw error;
+    }
+  },
+
+  setWorkspaceGraphLens: (lens) => {
+    set({ workspaceGraphLens: lens });
   },
 
   writeProductGraphHandoff: async () => {

@@ -1,6 +1,6 @@
 import type { ScannerCapability, ScannerPluginDefinition, ScannerSupportTier } from "@openagentgraph/shared";
 
-export const SCANNER_REGISTRY_VERSION = "1.1";
+export const SCANNER_REGISTRY_VERSION = "1.3";
 
 const DEFAULT_HANDOFF_SECTIONS = [
   "source_trust",
@@ -67,11 +67,15 @@ export const SCANNER_REGISTRY: ScannerPluginDefinition[] = [
       "symbols",
       "dependencies",
       "tests",
+      "semantic",
       "handoff_sections",
     ],
-    semanticSupported: false,
+    semanticSupported: true,
     handoffSections: [...DEFAULT_HANDOFF_SECTIONS],
-    warnings: ["C#/.NET: T0 structural indexing; Roslyn semantic resolution is not enabled in base yet."],
+    warnings: [
+      "C# structural: available (T0 regex indexing).",
+      "C# semantic: optional Roslyn helper; unavailable when dotnet or helper binary is missing.",
+    ],
   }),
   plugin({
     id: "python",
@@ -117,11 +121,11 @@ export const SCANNER_REGISTRY: ScannerPluginDefinition[] = [
     id: "java",
     label: "Java/Kotlin",
     projectTypes: ["java", "java-maven", "java-gradle", "kotlin-android"],
-    tier: "T2",
-    capabilities: ["project_detection", "file_discovery", "handoff_sections"],
+    tier: "T1",
+    capabilities: ["project_detection", "file_discovery", "symbols", "dependencies", "tests", "handoff_sections"],
     semanticSupported: false,
-    handoffSections: ["source_trust", "project_type", "risks_and_gaps", "commands"],
-    warnings: ["Java/Kotlin scanner is marker/file-level only in Phase 4."],
+    handoffSections: [...T1_HANDOFF_SECTIONS],
+    warnings: ["Java/Kotlin: T1 structural indexing; javac/kotlinc semantic edges are not enabled in base yet."],
   }),
   plugin({
     id: "generic",

@@ -177,6 +177,23 @@ function makeProductGraphProjection() {
   };
 }
 
+function makeWorkspaceGraphOperationalFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    available: false,
+    unavailableReason: "no_graph_export",
+    unavailableDetail: "Run graph:export after scanning to enable lens and fusion views.",
+    lens: "all",
+    generatedAt: now(),
+    workspaceRoot: "C:\\OpenAgentGraph\\e2e-workspace",
+    queryEntryPoints: {
+      queryHint: 'npm run graph:query -- --workspace "C:\\OpenAgentGraph\\e2e-workspace" "service"',
+      pathHint: 'npm run graph:path -- --workspace "C:\\OpenAgentGraph\\e2e-workspace" "<from>" "<to>"',
+      explainHint: 'npm run graph:explain -- --workspace "C:\\OpenAgentGraph\\e2e-workspace" "node"',
+    },
+    ...overrides,
+  };
+}
+
 function addAcceptanceEvidenceGap(productGraphProjection: ReturnType<typeof makeProductGraphProjection>) {
   const criterionNode = {
     id: "criterion:tax-copy-approved",
@@ -1128,6 +1145,12 @@ test.describe("OpenAgentGraph launch-critical browser flows", () => {
               },
             },
           }),
+        }),
+      "/product-graph/workspace-graph": (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(makeWorkspaceGraphOperationalFixture()),
         }),
       "/product-graph/codex-plan/*": (route) => {
         const url = new URL(route.request().url());

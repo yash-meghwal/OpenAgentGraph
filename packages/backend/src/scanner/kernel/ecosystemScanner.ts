@@ -1,11 +1,13 @@
 import path from "path";
 import type { ProductGraphEdge, ProductGraphNode, ProductMetadataValue } from "@openagentgraph/shared";
 
-export const ECOSYSTEM_SCANNER_VERSION = "1.0";
+export const ECOSYSTEM_SCANNER_VERSION = "1.1";
 
 export const PYTHON_SCANNABLE_EXTENSIONS = [".py"] as const;
 export const GO_SCANNABLE_EXTENSIONS = [".go"] as const;
 export const RUST_SCANNABLE_EXTENSIONS = [".rs"] as const;
+export const JAVA_SCANNABLE_EXTENSIONS = [".java"] as const;
+export const KOTLIN_SCANNABLE_EXTENSIONS = [".kt", ".kts"] as const;
 export const TERRAFORM_SCANNABLE_EXTENSIONS = [".tf", ".tfvars"] as const;
 export const DOC_SCANNABLE_EXTENSIONS = [".md", ".rst"] as const;
 
@@ -14,11 +16,14 @@ export const ECOSYSTEM_CONFIG_FILE_NAMES = new Set([
   "Cargo.toml",
   "pyproject.toml",
   "manage.py",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
 ]);
 
 const MAX_SYMBOLS_PER_FILE = 120;
 
-export type EcosystemLanguage = "python" | "go" | "rust" | "terraform" | "documentation";
+export type EcosystemLanguage = "python" | "go" | "rust" | "java" | "kotlin" | "terraform" | "documentation";
 
 export interface EcosystemSymbol {
   name: string;
@@ -60,6 +65,8 @@ export function ecosystemLanguageForExtension(extension: string): EcosystemLangu
   if ((PYTHON_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "python";
   if ((GO_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "go";
   if ((RUST_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "rust";
+  if ((JAVA_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "java";
+  if ((KOTLIN_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "kotlin";
   if ((TERRAFORM_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "terraform";
   if ((DOC_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "documentation";
   return undefined;
@@ -224,6 +231,159 @@ function parseRustFile(body: string, filePath: string): EcosystemFileIndex {
   return { language: "rust", filePath, symbols, imports, isTestFile, headings: [] };
 }
 
+function isJavaTestFile(filePath: string) {
+  const baseName = path.basename(filePath);
+  return /(?:^|\/)tests?\//i.test(filePath) || /Test\.java$/i.test(baseName);
+}
+
+function isKotlinTestFile(filePath: string) {
+  const baseName = path.basename(filePath);
+  return /(?:^|\/)tests?\//i.test(filePath) || /Test\.kt$/i.test(baseName);
+}
+
+function parseJavaFile(body: string, filePath: string): EcosystemFileIndex {
+  const symbols: EcosystemSymbol[] = [];
+  const imports: string[] = [];
+  let currentType: string | undefined;
+  let typeBraceDepth = -1;
+  let braceDepth = 0;
+
+  for (const [index, rawLine] of body.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//") || line.startsWith("/*") || line.startsWith("*")) continue;
+
+    const openBraces = (line.match(/\{/g) ?? []).length;
+    const closeBraces = (line.match(/\}/g) ?? []).length;
+    if (currentType !== undefined && braceDepth <= typeBraceDepth && !line.includes("{")) {
+      currentType = undefined;
+      typeBraceDepth = -1;
+    }
+    braceDepth += openBraces - closeBraces;
+
+    const packageMatch = line.match(/^package\s+([\w.]+)\s*;/);
+    if (packageMatch) {
+      pushSymbol(symbols, { name: packageMatch[1]!, kind: "package", line: index + 1 });
+      continue;
+    }
+    const importMatch = line.match(/^import\s+(?:static\s+)?([\w.*]+)\s*;/);
+    if (importMatch) {
+      imports.push(importMatch[1]!);
+      continue;
+    }
+    const classMatch = line.match(/^(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+|sealed\s+)*class\s+(\w+)/);
+    if (classMatch) {
+      currentType = classMatch[1];
+      typeBraceDepth = braceDepth;
+      pushSymbol(symbols, { name: currentType, kind: "class", line: index + 1 });
+      continue;
+    }
+    const interfaceMatch = line.match(/^(?:public\s+)?interface\s+(\w+)/);
+    if (interfaceMatch) {
+      currentType = interfaceMatch[1];
+      typeBraceDepth = braceDepth;
+      pushSymbol(symbols, { name: currentType, kind: "interface", line: index + 1 });
+      continue;
+    }
+    const enumMatch = line.match(/^(?:public\s+)?enum\s+(\w+)/);
+    if (enumMatch) {
+      currentType = enumMatch[1];
+      typeBraceDepth = braceDepth;
+      pushSymbol(symbols, { name: currentType, kind: "enum", line: index + 1 });
+      continue;
+    }
+    const recordMatch = line.match(/^(?:public\s+)?record\s+(\w+)/);
+    if (recordMatch) {
+      currentType = recordMatch[1];
+      typeBraceDepth = braceDepth;
+      pushSymbol(symbols, { name: currentType, kind: "record", line: index + 1 });
+      continue;
+    }
+    const methodMatch = line.match(
+      /^(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:<[^>]+>\s+)?[\w.<>,\[\]]+\s+(\w+)\s*\([^;]*\)\s*(?:throws\s+[\w.,\s]+)?\s*\{?\s*$/
+    );
+    if (methodMatch) {
+      pushSymbol(symbols, {
+        name: methodMatch[1]!,
+        kind: "method",
+        line: index + 1,
+        parentType: currentType,
+      });
+    }
+  }
+
+  return {
+    language: "java",
+    filePath,
+    symbols,
+    imports,
+    isTestFile: isJavaTestFile(filePath),
+    headings: [],
+  };
+}
+
+function parseKotlinFile(body: string, filePath: string): EcosystemFileIndex {
+  const symbols: EcosystemSymbol[] = [];
+  const imports: string[] = [];
+  let currentType: string | undefined;
+
+  for (const [index, rawLine] of body.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//") || line.startsWith("/*") || line.startsWith("*")) continue;
+
+    if (line === "}") {
+      currentType = undefined;
+      continue;
+    }
+
+    const packageMatch = line.match(/^package\s+([\w.]+)/);
+    if (packageMatch) {
+      pushSymbol(symbols, { name: packageMatch[1]!, kind: "package", line: index + 1 });
+      continue;
+    }
+    const importMatch = line.match(/^import\s+([\w.*]+)/);
+    if (importMatch) {
+      imports.push(importMatch[1]!);
+      continue;
+    }
+    const typePatterns: Array<{ regex: RegExp; kind: string }> = [
+      { regex: /^(?:public\s+|private\s+|internal\s+)?(?:data\s+|sealed\s+|abstract\s+|open\s+)?class\s+(\w+)/, kind: "class" },
+      { regex: /^(?:public\s+|private\s+|internal\s+)?interface\s+(\w+)/, kind: "interface" },
+      { regex: /^(?:public\s+|private\s+|internal\s+)?enum\s+class\s+(\w+)/, kind: "enum" },
+      { regex: /^(?:public\s+|private\s+|internal\s+)?object\s+(\w+)/, kind: "object" },
+    ];
+    let matchedType = false;
+    for (const pattern of typePatterns) {
+      const match = line.match(pattern.regex);
+      if (!match) continue;
+      currentType = match[1];
+      pushSymbol(symbols, { name: currentType, kind: pattern.kind, line: index + 1 });
+      matchedType = true;
+      break;
+    }
+    if (matchedType) continue;
+
+    const funMatch = line.match(/^(?:override\s+)?fun\s+(?:[\w.]+\.)?(\w+)\s*\(/);
+    if (funMatch) {
+      const leadingIndent = rawLine.match(/^(\s*)/)?.[1]?.length ?? 0;
+      pushSymbol(symbols, {
+        name: funMatch[1]!,
+        kind: "function",
+        line: index + 1,
+        parentType: leadingIndent > 0 ? currentType : undefined,
+      });
+    }
+  }
+
+  return {
+    language: "kotlin",
+    filePath,
+    symbols,
+    imports,
+    isTestFile: isKotlinTestFile(filePath),
+    headings: [],
+  };
+}
+
 function parseTerraformFile(body: string, filePath: string): EcosystemFileIndex {
   const symbols: EcosystemSymbol[] = [];
   const imports: string[] = [];
@@ -328,6 +488,47 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
       configMetadata: { framework: "django" },
     };
   }
+  if (fileName === "pom.xml") {
+    const artifactMatch = body.match(/<artifactId>\s*([^<]+)\s*<\/artifactId>/);
+    const groupMatch = body.match(/<groupId>\s*([^<]+)\s*<\/groupId>/);
+    if (artifactMatch) configMetadata.artifactId = artifactMatch[1]!.trim();
+    if (groupMatch) configMetadata.groupId = groupMatch[1]!.trim();
+    return {
+      language: "java",
+      filePath,
+      symbols: artifactMatch ? [{ name: artifactMatch[1]!.trim(), kind: "artifact", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata,
+    };
+  }
+  if (fileName === "build.gradle") {
+    const rootProjectMatch = body.match(/rootProject\.name\s*=\s*['"]([^'"]+)['"]/);
+    if (rootProjectMatch) configMetadata.rootProject = rootProjectMatch[1]!;
+    return {
+      language: "java",
+      filePath,
+      symbols: rootProjectMatch ? [{ name: rootProjectMatch[1]!, kind: "project", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildScript: "gradle-groovy" },
+    };
+  }
+  if (fileName === "build.gradle.kts") {
+    const rootProjectMatch = body.match(/rootProject\.name\s*=\s*['"]([^'"]+)['"]/);
+    if (rootProjectMatch) configMetadata.rootProject = rootProjectMatch[1]!;
+    return {
+      language: "kotlin",
+      filePath,
+      symbols: rootProjectMatch ? [{ name: rootProjectMatch[1]!, kind: "project", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildScript: "gradle-kotlin" },
+    };
+  }
   return undefined;
 }
 
@@ -350,6 +551,10 @@ export function parseEcosystemFile(input: {
       return parseGoFile(input.body, input.filePath);
     case "rust":
       return parseRustFile(input.body, input.filePath);
+    case "java":
+      return parseJavaFile(input.body, input.filePath);
+    case "kotlin":
+      return parseKotlinFile(input.body, input.filePath);
     case "terraform":
       return parseTerraformFile(input.body, input.filePath);
     case "documentation":
@@ -447,25 +652,168 @@ export function indexEcosystemFile(input: {
     });
   }
 
-  for (const importPath of fileIndex.imports.slice(0, 12)) {
-    edges.push({
-      id: input.stableId("code-scan:edge", `${fileNodeId}|import|${importPath}`),
-      kind: "depends_on",
-      sourceNodeId: fileNodeId,
-      targetNodeId: input.stableId("code-scan:external", `${fileIndex.language}|${importPath}`),
-      label: importPath.slice(0, input.maxEdgeLabelLength),
-      trust: "extracted",
-      metadata: input.compactMetadata({
-        scannerRelation: "import",
-        scannerLanguage: fileIndex.language,
-        scannerImportPath: importPath,
-      }),
-      createdAt: input.scannedAt,
-      updatedAt: input.scannedAt,
-    });
+  if (fileIndex.language !== "java" && fileIndex.language !== "kotlin") {
+    for (const importPath of fileIndex.imports.slice(0, 12)) {
+      edges.push({
+        id: input.stableId("code-scan:edge", `${fileNodeId}|import|${importPath}`),
+        kind: "depends_on",
+        sourceNodeId: fileNodeId,
+        targetNodeId: input.stableId("code-scan:external", `${fileIndex.language}|${importPath}`),
+        label: importPath.slice(0, input.maxEdgeLabelLength),
+        trust: "extracted",
+        metadata: input.compactMetadata({
+          scannerRelation: "import",
+          scannerLanguage: fileIndex.language,
+          scannerImportPath: importPath,
+        }),
+        createdAt: input.scannedAt,
+        updatedAt: input.scannedAt,
+      });
+    }
   }
 
   return { symbolNodes, edges, fileMetadata };
+}
+
+const JAVA_KOTLIN_TYPE_SYMBOL_KINDS = new Set(["class", "interface", "enum", "record", "object"]);
+
+export interface JavaKotlinWorkspaceIndex {
+  typeByQualifiedName: Map<string, { filePath: string; kind: string; simpleName: string }>;
+}
+
+export function buildJavaKotlinWorkspaceIndex(
+  files: Array<{ relativePath: string; body: string }>
+): JavaKotlinWorkspaceIndex {
+  const typeByQualifiedName = new Map<string, { filePath: string; kind: string; simpleName: string }>();
+
+  for (const file of files) {
+    const extension = path.extname(file.relativePath).toLowerCase();
+    if (extension !== ".java" && extension !== ".kt" && extension !== ".kts") continue;
+    const parsed = parseEcosystemFile({
+      filePath: file.relativePath,
+      fileName: path.basename(file.relativePath),
+      extension,
+      body: file.body,
+    });
+    if (!parsed) continue;
+    const packageName = parsed.symbols.find((symbol) => symbol.kind === "package")?.name;
+    if (!packageName) continue;
+    for (const symbol of parsed.symbols) {
+      if (!JAVA_KOTLIN_TYPE_SYMBOL_KINDS.has(symbol.kind) || symbol.parentType) continue;
+      typeByQualifiedName.set(`${packageName}.${symbol.name}`, {
+        filePath: file.relativePath,
+        kind: symbol.kind,
+        simpleName: symbol.name,
+      });
+    }
+  }
+
+  return { typeByQualifiedName };
+}
+
+function normalizeImportPath(importPath: string) {
+  if (importPath.endsWith(".*")) return undefined;
+  const staticImport = importPath.match(/^static\s+(.+)$/);
+  const normalized = (staticImport?.[1] ?? importPath).trim();
+  const lastDot = normalized.lastIndexOf(".");
+  if (lastDot <= 0) return normalized;
+  const maybeMember = normalized.slice(lastDot + 1);
+  if (/^[a-z]/.test(maybeMember)) {
+    return normalized.slice(0, lastDot);
+  }
+  return normalized;
+}
+
+function filePathSuffixForQualifiedType(qualifiedType: string, extension: ".java" | ".kt") {
+  return `${qualifiedType.replace(/\./g, "/")}${extension}`;
+}
+
+function findFileNodeIdForQualifiedType(
+  qualifiedType: string,
+  fileNodeIdsByPath: Map<string, string>
+) {
+  for (const extension of [".java", ".kt"] as const) {
+    const suffix = filePathSuffixForQualifiedType(qualifiedType, extension);
+    for (const [filePath, nodeId] of fileNodeIdsByPath) {
+      if (filePath.replace(/\\/g, "/").endsWith(suffix)) {
+        return nodeId;
+      }
+    }
+  }
+  return undefined;
+}
+
+function symbolNodeIdForQualifiedType(
+  qualifiedType: string,
+  index: JavaKotlinWorkspaceIndex,
+  stableId: (prefix: string, raw: string) => string
+) {
+  const type = index.typeByQualifiedName.get(qualifiedType);
+  if (!type) return undefined;
+  return stableId("code-scan:symbol", `${type.filePath}|file|${type.kind}|${type.simpleName}`);
+}
+
+export function resolveJavaKotlinImportTarget(input: {
+  importPath: string;
+  index: JavaKotlinWorkspaceIndex;
+  fileNodeIdsByPath: Map<string, string>;
+  stableId: (prefix: string, raw: string) => string;
+}) {
+  const qualifiedType = normalizeImportPath(input.importPath);
+  if (!qualifiedType) return undefined;
+
+  const symbolNodeId = symbolNodeIdForQualifiedType(qualifiedType, input.index, input.stableId);
+  if (symbolNodeId) {
+    return { targetNodeId: symbolNodeId, resolution: "symbol" as const };
+  }
+
+  const fileNodeId = findFileNodeIdForQualifiedType(qualifiedType, input.fileNodeIdsByPath);
+  if (fileNodeId) {
+    return { targetNodeId: fileNodeId, resolution: "file" as const };
+  }
+
+  return {
+    targetNodeId: input.stableId("code-scan:external", `java-kotlin|${qualifiedType}`),
+    resolution: "external" as const,
+  };
+}
+
+export function isResolvedEcosystemRelationshipEdge(
+  edge: ProductGraphEdge,
+  knownNodeIds: Set<string>
+) {
+  if (edge.metadata?.scannerRelation !== "import") return true;
+  return knownNodeIds.has(edge.sourceNodeId) && knownNodeIds.has(edge.targetNodeId);
+}
+
+function createExternalImportNode(input: {
+  importPath: string;
+  language: EcosystemLanguage;
+  scanId: string;
+  scannedAt: string;
+  stableId: (prefix: string, raw: string) => string;
+  compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
+  maxTitleLength: number;
+}): ProductGraphNode {
+  const nodeId = input.stableId("code-scan:external", `java-kotlin|${input.importPath}`);
+  return {
+    id: nodeId,
+    kind: "code_symbol",
+    title: `${input.importPath} (external)`.slice(0, input.maxTitleLength),
+    status: "planned",
+    tags: ["code", "code-scan", input.language, "ecosystem-t1", "external-dependency"],
+    metadata: input.compactMetadata({
+      scannerEcosystemVersion: ECOSYSTEM_SCANNER_VERSION,
+      scanId: input.scanId,
+      scannedAt: input.scannedAt,
+      scannerRelation: "external_import",
+      scannerImportPath: input.importPath,
+      scannerLanguage: input.language,
+      scannerIndexingMode: "t1",
+    }),
+    createdAt: input.scannedAt,
+    updatedAt: input.scannedAt,
+  };
 }
 
 export function augmentEcosystemWorkspaceGraph(input: {
@@ -476,12 +824,69 @@ export function augmentEcosystemWorkspaceGraph(input: {
   stableId: (prefix: string, raw: string) => string;
   compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
   maxEdgeLabelLength: number;
+  maxTitleLength?: number;
 }) {
   const edges: ProductGraphEdge[] = [];
+  const externalNodes = new Map<string, ProductGraphNode>();
   const terraformModules = new Map<string, string>();
+  const javaKotlinIndex = buildJavaKotlinWorkspaceIndex(input.files);
 
   for (const file of input.files) {
     const extension = path.extname(file.relativePath).toLowerCase();
+    if (extension === ".java" || extension === ".kt" || extension === ".kts") {
+      const parsed = parseEcosystemFile({
+        filePath: file.relativePath,
+        fileName: path.basename(file.relativePath),
+        extension,
+        body: file.body,
+      });
+      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
+      if (!parsed || !sourceNodeId) continue;
+
+      for (const importPath of parsed.imports.slice(0, 12)) {
+        const resolved = resolveJavaKotlinImportTarget({
+          importPath,
+          index: javaKotlinIndex,
+          fileNodeIdsByPath: input.fileNodeIdsByPath,
+          stableId: input.stableId,
+        });
+        if (!resolved) continue;
+        if (resolved.resolution === "external") {
+          if (!externalNodes.has(resolved.targetNodeId)) {
+            externalNodes.set(
+              resolved.targetNodeId,
+              createExternalImportNode({
+                importPath: normalizeImportPath(importPath) ?? importPath,
+                language: parsed.language,
+                scanId: input.scanId,
+                scannedAt: input.scannedAt,
+                stableId: input.stableId,
+                compactMetadata: input.compactMetadata,
+                maxTitleLength: input.maxTitleLength ?? 180,
+              })
+            );
+          }
+        }
+        edges.push({
+          id: input.stableId("code-scan:edge", `${sourceNodeId}|import|${importPath}`),
+          kind: "depends_on",
+          sourceNodeId,
+          targetNodeId: resolved.targetNodeId,
+          label: importPath.slice(0, input.maxEdgeLabelLength),
+          trust: resolved.resolution === "external" ? "inferred" : "extracted",
+          metadata: input.compactMetadata({
+            scannerRelation: "import",
+            scannerLanguage: parsed.language,
+            scannerImportPath: importPath,
+            scannerImportResolution: resolved.resolution,
+          }),
+          createdAt: input.scannedAt,
+          updatedAt: input.scannedAt,
+        });
+      }
+      continue;
+    }
+
     if (extension !== ".tf") continue;
     const index = parseTerraformFile(file.body, file.relativePath);
     const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
@@ -521,5 +926,5 @@ export function augmentEcosystemWorkspaceGraph(input: {
     }
   }
 
-  return { edges, terraformModules };
+  return { edges, externalNodes: [...externalNodes.values()], terraformModules };
 }

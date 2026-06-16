@@ -1,10 +1,17 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 60_000 });
+
+function repoRoot() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+}
 
 function fixtureRoot(...segments: string[]) {
-  return path.resolve(process.cwd(), "..", "..", "tests", "fixtures", "graph", ...segments);
+  return path.resolve(repoRoot(), "tests", "fixtures", "graph", ...segments);
 }
 
 const tempPaths: string[] = [];

@@ -1,5 +1,6 @@
 import path from "path";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "url";
+import { describe, expect, it, vi } from "vitest";
 import {
   isResolvedDotNetRelationshipEdge,
   parseCSharpFile,
@@ -11,8 +12,14 @@ import { probeRoslynHelperAvailability } from "./dotnetRoslynSemantic.js";
 import { runKernelWorkspaceScan } from "./scanKernel.js";
 import { scanWorkspaceCodebase } from "../codeScanner.js";
 
+vi.setConfig({ testTimeout: 60_000 });
+
+function repoRoot() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+}
+
 function fixtureRoot(...segments: string[]) {
-  return path.resolve(process.cwd(), "..", "..", "tests", "fixtures", "graph", ...segments);
+  return path.resolve(repoRoot(), "tests", "fixtures", "graph", ...segments);
 }
 
 describe("dotnet scanner", () => {

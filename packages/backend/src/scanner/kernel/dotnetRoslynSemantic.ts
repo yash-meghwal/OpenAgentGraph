@@ -1,12 +1,18 @@
 import { spawn } from "child_process";
-import fs from "fs/promises";
 import path from "path";
-import type { ProductEdgeKind, ProductGraphEdge, ProductMetadataValue } from "@openagentgraph/shared";
+import type { GraphAnalyzerAvailability, ProductEdgeKind, ProductGraphEdge, ProductMetadataValue } from "@openagentgraph/shared";
 import {
   isResolvedDotNetRelationshipEdge,
   resolveDotNetSymbolId,
   type DotNetSymbolLookup,
 } from "./dotnetScanner.js";
+import {
+  buildRoslynAnalyzerAvailability,
+  ensureRoslynHelperPrepared,
+  findRoslynHelperDllPath,
+  probeDotNetSdkAvailability,
+  resolveRoslynHelperDllCandidates,
+} from "./roslynHelperPreparation.js";
 
 export const DOTNET_ROSLYN_SEMANTIC_VERSION = "1.0";
 
@@ -22,6 +28,7 @@ export interface DotNetRoslynSemanticResult {
   succeeded: boolean;
   unavailableReason?: string;
   fallbackReason?: string;
+  analyzer?: GraphAnalyzerAvailability;
   edges: ProductGraphEdge[];
   edgeCount: number;
   diagnostics: string[];
@@ -64,34 +71,10 @@ interface RoslynHelperResponse {
 }
 
 export function resolveRoslynHelperDllPath() {
-  const candidates = [
-    path.resolve(__dirname, "../../../scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-    path.resolve(__dirname, "../../../scanner-tools/roslyn-helper/bin/Debug/net8.0/RoslynHelper.dll"),
-    path.resolve(process.cwd(), "packages/backend/scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-    path.resolve(process.cwd(), "scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-  ];
-  return candidates[0]!;
+  return resolveRoslynHelperDllCandidates()[0]!;
 }
 
-export async function findRoslynHelperDllPath() {
-  const candidates = [
-    path.resolve(__dirname, "../../../scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-    path.resolve(__dirname, "../../../scanner-tools/roslyn-helper/bin/Debug/net8.0/RoslynHelper.dll"),
-    path.resolve(process.cwd(), "packages/backend/scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-    path.resolve(process.cwd(), "scanner-tools/roslyn-helper/bin/Release/net8.0/RoslynHelper.dll"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      // try next candidate
-    }
-  }
-  return undefined;
-}
-
-const DOTNET_PROBE_TIMEOUT_MS = 5_000;
+export { findRoslynHelperDllPath } from "./roslynHelperPreparation.js";
 
 export async function probeRoslynHelperAvailability() {
   const dllPath = await findRoslynHelperDllPath();
@@ -99,29 +82,11 @@ export async function probeRoslynHelperAvailability() {
     return { available: false as const, reason: "Roslyn helper binary not built." };
   }
 
-  return new Promise<{ available: boolean; reason?: string }>((resolve) => {
-    const child = spawn("dotnet", ["--version"], { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    let settled = false;
-    const finish = (result: { available: boolean; reason?: string }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(() => {
-      child.kill();
-      finish({ available: false, reason: "dotnet CLI probe timed out." });
-    }, DOTNET_PROBE_TIMEOUT_MS);
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", () => finish({ available: false, reason: "dotnet CLI unavailable." }));
-    child.on("close", (code) => {
-      if (code === 0) finish({ available: true });
-      else finish({ available: false, reason: stderr.trim() || "dotnet CLI unavailable." });
-    });
-  });
+  const dotnet = await probeDotNetSdkAvailability();
+  if (!dotnet.available) {
+    return { available: false as const, reason: dotnet.reason ?? "dotnet CLI unavailable." };
+  }
+  return { available: true as const };
 }
 
 export function buildDotNetSemanticDiagnostics(result: DotNetRoslynSemanticResult) {
@@ -281,9 +246,14 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
   };
 
   if (input.disabled) {
+    const analyzer = buildRoslynAnalyzerAvailability({
+      status: "disabled",
+      fallbackReason: "disabled for test",
+    });
     return {
       ...empty,
       unavailableReason: "disabled for test",
+      analyzer,
       diagnostics: buildDotNetSemanticDiagnostics({
         ...empty,
         unavailableReason: "disabled for test",
@@ -291,16 +261,17 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
     };
   }
 
-  const probe = await probeRoslynHelperAvailability();
-  if (!probe.available) {
+  const preparation = await ensureRoslynHelperPrepared({ autoBuild: true });
+  if (preparation.availability.status !== "enabled" || !preparation.dllPath) {
     return {
       ...empty,
       enabled: true,
-      unavailableReason: probe.reason,
+      unavailableReason: preparation.availability.fallbackReason,
+      analyzer: preparation.availability,
       diagnostics: buildDotNetSemanticDiagnostics({
         ...empty,
         enabled: true,
-        unavailableReason: probe.reason,
+        unavailableReason: preparation.availability.fallbackReason,
       }),
     };
   }
@@ -311,6 +282,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
       ...empty,
       enabled: true,
       unavailableReason: "No solution or project path available for Roslyn analysis.",
+      analyzer: preparation.availability,
       diagnostics: buildDotNetSemanticDiagnostics({
         ...empty,
         enabled: true,
@@ -336,6 +308,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
         enabled: true,
         succeeded: false,
         fallbackReason,
+        analyzer: preparation.availability,
         edges: [],
         edgeCount: 0,
         diagnostics: buildDotNetSemanticDiagnostics({
@@ -369,6 +342,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
     const result: DotNetRoslynSemanticResult = {
       enabled: true,
       succeeded: true,
+      analyzer: preparation.availability,
       edges: mappedEdges,
       edgeCount: mappedEdges.length,
       durationMs: response.stats?.durationMs ?? Date.now() - startedAt,
@@ -390,6 +364,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
       enabled: true,
       succeeded: false,
       fallbackReason,
+      analyzer: preparation.availability,
       edges: [],
       edgeCount: 0,
       diagnostics: buildDotNetSemanticDiagnostics({

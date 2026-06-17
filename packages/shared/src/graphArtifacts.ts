@@ -1,5 +1,9 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
 import {
+  formatGraphAnalyzerDiagnostics,
+} from "./graphAnalyzers.js";
+import { renderEcosystemScannerHealthMarkdown } from "./graphEcosystemHealth.js";
+import {
   buildGraphGodNodeSummaries,
   buildGraphHealthSummary,
   buildGraphLensSummaries,
@@ -283,8 +287,20 @@ export function renderUnifiedGraphHandoffReport(
     "## Primary task lens",
     `- Recommended lens: **${primaryLensLabel}** (\`${primaryLens}\`).`,
     "",
+    "## Ecosystem scanner health",
+    ...renderEcosystemScannerHealthMarkdown({
+      kernelProfile: profile,
+      graph,
+      analyzers: graph.analyzers,
+    }),
+    "",
     "## Graph health",
     ...health.badges.map((badge) => `- [${badge.tone}] ${badge.label}: ${badge.detail}`),
+    "",
+    "## Optional analyzers",
+    ...(graph.analyzers?.length
+      ? formatGraphAnalyzerDiagnostics(graph.analyzers).map((line) => `- ${line}`)
+      : ["- No optional analyzer metadata recorded for this export."]),
     "",
     "## OAG fusion checks",
     `- Handoff freshness: ${handoffFreshness.isStale ? "stale" : "current"} — ${handoffFreshness.detail}`,

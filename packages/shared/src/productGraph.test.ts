@@ -1403,6 +1403,9 @@ describe("buildProductGraphHandoffReport", () => {
         scannerSemanticSyntheticFileCount: 0,
         scannerSemanticUnconfiguredFileCount: 1,
         scannerSemanticFallbackReason: "No TypeScript project config covered scanned source files.",
+        scannerActiveScannerIds: "typescript",
+        scannerSourceExtensionCounts: ".tsx:1, .js:1",
+        scannerDetectedProjectTypes: "typescript",
       },
     });
     const generatedFile = node({
@@ -1472,7 +1475,7 @@ describe("buildProductGraphHandoffReport", () => {
     expect(report.markdown).toContain("Product Graph ID: `product-graph-1`.");
     expect(report.markdown).toContain("Graph data source: `SQLite C:/workspace/openagentgraph/data/openagentgraph.db`.");
     expect(report.markdown).toContain("Latest code scan: 2026-06-02T00:00:00.000Z; 2 files, 1 symbol.");
-    expect(report.markdown).toContain("Semantic status: fallback; 0 resolutions, 0 semantic edges.");
+    expect(report.markdown).toContain("TypeScript semantic status: fallback; 0 resolutions, 0 semantic edges.");
     expect(report.markdown).toContain("Workspace path check: aligned; 0/2 checked code files missing under the workspace root.");
     expect(report.markdown).toContain("Handoff file: `GRAPH_REPORT.md` not written yet.");
     expect(report.markdown).toContain("## Read These First");
@@ -1480,10 +1483,10 @@ describe("buildProductGraphHandoffReport", () => {
     expect(report.markdown).toContain("## Product Graph Health");
     expect(report.markdown).toContain("Acceptance evidence: 0/1 criteria verified");
     expect(report.markdown).toContain("Code scan completeness: partial; skipped 3 files and 2 folders.");
-    expect(report.markdown).toContain("Semantic analysis: fallback; 0 resolutions, 0 semantic edges; reason: No TypeScript project config covered scanned source files.");
-    expect(report.markdown).toContain("Semantic configs: 0 used; 0 TS-configured files, 0 synthetic fallback files, 1 unconfigured file.");
+    expect(report.markdown).toContain("TypeScript semantic analysis: fallback; 0 resolutions, 0 semantic edges; reason: No TypeScript project config covered scanned source files.");
+    expect(report.markdown).toContain("TypeScript semantic configs: 0 used; 0 TS-configured file(s), 0 synthetic fallback file(s), 1 unconfigured file(s)");
     expect(report.markdown).toContain("Latest codebase scan is partial; 3 files and 2 folders were skipped.");
-    expect(report.markdown).toContain("Semantic analysis fell back: No TypeScript project config covered scanned source files.");
+    expect(report.markdown).toContain("TypeScript semantic analysis fell back: No TypeScript project config covered scanned source files.");
     expect(report.markdown).toContain("## Code Relationships");
     expect(report.markdown).toContain("Dependency edges: 1.");
     expect(report.markdown).toContain("External dependencies recorded: 1.");
@@ -1542,6 +1545,42 @@ describe("buildProductGraphHandoffReport", () => {
     expect(report.markdown).not.toContain("SOURCE BODY");
   });
 
+  it("reports ecosystem-neutral handoff for dotnet-only scan metadata", () => {
+    const community = node({
+      id: "community-1",
+      kind: "code_community",
+      title: "SampleMediaPlayer.App",
+      source: { kind: "code_scan", label: "Code scan", path: "SampleMediaPlayer.App" },
+      tags: ["code", "code-scan", "code-community"],
+      metadata: {
+        scannedAt: "2026-06-02T00:00:00.000Z",
+        scannerCommunityPath: "SampleMediaPlayer.App",
+        scannerCommunityFileCount: 8,
+        scannerPartial: false,
+        scannerSkippedFileCount: 0,
+        scannerSkippedDirectoryCount: 0,
+        scannerSemanticAnalysisEnabled: false,
+        scannerActiveScannerIds: "dotnet",
+        scannerSourceExtensionCounts: ".cs:12, .xaml:2",
+        scannerDetectedProjectTypes: "dotnet",
+        scannerMarkerPaths: "SampleMediaPlayer.sln, SampleMediaPlayer.App/SampleMediaPlayer.App.csproj",
+      },
+    });
+    const projection = projectProductGraph({
+      productGraphId,
+      events: [nodeUpsert(1, community)],
+    });
+
+    const report = buildProductGraphHandoffReport(projection, {
+      generatedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    expect(report.markdown).toContain("TypeScript semantic status: not applicable (no TypeScript/JavaScript source files in latest scan).");
+    expect(report.markdown).toContain(".NET solution/project detected");
+    expect(report.markdown).not.toContain("No TypeScript project config");
+    expect(report.markdown).not.toContain("TypeScript semantic analysis:");
+  });
+
   it("reports synthetic semantic fallback coverage distinctly in handoff health", () => {
     const community = node({
       id: "community-1",
@@ -1565,6 +1604,9 @@ describe("buildProductGraphHandoffReport", () => {
         scannerSemanticSyntheticFileCount: 1,
         scannerSemanticUnconfiguredFileCount: 0,
         scannerSemanticConfigPaths: "desktop/tsconfig.renderer.json",
+        scannerActiveScannerIds: "typescript",
+        scannerSourceExtensionCounts: ".ts:2, .tsx:1",
+        scannerDetectedProjectTypes: "typescript",
       },
     });
     const projection = projectProductGraph({
@@ -1577,7 +1619,7 @@ describe("buildProductGraphHandoffReport", () => {
     });
 
     expect(report.markdown).toContain(
-      "Semantic configs: 1 used; 2 TS-configured files, 1 synthetic fallback file, 0 unconfigured files; desktop/tsconfig.renderer.json."
+      "TypeScript semantic configs: 1 used; 2 TS-configured file(s), 1 synthetic fallback file(s), 0 unconfigured file(s); desktop/tsconfig.renderer.json."
     );
     expect(report.markdown).not.toContain("lacked semantic config coverage");
   });

@@ -34,6 +34,95 @@ describe("graph cli", () => {
     await expect(runGraphQueryCli([])).rejects.toThrow('Graph commands require --workspace');
   });
 
+  it("warns on stderr when graph:explain receives path-only flags", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runGraphExplainCli } = await import("./graphExplain.js");
+
+    await runGraphExplainCli([
+      "--workspace",
+      workspaceRoot,
+      "--max-hops",
+      "2",
+      "--explain-ranking",
+      "MainViewModel",
+    ]);
+
+    expect(warnSpy.mock.calls.map(([message]) => String(message))).toEqual(
+      expect.arrayContaining([
+        "--max-hops is only used by graph:path; ignoring.",
+        "--explain-ranking is only used by graph:path; ignoring.",
+      ])
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn on stderr when graph:explain uses --json", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runGraphExplainCli } = await import("./graphExplain.js");
+
+    await runGraphExplainCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--max-hops",
+      "2",
+      "MainViewModel",
+    ]);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("queries a workspace whose path contains spaces", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "openagentgraph-graph-cli-"));
+    tempPaths.push(base);
+    const workspaceRoot = path.join(base, "Video Player", "fixture-csharp-wpf");
+    fs.mkdirSync(path.dirname(workspaceRoot), { recursive: true });
+    fs.cpSync(fixtureRoot("fixture-csharp-wpf"), workspaceRoot, { recursive: true });
+
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+    const quotedWorkspace = `"${workspaceRoot}"`;
+    const result = await runGraphQueryCli([
+      "--workspace",
+      quotedWorkspace,
+      "--json",
+      "MainViewModel playback",
+    ]);
+
+    expect(result.workspaceRoot).toBe(path.resolve(workspaceRoot));
+    expect(result.seeds.map((node) => node.label).join(" ")).toMatch(/MainViewModel/i);
+  });
+
+  it("queries a workspace whose folder name contains repeated spaces", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "openagentgraph-graph-cli-double-"));
+    tempPaths.push(base);
+    const workspaceRoot = path.join(base, "Video  Player", "fixture-csharp-wpf");
+    fs.mkdirSync(path.dirname(workspaceRoot), { recursive: true });
+    fs.cpSync(fixtureRoot("fixture-csharp-wpf"), workspaceRoot, { recursive: true });
+
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+    const result = await runGraphQueryCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "MainViewModel",
+    ]);
+
+    expect(result.workspaceRoot).toBe(path.resolve(workspaceRoot));
+    expect(result.seeds.map((node) => node.label).join(" ")).toMatch(/MainViewModel/i);
+  });
+
+  it("matches direct node argv parity for quoted workspace paths", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphPathCli } = await import("./graphPath.js");
+    const argv = ["--workspace", `"${workspaceRoot}"`, "--json", "MainView.xaml", "PlaybackService"];
+    const result = await runGraphPathCli(argv);
+    expect(result.workspaceRoot).toBe(path.resolve(workspaceRoot));
+    expect(result.found).toBe(true);
+  });
+
   it("queries MainViewModel on the csharp-wpf fixture", async () => {
     const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
     const { runGraphQueryCli } = await import("./graphQuery.js");
@@ -76,6 +165,79 @@ describe("graph cli", () => {
 
     expect(result.found).toBe(true);
     expect(result.nodes.map((node) => node.label).join(" ")).toMatch(/MainViewModel/i);
+    expect(result.nodes.some((node) => node.label === "workspace-root")).toBe(false);
+    expect(result.toNode?.label).toMatch(/PlaybackService \(class\)/i);
+  });
+
+  it("respects --max-hops on graph:path", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphPathCli } = await import("./graphPath.js");
+    const withinHopBudget = await runGraphPathCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--max-hops",
+      "4",
+      "MainView.xaml",
+      "PlaybackService",
+    ]);
+    const beyondHopBudget = await runGraphPathCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--max-hops",
+      "1",
+      "MainView.xaml",
+      "PlaybackService",
+    ]);
+
+    expect(withinHopBudget.maxHops).toBe(4);
+    expect(withinHopBudget.found).toBe(true);
+    expect(beyondHopBudget.maxHops).toBe(1);
+    expect(beyondHopBudget.found).toBe(false);
+  });
+
+  it("scopes graph:path results with --lens", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphPathCli } = await import("./graphPath.js");
+    const open = await runGraphPathCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "MainView.xaml",
+      "PlaybackService",
+    ]);
+    const docsLens = await runGraphPathCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--lens",
+      "docs-handoff",
+      "MainView.xaml",
+      "PlaybackService",
+    ]);
+
+    expect(open.found).toBe(true);
+    expect(docsLens.lens).toBe("docs-handoff");
+    expect(docsLens.found).toBe(false);
+  });
+
+  it("explains ranked path steps on the csharp-wpf fixture", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphPathCli } = await import("./graphPath.js");
+    const result = await runGraphPathCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--explain-ranking",
+      "MainView.xaml",
+      "PlaybackService",
+    ]);
+
+    expect(result.found).toBe(true);
+    expect(result.explanation?.seedResolution.from.matchReason).toBeTruthy();
+    expect(result.explanation?.steps.length).toBeGreaterThan(1);
+    expect(result.nodes.some((node) => node.label === "workspace-root")).toBe(false);
   });
 
   it("explains MainViewModel with neighbors", async () => {

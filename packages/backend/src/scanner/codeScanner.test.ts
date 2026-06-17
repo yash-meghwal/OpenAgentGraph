@@ -676,7 +676,7 @@ describe("code scanner", () => {
     expect(plan.summary.semanticFallbackReason).toContain("Synthetic semantic coverage could not cover 1 file");
     expect(plan.summary.semanticFallbackReason).toContain("synthetic semantic program setup");
     expect(plan.summary.diagnostics).toContain(
-      `Semantic analysis: ${plan.summary.semanticFallbackReason}`
+      `TypeScript semantic analysis: ${plan.summary.semanticFallbackReason}`
     );
   });
 

@@ -18,6 +18,8 @@ export const GRAPH_HTML_FILE_NAME = "graph.html";
 export const GRAPH_WIKI_INDEX_FILE_NAME = "wiki/index.md";
 export const GRAPH_HANDOFF_FILE_NAME = "GRAPH_REPORT.md";
 
+export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" | "lens" | "check" | "update" | "generic";
+
 export interface GraphWorkspaceCliOptions {
   workspace?: string;
   json: boolean;
@@ -25,7 +27,11 @@ export interface GraphWorkspaceCliOptions {
   dfs: boolean;
   budget: number;
   lens?: GraphTaskLensId;
+  maxHops?: number;
+  explainRanking: boolean;
 }
+
+const DEFAULT_GRAPH_CLI_BUDGET = 40;
 
 const GRAPH_TASK_LENS_IDS = new Set(GRAPH_TASK_LENS_DEFINITIONS.map((definition) => definition.id));
 
@@ -40,13 +46,15 @@ export interface LoadedWorkspaceGraph {
  * npm run on Windows routes through cmd.exe, which can leave caret escape
  * markers in argv when PowerShell passes quoted strings (e.g. "^MainViewModel^ playback^").
  */
-export function normalizeGraphCliText(value: string) {
+function stripGraphCliCaretMarkers(value: string) {
   return value
     .replace(/\^([^\s^]+)\^/g, "$1")
     .replace(/(^|\s)\^+/g, "$1")
-    .replace(/\^+(?=\s|$)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/\^+(?=\s|$)/g, "");
+}
+
+export function normalizeGraphCliText(value: string) {
+  return stripGraphCliCaretMarkers(value).replace(/\s+/g, " ").trim();
 }
 
 export function joinGraphCliPositionals(positionals: string[]) {
@@ -57,19 +65,42 @@ export function normalizeGraphCliArg(value: string) {
   return normalizeGraphCliText(value);
 }
 
+/**
+ * Normalizes user-supplied workspace paths from npm/cmd/PowerShell argv without
+ * mangling drive letters, UNC roots, or interior spaces (including repeated spaces).
+ */
+export function normalizeWorkspaceCliPath(value: string) {
+  let normalized = stripGraphCliCaretMarkers(value).trim();
+  while (
+    (normalized.startsWith('"') && normalized.endsWith('"'))
+    || (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  if (!normalized) {
+    throw new Error("Workspace path is empty.");
+  }
+  return normalized;
+}
+
+export function readGraphWorkspaceCliValue(argv: string[], index: number) {
+  return normalizeWorkspaceCliPath(readRequiredCliValue(argv, index, "--workspace"));
+}
+
 export function parseGraphWorkspaceArgv(argv: string[]) {
   const options: GraphWorkspaceCliOptions = {
     json: false,
     refresh: false,
     dfs: false,
-    budget: 40,
+    budget: DEFAULT_GRAPH_CLI_BUDGET,
+    explainRanking: false,
   };
   const positionals: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--workspace") {
-      options.workspace = readRequiredCliValue(argv, index, "--workspace");
+      options.workspace = readGraphWorkspaceCliValue(argv, index);
       index += 1;
     } else if (arg === "--json") {
       options.json = true;
@@ -92,6 +123,16 @@ export function parseGraphWorkspaceArgv(argv: string[]) {
       }
       options.lens = value as GraphTaskLensId;
       index += 1;
+    } else if (arg === "--max-hops") {
+      const value = readRequiredCliValue(argv, index, "--max-hops");
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("--max-hops requires a positive integer.");
+      }
+      options.maxHops = parsed;
+      index += 1;
+    } else if (arg === "--explain-ranking") {
+      options.explainRanking = true;
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown graph option: ${arg}`);
     } else {
@@ -100,6 +141,42 @@ export function parseGraphWorkspaceArgv(argv: string[]) {
   }
 
   return { options, positionals };
+}
+
+export function collectIgnoredGraphCliOptions(
+  command: GraphWorkspaceCliCommand,
+  options: GraphWorkspaceCliOptions
+) {
+  const warnings: string[] = [];
+  if (command !== "path") {
+    if (options.maxHops !== undefined) {
+      warnings.push("--max-hops is only used by graph:path; ignoring.");
+    }
+    if (options.explainRanking) {
+      warnings.push("--explain-ranking is only used by graph:path; ignoring.");
+    }
+  }
+  if (command !== "query") {
+    if (options.dfs) {
+      warnings.push("--dfs is only used by graph:query; ignoring.");
+    }
+    if (options.budget !== DEFAULT_GRAPH_CLI_BUDGET) {
+      warnings.push("--budget is only used by graph:query; ignoring.");
+    }
+  }
+  if (command !== "query" && command !== "path" && command !== "lens" && options.lens) {
+    warnings.push("--lens is only used by graph:query, graph:path, and graph:lens; ignoring.");
+  }
+  return warnings;
+}
+
+export function warnIgnoredGraphCliOptions(
+  command: GraphWorkspaceCliCommand,
+  options: GraphWorkspaceCliOptions
+) {
+  for (const warning of collectIgnoredGraphCliOptions(command, options)) {
+    console.warn(warning);
+  }
 }
 
 async function pathExists(directoryPath: string) {
@@ -168,10 +245,11 @@ export async function loadWorkspaceUnifiedGraph(
 }
 
 export function requireWorkspaceOption(workspace?: string) {
-  if (!workspace) {
+  if (!workspace?.trim()) {
     throw new Error('Graph commands require --workspace "<absolute path>".');
   }
-  return path.resolve(workspace);
+  const normalized = normalizeWorkspaceCliPath(workspace);
+  return path.resolve(normalized);
 }
 
 export async function readHandoffFreshness(

@@ -1,4 +1,5 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
+import { appendAnalyzerFusionChecks } from "./graphAnalyzers.js";
 import {
   buildGraphGodNodeSummaries,
   recommendPrimaryGraphLens,
@@ -444,6 +445,8 @@ export function evaluateOagFusionChecks(input: EvaluateOagFusionChecksInput): Gr
   if (input.productGraph) {
     appendProductGraphChecks(checks, input.productGraph);
   }
+
+  appendAnalyzerFusionChecks(checks, input.graph.analyzers, input.kernelProfile);
 
   const hardFailCount = checks.filter((check) => check.severity === "fail").length;
   const warnCount = checks.filter((check) => check.severity === "warn").length;

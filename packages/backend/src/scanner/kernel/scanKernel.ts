@@ -1,5 +1,6 @@
 import path from "path";
 import type { ProductGraphProjection, SkipReason, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
+import { flattenEcosystemScannerHealthDiagnostics, formatGraphAnalyzerDiagnostics } from "@openagentgraph/shared";
 import { scanWorkspaceCodebase } from "../codeScanner.js";
 import { IgnoreEngine } from "./ignoreEngine.js";
 import { buildUnifiedCodeGraph } from "./unifiedGraph.js";
@@ -72,11 +73,17 @@ export async function runKernelWorkspaceScan(
     ...kernelProfileDiagnostics(kernelProfile),
     ignoreEngine.diagnosticsSummary(skippedCounts),
     ...scanPlan.summary.diagnostics,
+    ...formatGraphAnalyzerDiagnostics(scanPlan.summary.analyzers),
+    ...flattenEcosystemScannerHealthDiagnostics({
+      kernelProfile,
+      analyzers: scanPlan.summary.analyzers,
+    }),
   ];
 
   const unifiedGraph = buildUnifiedCodeGraph({
     workspaceRoot: resolvedRoot,
     generatedAt: scanPlan.scannedAt,
+    analyzers: scanPlan.summary.analyzers,
     projection: {
       ...(input.projection ?? emptyProjection()),
       nodes: scanPlan.nodes.map((node) => ({

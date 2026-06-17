@@ -31,9 +31,28 @@ describe("graph artifacts", () => {
     expect(wiki).toMatch(/MainViewModel/i);
     expect(handoff).toContain("# OpenAgentGraph Handoff");
     expect(handoff).toContain("## Read these first");
+    expect(handoff).toContain("## Ecosystem scanner health");
     expect(handoff).toContain("## OAG fusion checks");
     expect(handoff).toContain("## Agent context APIs");
     expect(handoff).toMatch(/MainViewModel/i);
     expect(handoff).not.toContain("/bin/");
+  });
+
+  it("renders optional analyzer status in handoff output", () => {
+    const graph: UnifiedCodeGraph = {
+      ...makeGraph(),
+      analyzers: [{
+        id: "dotnet-roslyn",
+        label: "C# Roslyn semantic analyzer",
+        requiredRuntime: ".NET SDK (dotnet CLI)",
+        status: "unavailable",
+        fallbackReason: "dotnet CLI unavailable.",
+        autoBuildCapable: true,
+      }],
+    };
+
+    const handoff = renderUnifiedGraphHandoffReport(graph, { handoffPath: "GRAPH_REPORT.md" });
+    expect(handoff).toContain("## Optional analyzers");
+    expect(handoff).toContain("C# Roslyn semantic analyzer: unavailable (dotnet CLI unavailable.)");
   });
 });

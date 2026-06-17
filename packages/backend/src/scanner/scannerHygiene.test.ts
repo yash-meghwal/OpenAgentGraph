@@ -3,12 +3,19 @@ import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildTypeScriptSemanticHealthLine,
+  scanMetadataToHealthInput,
+  shouldReportTypeScriptSemanticHealth,
+} from "@openagentgraph/shared";
+import {
   BASE_SKIPPED_DIRECTORIES,
   DOTNET_T0_SCANNER_NOTICE,
+  buildWorkspaceScanProfile,
   detectWorkspaceScanProfile,
   extractCSharpTopLevelSymbols,
   isSkippedDirectoryName,
   pathContainsSkippedDirectory,
+  workspaceProfileToMetadata,
 } from "./scannerHygiene.js";
 
 const tempWorkspacePaths: string[] = [];
@@ -97,5 +104,31 @@ describe("scanner hygiene", () => {
     expect(profile.sourceExtensionCounts).toMatchObject({ ".cs": 1, ".ts": 4 });
     expect(profile.skippedDirectoryCounts).toMatchObject({ bin: 1, obj: 2 });
     expect(profile.warnings).toContain(DOTNET_T0_SCANNER_NOTICE);
+  });
+
+  it("serializes extension counts for handoff parsers that accept colon-form metadata", () => {
+    const profile = buildWorkspaceScanProfile({
+      markerPaths: ["web/package.json", "web/tsconfig.json"],
+      detectedProjectTypes: new Set(["typescript"]),
+      sourceExtensionCounts: new Map([
+        [".tsx", 1],
+        [".js", 1],
+      ]),
+      skippedDirectoryCounts: new Map(),
+    });
+    const metadata = workspaceProfileToMetadata(profile);
+
+    expect(metadata.scannerSourceExtensionCounts).toBe(".js:1, .tsx:1");
+
+    const healthInput = scanMetadataToHealthInput(metadata);
+    expect(shouldReportTypeScriptSemanticHealth({
+      sourceExtensionSummary: healthInput.scannerSourceExtensionCounts,
+    })).toBe(true);
+    expect(buildTypeScriptSemanticHealthLine({
+      ...healthInput,
+      scannerSemanticAnalysisEnabled: true,
+      scannerSemanticAnalysisSucceeded: false,
+      scannerSemanticFallbackReason: "No TypeScript project config covered scanned source files.",
+    })).toContain("TypeScript semantic analysis: fallback");
   });
 });

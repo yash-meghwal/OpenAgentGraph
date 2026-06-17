@@ -8,8 +8,10 @@ import {
   readHandoffFreshness,
   readPreviousSymbolCount,
   requireWorkspaceOption,
+  warnIgnoredGraphCliOptions,
 } from "./graphWorkspace.js";
 import { detectWorkspaceKernelProfile } from "../scanner/kernel/workspaceDetection.js";
+import { renderEcosystemScannerHealthMarkdown } from "@openagentgraph/shared";
 
 type GraphCheckMode = "hard" | "warn";
 
@@ -63,6 +65,7 @@ function parseGraphCheckArgv(argv: string[]) {
 
 export async function runGraphCheckCli(argv = process.argv.slice(2)) {
   const { graphOptions, checkOptions } = parseGraphCheckArgv(argv);
+  if (!graphOptions.json) warnIgnoredGraphCliOptions("check", graphOptions);
   const workspaceRoot = requireWorkspaceOption(graphOptions.workspace);
   const previousSymbolCount = graphOptions.refresh ? await readPreviousSymbolCount(workspaceRoot) : undefined;
   const loaded = await loadWorkspaceUnifiedGraph(workspaceRoot, { refresh: graphOptions.refresh });
@@ -103,6 +106,7 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     checks: fusion.checks,
     handoffFreshness,
     activeScannerIds: loaded.graph.activeScannerIds,
+    analyzers: loaded.graph.analyzers ?? [],
     symbolCount: loaded.graph.nodes.filter((node) => node.kind === "symbol").length,
   };
 
@@ -116,6 +120,17 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
       console.log(`- [${check.severity}] ${check.title}: ${check.detail}`);
     }
     console.log(`Handoff: ${handoffFreshness.detail}`);
+    const ecosystemLines = renderEcosystemScannerHealthMarkdown({
+      kernelProfile,
+      graph: loaded.graph,
+      analyzers: loaded.graph.analyzers,
+    });
+    if (ecosystemLines.length > 0) {
+      console.log("Ecosystem scanner health:");
+      for (const line of ecosystemLines) {
+        console.log(line.startsWith("-") ? line : `- ${line}`);
+      }
+    }
     console.log(fusion.ok ? "Result: PASS" : "Result: FAIL");
   }
 

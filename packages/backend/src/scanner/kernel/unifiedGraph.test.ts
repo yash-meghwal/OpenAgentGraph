@@ -80,4 +80,25 @@ describe("unified code graph", () => {
     expect(graph.edges.some((edge) => edge.kind === "belongs_to")).toBe(true);
     expect(graph.diagnostics).toContain("Primary project type: typescript.");
   });
+
+  it("records optional analyzer metadata when provided", () => {
+    const graph = buildUnifiedCodeGraph({
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      projection: makeProjection(),
+      kernelProfile: makeProfile({ activeScannerIds: ["dotnet"] }),
+      analyzers: [{
+        id: "dotnet-roslyn",
+        label: "C# Roslyn semantic analyzer",
+        requiredRuntime: ".NET SDK (dotnet CLI)",
+        status: "enabled",
+        autoBuildCapable: true,
+        preparedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+
+    expect(graph.analyzers).toEqual([
+      expect.objectContaining({ id: "dotnet-roslyn", status: "enabled" }),
+    ]);
+  });
 });

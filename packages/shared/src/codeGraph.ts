@@ -51,6 +51,18 @@ export interface UnifiedCodeGraphEdge {
   scannerId?: string;
 }
 
+export interface GraphAnalyzerAvailability {
+  id: string;
+  label: string;
+  requiredRuntime: string;
+  buildProbeCommand?: string;
+  status: "enabled" | "disabled" | "unavailable";
+  fallbackReason?: string;
+  autoBuildCapable: boolean;
+  preparedAt?: string;
+  durationMs?: number;
+}
+
 export interface UnifiedCodeGraph {
   schemaVersion: typeof CODE_GRAPH_SCHEMA_VERSION;
   workspaceRoot: string;
@@ -59,6 +71,7 @@ export interface UnifiedCodeGraph {
   edges: UnifiedCodeGraphEdge[];
   activeScannerIds: string[];
   diagnostics: string[];
+  analyzers?: GraphAnalyzerAvailability[];
 }
 
 export type ScannerCapability =

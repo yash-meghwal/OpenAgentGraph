@@ -1,4 +1,5 @@
 import type {
+  GraphAnalyzerAvailability,
   ProductGraphEdge,
   ProductGraphNode,
   ProductGraphProjection,
@@ -50,6 +51,7 @@ export function buildUnifiedCodeGraph(input: {
   projection: ProductGraphProjection;
   kernelProfile: WorkspaceKernelProfile;
   diagnostics?: string[];
+  analyzers?: GraphAnalyzerAvailability[];
 }): UnifiedCodeGraph {
   const nodes: UnifiedCodeGraphNode[] = [
     {
@@ -141,5 +143,6 @@ export function buildUnifiedCodeGraph(input: {
     edges: edges.sort((left, right) => left.id.localeCompare(right.id)),
     activeScannerIds: input.kernelProfile.activeScannerIds,
     diagnostics: input.diagnostics ?? [],
+    ...(input.analyzers?.length ? { analyzers: input.analyzers } : {}),
   };
 }

@@ -3,8 +3,7 @@ import { collectWorkspaceFileFingerprints } from "../scanner/kernel/graphFingerp
 import { GRAPH_INCREMENTAL_TOOL_VERSION } from "../scanner/kernel/graphIncrementalScan.js";
 import { runKernelWorkspaceScan } from "../scanner/kernel/scanKernel.js";
 import { writeGraphArtifacts } from "./graphArtifactsWrite.js";
-import { requireWorkspaceOption } from "./graphWorkspace.js";
-import { readRequiredCliValue } from "./productGraphDataDir.js";
+import { readGraphWorkspaceCliValue, requireWorkspaceOption } from "./graphWorkspace.js";
 
 interface GraphExportCliOptions {
   workspace?: string;
@@ -31,7 +30,7 @@ function parseGraphExportArgv(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--workspace") {
-      options.workspace = readRequiredCliValue(argv, index, "--workspace");
+      options.workspace = readGraphWorkspaceCliValue(argv, index);
       index += 1;
     } else if (arg === "--refresh") {
       options.refresh = true;

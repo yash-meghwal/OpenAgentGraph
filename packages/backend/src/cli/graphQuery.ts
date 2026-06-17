@@ -4,10 +4,12 @@ import {
   loadWorkspaceUnifiedGraph,
   parseGraphWorkspaceArgv,
   requireWorkspaceOption,
+  warnIgnoredGraphCliOptions,
 } from "./graphWorkspace.js";
 
 export async function runGraphQueryCli(argv = process.argv.slice(2)) {
   const { options, positionals } = parseGraphWorkspaceArgv(argv);
+  if (!options.json) warnIgnoredGraphCliOptions("query", options);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
   const query = joinGraphCliPositionals(positionals);
   if (!query) {

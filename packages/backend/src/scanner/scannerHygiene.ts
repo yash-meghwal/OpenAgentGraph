@@ -1,5 +1,30 @@
+import {
+  DOTNET_CONFIG_EXTENSIONS,
+  DOTNET_SOURCE_EXTENSIONS,
+  ECOSYSTEM_SCANNABLE_EXTENSIONS,
+  isProductGraphScannableExtension as sharedIsProductGraphScannableExtension,
+  isUnsupportedSourceExtension as sharedIsUnsupportedSourceExtension,
+  PRODUCT_GRAPH_SCANNABLE_EXTENSIONS,
+  PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET,
+  SCRIPT_SCANNABLE_EXTENSIONS,
+  TYPESCRIPT_SCANNABLE_EXTENSIONS,
+  UNSUPPORTED_SOURCE_EXTENSIONS,
+  UNSUPPORTED_SOURCE_EXTENSION_SET,
+} from "@openagentgraph/shared";
 import fs from "fs/promises";
 import path from "path";
+
+export {
+  DOTNET_CONFIG_EXTENSIONS,
+  DOTNET_SOURCE_EXTENSIONS,
+  ECOSYSTEM_SCANNABLE_EXTENSIONS,
+  PRODUCT_GRAPH_SCANNABLE_EXTENSIONS,
+  PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET,
+  SCRIPT_SCANNABLE_EXTENSIONS,
+  TYPESCRIPT_SCANNABLE_EXTENSIONS,
+  UNSUPPORTED_SOURCE_EXTENSIONS,
+  UNSUPPORTED_SOURCE_EXTENSION_SET,
+};
 
 export const SCANNER_HYGIENE_VERSION = "1.3";
 
@@ -54,61 +79,8 @@ export const BASE_SKIPPED_DIRECTORIES = [
 
 export const SKIPPED_DIRECTORY_SET = new Set<string>(BASE_SKIPPED_DIRECTORIES);
 
-export const TYPESCRIPT_SCANNABLE_EXTENSIONS = [
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mts",
-  ".mjs",
-  ".cts",
-  ".cjs",
-] as const;
-
-export const DOTNET_SOURCE_EXTENSIONS = [".cs", ".xaml"] as const;
-export const DOTNET_CONFIG_EXTENSIONS = [".csproj", ".sln", ".props", ".targets"] as const;
-export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [
-  ".py",
-  ".go",
-  ".rs",
-  ".java",
-  ".kt",
-  ".kts",
-  ".tf",
-  ".tfvars",
-  ".md",
-  ".rst",
-] as const;
-export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
-
-export const PRODUCT_GRAPH_SCANNABLE_EXTENSIONS = [
-  ...TYPESCRIPT_SCANNABLE_EXTENSIONS,
-  ...DOTNET_SOURCE_EXTENSIONS,
-  ...DOTNET_CONFIG_EXTENSIONS,
-  ...ECOSYSTEM_SCANNABLE_EXTENSIONS,
-  ...SCRIPT_SCANNABLE_EXTENSIONS,
-] as const;
-
-export const PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET = new Set<string>(PRODUCT_GRAPH_SCANNABLE_EXTENSIONS);
-
-export const UNSUPPORTED_SOURCE_EXTENSIONS = [
-  ".rb",
-  ".php",
-  ".swift",
-  ".c",
-  ".cc",
-  ".cpp",
-  ".h",
-  ".hpp",
-  ".scala",
-  ".fs",
-  ".vb",
-] as const;
-
-export const UNSUPPORTED_SOURCE_EXTENSION_SET = new Set<string>(UNSUPPORTED_SOURCE_EXTENSIONS);
-
 export function isUnsupportedSourceExtension(extension: string) {
-  return UNSUPPORTED_SOURCE_EXTENSION_SET.has(extension.toLowerCase());
+  return sharedIsUnsupportedSourceExtension(extension);
 }
 
 export const PROJECT_GRAPH_INCLUDED_EXTENSIONS = new Set([
@@ -264,7 +236,7 @@ export function isEcosystemConfigFileName(fileName: string) {
 }
 
 export function isProductGraphScannableExtension(extension: string) {
-  return PRODUCT_GRAPH_SCANNABLE_EXTENSION_SET.has(extension.toLowerCase());
+  return sharedIsProductGraphScannableExtension(extension);
 }
 
 export function classifyDotNetFileRole(extension: string): "source" | "config" | undefined {

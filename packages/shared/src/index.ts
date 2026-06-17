@@ -1,9 +1,12 @@
 export * from "./types";
 export * from "./codeGraph";
+export * from "./sourceExtensions";
 export * from "./graphQueryEngine";
 export * from "./graphArtifacts";
 export * from "./graphLenses";
 export * from "./graphFusion";
+export * from "./graphAnalyzers";
+export * from "./graphEcosystemHealth";
 export * from "./graphOperational";
 export * from "./graphReleaseGates";
 export type { GraphFileFingerprint, GraphIncrementalManifest, GraphUpdatePlan } from "./graphIncremental";

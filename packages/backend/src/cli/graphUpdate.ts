@@ -9,6 +9,7 @@ import {
   requireWorkspaceOption,
   tryLoadCachedGraphManifest,
   tryLoadCachedWorkspaceGraph,
+  warnIgnoredGraphCliOptions,
 } from "./graphWorkspace.js";
 
 interface GraphUpdateCliOptions {
@@ -53,6 +54,7 @@ function parseGraphUpdateArgv(argv: string[]) {
 
 export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
   const { graphOptions, updateOptions } = parseGraphUpdateArgv(argv);
+  if (!graphOptions.json) warnIgnoredGraphCliOptions("update", graphOptions);
   const workspaceRoot = requireWorkspaceOption(graphOptions.workspace);
   const cachedGraph = graphOptions.refresh ? undefined : await tryLoadCachedWorkspaceGraph(workspaceRoot);
   const cachedManifest = graphOptions.refresh ? undefined : await tryLoadCachedGraphManifest(workspaceRoot);

@@ -112,6 +112,7 @@ export interface CodebaseScanSummary {
   kernelProfile?: WorkspaceKernelProfile;
   skippedCountsByReason?: Partial<Record<SkipReason, number>>;
   skipDiagnostics?: SkipDiagnostic[];
+  analyzers?: import("@openagentgraph/shared").GraphAnalyzerAvailability[];
 }
 
 export interface CodebaseScanPlan {
@@ -2569,41 +2570,56 @@ export async function scanWorkspaceCodebase(input: {
   let semanticAnalysis: SemanticAnalysisContext;
   const semanticLimits = normalizeScanBreakerLimits(input.semanticScanLimits, DEFAULT_SEMANTIC_SCAN_LIMITS);
   const semanticBreakers = createScanBreakerStatus(semanticLimits);
+  const typescriptSemanticApplicable = semanticEligibleFiles.length > 0;
   const semanticBudget = createSemanticAnalysisBudget(semanticEligibleFiles, {
     maxFiles: input.semanticAnalysisBudget?.maxFiles ?? semanticLimits.maxFiles,
     maxTotalBytes: input.semanticAnalysisBudget?.maxTotalBytes ?? semanticLimits.maxTotalBytes,
     maxDurationMs: input.semanticAnalysisBudget?.maxDurationMs ?? semanticLimits.maxDurationMs,
     now: input.semanticAnalysisBudget?.now,
   });
-  input.onProgress?.(buildScanProgressSnapshot({
-    scanId,
-    scope: "product_codebase",
-    phase: "semantic_analysis",
-    startedAtMs: start,
-    filesScanned: stats.filesScanned,
-    bytesScanned: stats.totalBytes,
-    skippedFileCount,
-    skippedDirectoryCount: stats.skippedDirectoryCount,
-    breakers: semanticBreakers,
-    message: "Running TypeScript semantic analysis when available.",
-  }));
-  try {
-    semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, semanticEligibleFiles, semanticBudget);
-  } catch (error) {
+  if (typescriptSemanticApplicable) {
+    input.onProgress?.(buildScanProgressSnapshot({
+      scanId,
+      scope: "product_codebase",
+      phase: "semantic_analysis",
+      startedAtMs: start,
+      filesScanned: stats.filesScanned,
+      bytesScanned: stats.totalBytes,
+      skippedFileCount,
+      skippedDirectoryCount: stats.skippedDirectoryCount,
+      breakers: semanticBreakers,
+      message: "Running TypeScript/JavaScript semantic analysis when available.",
+    }));
+    try {
+      semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, semanticEligibleFiles, semanticBudget);
+    } catch (error) {
+      semanticAnalysis = {
+        enabled: true,
+        succeeded: false,
+        fallbackReason: error instanceof Error ? boundedReason(error.message) : "TypeScript semantic analysis initialization failed.",
+        workspaceRoot,
+        contextsBySourcePath: new Map(),
+        configCount: 0,
+        configuredFileCount: 0,
+        syntheticFileCount: 0,
+        unconfiguredFileCount: semanticEligibleFiles.length,
+        configPaths: [],
+      };
+    }
+  } else {
     semanticAnalysis = {
-      enabled: true,
+      enabled: false,
       succeeded: false,
-      fallbackReason: error instanceof Error ? boundedReason(error.message) : "Semantic analysis initialization failed.",
       workspaceRoot,
       contextsBySourcePath: new Map(),
       configCount: 0,
       configuredFileCount: 0,
       syntheticFileCount: 0,
-      unconfiguredFileCount: semanticEligibleFiles.length,
+      unconfiguredFileCount: 0,
       configPaths: [],
     };
   }
-  if (!semanticAnalysis.succeeded && semanticAnalysis.fallbackReason) {
+  if (typescriptSemanticApplicable && !semanticAnalysis.succeeded && semanticAnalysis.fallbackReason) {
     if (semanticAnalysis.fallbackReason.includes("files exceeds budget")) {
       markScanBreakerHit(semanticBreakers, "maxFiles", files.length, semanticAnalysis.fallbackReason);
     } else if (semanticAnalysis.fallbackReason.includes("bytes exceeds budget")) {
@@ -2611,7 +2627,7 @@ export async function scanWorkspaceCodebase(input: {
     } else if (semanticAnalysis.fallbackReason.includes("reached budget")) {
       markScanBreakerHit(semanticBreakers, "maxDurationMs", semanticBudget.now() - semanticBudget.startedAt, semanticAnalysis.fallbackReason);
     }
-  } else {
+  } else if (typescriptSemanticApplicable) {
     updateScanBreakerNear(semanticBreakers, {
       maxFiles: files.length,
       maxTotalBytes: semanticBudget.totalBytes,
@@ -2679,6 +2695,7 @@ export async function scanWorkspaceCodebase(input: {
       scannerSemanticUnconfiguredFileCount: semanticAnalysis.unconfiguredFileCount,
       scannerSemanticConfigPaths: metadataList(semanticAnalysis.configPaths),
       scannerSemanticFallbackReason: semanticFallbackReason,
+      scannerActiveScannerIds: kernelProfile.activeScannerIds.join(", "),
       scannerBreakerState: stats.breakers.state,
       scannerBreakerHitCount: stats.breakers.hits.length,
       scannerBreakerHits: metadataList(stats.breakers.hits.map((hit) => hit.message)),
@@ -2727,10 +2744,13 @@ export async function scanWorkspaceCodebase(input: {
     ...kernelProfileDiagnostics(kernelProfile),
     stats.ignoreEngine.diagnosticsSummary(stats.skippedCountsByReason),
     ...scanBreakerDiagnostics(stats.breakers),
-    ...scanBreakerDiagnostics(semanticBreakers),
-    ...(semanticFallbackReason ? [`Semantic analysis: ${semanticFallbackReason}`] : []),
+    ...(typescriptSemanticApplicable ? scanBreakerDiagnostics(semanticBreakers) : []),
+    ...(typescriptSemanticApplicable && semanticFallbackReason
+      ? [`TypeScript semantic analysis: ${semanticFallbackReason}`]
+      : []),
     ...(dotnetRoslynSemantic?.diagnostics ?? []),
   ];
+  const analyzers = dotnetRoslynSemantic?.analyzer ? [dotnetRoslynSemantic.analyzer] : undefined;
   const progress = buildScanProgressSnapshot({
     scanId,
     scope: "product_codebase",
@@ -2785,6 +2805,7 @@ export async function scanWorkspaceCodebase(input: {
       kernelProfile,
       skippedCountsByReason: stats.ignoreEngine.skippedCountsRecord(stats.skippedCountsByReason),
       skipDiagnostics: stats.skipDiagnostics,
+      analyzers,
     },
   };
 }

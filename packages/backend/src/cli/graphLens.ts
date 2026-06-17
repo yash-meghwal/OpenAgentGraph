@@ -9,10 +9,12 @@ import {
   loadWorkspaceUnifiedGraph,
   parseGraphWorkspaceArgv,
   requireWorkspaceOption,
+  warnIgnoredGraphCliOptions,
 } from "./graphWorkspace.js";
 
 export async function runGraphLensCli(argv = process.argv.slice(2)) {
   const { options, positionals } = parseGraphWorkspaceArgv(argv);
+  if (!options.json) warnIgnoredGraphCliOptions("lens", options);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
   if (positionals.length > 0) {
     throw new Error(`Unknown graph:lens arguments: ${positionals.join(" ")}`);

@@ -9,6 +9,7 @@ import {
   formatHandoffWorkspaceRootForReport,
   isPathInsideRoot,
 } from "../productGraphHandoffTrust.js";
+import { readGraphWorkspaceCliValue } from "./graphWorkspace.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
 const DEFAULT_PRODUCT_GRAPH_ID = "default";
@@ -35,7 +36,7 @@ function parseArgs(argv: string[]): DogfoodCliOptions {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--workspace") {
-      options.workspace = readRequiredCliValue(argv, index, "--workspace");
+      options.workspace = readGraphWorkspaceCliValue(argv, index);
       index += 1;
     } else if (arg === "--output") {
       options.output = readRequiredCliValue(argv, index, "--output");

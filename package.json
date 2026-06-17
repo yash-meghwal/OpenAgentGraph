@@ -35,6 +35,7 @@
     "graph:lens": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphLens.js",
     "graph:check": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphCheck.js",
     "graph:update": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphUpdate.js",
+    "graph:smoke:workspace": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/scripts/graph-npm-smoke.mjs",
     "docker:build": "docker build -t openagentgraph-backend .",
     "typecheck": "npx tsc --noEmit --pretty false -p packages/frontend/tsconfig.json && npx tsc --noEmit --pretty false -p packages/electron/tsconfig.json && npx tsc --noEmit --pretty false -p packages/vscode-extension/tsconfig.json",
     "verify": "npm run build && npm run typecheck && npm run test --workspaces --if-present && npm run gate:check -- --mode hard --allow-empty",

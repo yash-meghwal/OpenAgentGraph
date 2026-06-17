@@ -1,3 +1,13 @@
+import {
+  buildProductGraphSemanticRiskLines,
+  buildProductGraphSemanticTrustLine,
+  buildTypeScriptSemanticConfigLine,
+  buildTypeScriptSemanticHealthLine,
+  kernelProfileFromScanMetadata,
+  renderEcosystemScannerHealthMarkdown,
+  scanMetadataToHealthInput,
+  shouldReportTypeScriptSemanticHealth,
+} from "./graphEcosystemHealth.js";
 import { graphLensIdsForPath, type GraphTaskLensId } from "./graphLenses.js";
 import type { ActorIdentity } from "./types";
 
@@ -2240,14 +2250,18 @@ function buildHandoffHealth(input: {
   if (breakerHits) {
     allRisks.push(`Lightweight scan breaker hit: ${boundedHandoffText(breakerHits, 180)}.`);
   }
-  if (semanticBreakerHits) {
-    allRisks.push(`Semantic scan breaker hit: ${boundedHandoffText(semanticBreakerHits, 180)}.`);
+  const scanHealthInput = scanMetadataToHealthInput(scanMetadata as Record<string, unknown> | undefined);
+  if (
+    semanticBreakerHits
+    && shouldReportTypeScriptSemanticHealth({
+      activeScannerIds: scanHealthInput.scannerActiveScannerIds?.split(",").map((value) => value.trim()).filter(Boolean),
+      sourceExtensionSummary: scanHealthInput.scannerSourceExtensionCounts,
+    })
+  ) {
+    allRisks.push(`TypeScript semantic scan breaker hit: ${boundedHandoffText(semanticBreakerHits, 180)}.`);
   }
-  if (boundedSemanticFallbackReason && semanticSucceeded === false) {
-    allRisks.push(`Semantic analysis fell back: ${boundedSemanticFallbackReason}.`);
-  }
-  if (semanticSucceeded && semanticUnconfiguredFileCount > 0) {
-    allRisks.push(`${formatHandoffCount(semanticUnconfiguredFileCount, "scanned file")} lacked semantic config coverage.`);
+  for (const risk of buildProductGraphSemanticRiskLines(scanHealthInput)) {
+    allRisks.push(risk);
   }
 
   const healthLines = [
@@ -2265,15 +2279,19 @@ function buildHandoffHealth(input: {
     scanMetadata && breakerState
       ? `Lightweight scan breakers: ${breakerState}${breakerHits ? `; ${boundedHandoffText(breakerHits, 180)}` : ""}.`
       : undefined,
-    scanMetadata && semanticBreakerState
-      ? `Semantic scan breakers: ${semanticBreakerState}${semanticBreakerHits ? `; ${boundedHandoffText(semanticBreakerHits, 180)}` : ""}.`
+    scanMetadata && semanticBreakerState && shouldReportTypeScriptSemanticHealth({
+      activeScannerIds: scanHealthInput.scannerActiveScannerIds?.split(",").map((value) => value.trim()).filter(Boolean),
+      sourceExtensionSummary: scanHealthInput.scannerSourceExtensionCounts,
+    })
+      ? `TypeScript semantic scan breakers: ${semanticBreakerState}${semanticBreakerHits ? `; ${boundedHandoffText(semanticBreakerHits, 180)}` : ""}.`
       : undefined,
-    scanMetadata
-      ? `Semantic analysis: ${semanticSucceeded ? "succeeded" : semanticEnabled ? "fallback" : "not run"}; ${semanticResolutionCount} resolutions, ${semanticEdgeCount} semantic edges${boundedSemanticFallbackReason ? `; reason: ${boundedSemanticFallbackReason}` : ""}.`
-      : undefined,
-    scanMetadata
-      ? `Semantic configs: ${semanticConfigCount} used; ${formatHandoffCount(semanticConfiguredFileCount, "TS-configured file")}, ${formatHandoffCount(semanticSyntheticFileCount, "synthetic fallback file")}, ${formatHandoffCount(semanticUnconfiguredFileCount, "unconfigured file")}${semanticConfigPaths ? `; ${boundedHandoffText(semanticConfigPaths, 180)}` : ""}.`
-      : undefined,
+    scanMetadata ? buildTypeScriptSemanticHealthLine(scanHealthInput) : undefined,
+    scanMetadata ? buildTypeScriptSemanticConfigLine(scanHealthInput) : undefined,
+    ...(scanMetadata
+      ? renderEcosystemScannerHealthMarkdown({
+          kernelProfile: kernelProfileFromScanMetadata(scanHealthInput),
+        }).map((line) => line.replace(/^- /, ""))
+      : []),
   ].filter((line): line is string => Boolean(line));
 
   const detailRisks = [
@@ -2353,14 +2371,7 @@ function buildHandoffTrust(input: {
   const dataSource = boundedHandoffText(input.options.dataSource, 260);
   const workspacePathCheck = input.options.workspacePathCheck;
   const handoffFile = input.options.handoffFile;
-  const semanticStatus =
-    scanMetadata
-      ? semanticSucceeded === true
-        ? "succeeded"
-        : semanticSucceeded === false
-          ? "fallback"
-          : "not run"
-      : "no scan metadata";
+  const scanHealthInput = scanMetadataToHealthInput(scanMetadata as Record<string, unknown> | undefined);
   const breakerStatus = scanMetadata
     ? [
         `lightweight ${breakerState ?? "unknown"}`,
@@ -2413,7 +2424,9 @@ function buildHandoffTrust(input: {
       latestCodeScanUpdatedAt
         ? `Latest code scan: ${latestCodeScanUpdatedAt}; ${formatHandoffCount(input.codeFileCount, "file")}, ${formatHandoffCount(input.codeSymbolCount, "symbol")}.`
         : `Latest code scan: missing; ${formatHandoffCount(input.codeFileCount, "file")}, ${formatHandoffCount(input.codeSymbolCount, "symbol")}.`,
-      `Semantic status: ${semanticStatus}; ${semanticResolutionCount} resolutions, ${semanticEdgeCount} semantic edges.`,
+      scanMetadata
+        ? buildProductGraphSemanticTrustLine(scanHealthInput)
+        : "TypeScript semantic status: no scan metadata.",
       `Breaker status: ${breakerStatus}.`,
       detectedProjectTypes ? `Detected project types: ${boundedHandoffText(detectedProjectTypes, 160)}.` : undefined,
       markerPaths ? `Workspace markers: ${boundedHandoffText(markerPaths, 200)}.` : undefined,

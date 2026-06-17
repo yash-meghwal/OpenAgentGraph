@@ -23,7 +23,7 @@ describe("verifyGraph cli", () => {
       "empty-greenfield",
       "nested-gitignore",
       "fixture-python-app",
-      "unsupported-ruby",
+      "unsupported-swift",
       "dockerignore-artifacts",
       "fixture-csharp-wpf",
       "fixture-csharp-media-player",

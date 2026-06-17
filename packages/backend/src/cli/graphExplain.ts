@@ -27,6 +27,7 @@ export async function runGraphExplainCli(argv = process.argv.slice(2)) {
     resolved: result.resolved,
     summary: result.summary,
     node: result.node,
+    community: result.community,
     neighbors: result.neighbors,
     edges: result.edges,
   };
@@ -38,6 +39,9 @@ export async function runGraphExplainCli(argv = process.argv.slice(2)) {
 
   console.log(`Workspace: ${workspaceRoot}`);
   console.log(result.summary);
+  if (result.community) {
+    console.log(`Community: ${result.community.label} — ${result.community.summary}`);
+  }
   if (result.neighbors.length > 0) {
     console.log("Neighbors:");
     for (const neighbor of result.neighbors) {

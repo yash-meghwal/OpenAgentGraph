@@ -63,6 +63,49 @@ export interface GraphAnalyzerAvailability {
   durationMs?: number;
 }
 
+export interface GraphProvenanceSummary {
+  extractedEdgeCount: number;
+  inferredEdgeCount: number;
+  ambiguousEdgeCount: number;
+  manualEdgeCount: number;
+  extractedPercent: number;
+}
+
+export interface EcosystemSupportMatrixRow {
+  ecosystemId: string;
+  projectType: string;
+  scannerId: string;
+  tier: string;
+  semanticSupported: boolean;
+  indexedFileCount: number;
+  symbolCount: number;
+  relationshipCount: number;
+  skippedGeneratedCount: number;
+  limitation: string;
+}
+
+export interface GraphExportMetadata {
+  graphVersion: string;
+  exportedAt: string;
+  scannerProfile?: WorkspaceKernelProfile;
+  ecosystemSupportMatrix?: EcosystemSupportMatrixRow[];
+  communities: Array<{
+    id: string;
+    label: string;
+    path?: string;
+    kind?: string;
+    fileCount: number;
+    summary: string;
+    topFiles: string[];
+    taskLens?: string;
+  }>;
+  provenance: GraphProvenanceSummary;
+  analyzers?: GraphAnalyzerAvailability[];
+  primaryLens: string;
+  refreshCommands: string[];
+  risks: string[];
+}
+
 export interface UnifiedCodeGraph {
   schemaVersion: typeof CODE_GRAPH_SCHEMA_VERSION;
   workspaceRoot: string;
@@ -72,6 +115,7 @@ export interface UnifiedCodeGraph {
   activeScannerIds: string[];
   diagnostics: string[];
   analyzers?: GraphAnalyzerAvailability[];
+  export?: GraphExportMetadata;
 }
 
 export type ScannerCapability =

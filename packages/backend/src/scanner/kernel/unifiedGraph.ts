@@ -90,17 +90,38 @@ export function buildUnifiedCodeGraph(input: {
   for (const node of input.projection.nodes) {
     if (!["code_file", "code_symbol", "code_community"].includes(node.kind)) continue;
     const unifiedKind = mapProductNodeKind(node);
+    const communityMetadata = unifiedKind === "community"
+      ? {
+        scannerCommunityPath: node.metadata?.scannerCommunityPath,
+        scannerCommunityKind: node.metadata?.scannerCommunityKind,
+        scannerCommunityLabel: node.metadata?.scannerCommunityLabel,
+        scannerCommunitySummary: node.metadata?.scannerCommunitySummary,
+        scannerCommunitySignal: node.metadata?.scannerCommunitySignal,
+        scannerCommunityLens: node.metadata?.scannerCommunityLens,
+        scannerCommunityFileCount: node.metadata?.scannerCommunityFileCount,
+        scannerCommunityTopFiles: node.metadata?.scannerCommunityTopFiles,
+        scannerCommunityNamespaces: node.metadata?.scannerCommunityNamespaces,
+        scannerCommunityProjects: node.metadata?.scannerCommunityProjects,
+      }
+      : {};
     const unifiedNode: UnifiedCodeGraphNode = {
       id: stableId("node", node.id),
       kind: unifiedKind,
-      label: node.title,
-      path: node.source?.path ?? node.title,
+      label: typeof node.metadata?.scannerCommunityLabel === "string"
+        ? String(node.metadata.scannerCommunityLabel)
+        : node.title,
+      path: node.kind === "code_community" && typeof node.metadata?.scannerCommunityPath === "string"
+        ? String(node.metadata.scannerCommunityPath)
+        : node.source?.path ?? node.title,
       scannerId: typeof node.metadata?.scannerLanguage === "string"
         ? String(node.metadata.scannerLanguage)
         : input.kernelProfile.activeScannerIds[0],
       metadata: {
         productNodeId: node.id,
         productNodeKind: node.kind,
+        ...Object.fromEntries(
+          Object.entries(communityMetadata).filter(([, value]) => value !== undefined && value !== null)
+        ),
       },
     };
     nodes.push(unifiedNode);

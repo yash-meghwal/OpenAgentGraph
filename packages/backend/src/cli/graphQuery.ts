@@ -34,6 +34,7 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     seeds: result.seeds,
     nodes: result.nodes,
     edges: result.edges,
+    communities: result.communities ?? [],
   };
 
   if (options.json) {
@@ -49,6 +50,12 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     return payload;
   }
   console.log(`Seeds: ${result.seeds.map((node) => node.label).join(", ")}`);
+  if (payload.communities.length > 0) {
+    console.log("Communities:");
+    for (const community of payload.communities) {
+      console.log(`- ${community.label}${community.path ? ` (${community.path})` : ""}: ${community.summary}`);
+    }
+  }
   for (const node of result.nodes) {
     const nodePath = node.path ? ` (${node.path})` : "";
     console.log(`- [${node.kind}] ${node.label}${nodePath}`);

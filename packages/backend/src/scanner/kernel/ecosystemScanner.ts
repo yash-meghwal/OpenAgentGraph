@@ -8,6 +8,8 @@ export const GO_SCANNABLE_EXTENSIONS = [".go"] as const;
 export const RUST_SCANNABLE_EXTENSIONS = [".rs"] as const;
 export const JAVA_SCANNABLE_EXTENSIONS = [".java"] as const;
 export const KOTLIN_SCANNABLE_EXTENSIONS = [".kt", ".kts"] as const;
+export const RUBY_SCANNABLE_EXTENSIONS = [".rb", ".rake"] as const;
+export const PHP_SCANNABLE_EXTENSIONS = [".php", ".phtml"] as const;
 export const TERRAFORM_SCANNABLE_EXTENSIONS = [".tf", ".tfvars"] as const;
 export const DOC_SCANNABLE_EXTENSIONS = [".md", ".rst"] as const;
 
@@ -19,11 +21,25 @@ export const ECOSYSTEM_CONFIG_FILE_NAMES = new Set([
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "Gemfile",
+  "Rakefile",
+  "composer.json",
 ]);
 
 const MAX_SYMBOLS_PER_FILE = 120;
 
-export type EcosystemLanguage = "python" | "go" | "rust" | "java" | "kotlin" | "terraform" | "documentation";
+export type EcosystemLanguage =
+  | "python"
+  | "go"
+  | "rust"
+  | "java"
+  | "kotlin"
+  | "ruby"
+  | "php"
+  | "terraform"
+  | "documentation";
 
 export interface EcosystemSymbol {
   name: string;
@@ -67,6 +83,8 @@ export function ecosystemLanguageForExtension(extension: string): EcosystemLangu
   if ((RUST_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "rust";
   if ((JAVA_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "java";
   if ((KOTLIN_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "kotlin";
+  if ((RUBY_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "ruby";
+  if ((PHP_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "php";
   if ((TERRAFORM_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "terraform";
   if ((DOC_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "documentation";
   return undefined;
@@ -384,6 +402,175 @@ function parseKotlinFile(body: string, filePath: string): EcosystemFileIndex {
   };
 }
 
+function railsSymbolKind(filePath: string, symbolKind: string) {
+  const normalized = filePath.replace(/\\/g, "/");
+  if (symbolKind !== "class") return symbolKind;
+  if (/(?:^|\/)app\/controllers\//i.test(normalized)) return "rails_controller";
+  if (/(?:^|\/)app\/models\//i.test(normalized)) return "rails_model";
+  if (/(?:^|\/)app\/jobs\//i.test(normalized)) return "rails_job";
+  if (/(?:^|\/)app\/mailers\//i.test(normalized)) return "rails_mailer";
+  if (/(?:^|\/)app\/services\//i.test(normalized)) return "rails_service";
+  return symbolKind;
+}
+
+function isRubyTestFile(filePath: string) {
+  const baseName = path.basename(filePath);
+  return /(?:^|\/)(?:spec|test)\//i.test(filePath) || /_spec\.rb$/i.test(baseName) || /_test\.rb$/i.test(baseName);
+}
+
+function parseRubyFile(body: string, filePath: string): EcosystemFileIndex {
+  const symbols: EcosystemSymbol[] = [];
+  const imports: string[] = [];
+  let currentModule: string | undefined;
+  let currentClass: string | undefined;
+  let moduleDepth = 0;
+  let classDepth = 0;
+  const isTestFile = isRubyTestFile(filePath);
+
+  for (const [index, rawLine] of body.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const requireMatch = line.match(/^require(?:_relative)?\s+['"]([^'"]+)['"]/);
+    if (requireMatch) {
+      imports.push(requireMatch[1]!);
+      continue;
+    }
+
+    const moduleMatch = line.match(/^module\s+(\w+)/);
+    if (moduleMatch) {
+      currentModule = moduleMatch[1];
+      moduleDepth += 1;
+      pushSymbol(symbols, { name: currentModule, kind: "module", line: index + 1 });
+      continue;
+    }
+
+    const classMatch = line.match(/^class\s+(\w+)(?:\s*<\s*([\w:]+))?/);
+    if (classMatch) {
+      currentClass = classMatch[1];
+      classDepth += 1;
+      const kind = railsSymbolKind(filePath, "class");
+      pushSymbol(symbols, { name: currentClass, kind, line: index + 1, parentType: currentModule });
+      const parent = classMatch[2];
+      if (parent) imports.push(`inherit:${parent}`);
+      continue;
+    }
+
+    const defMatch = line.match(/^def\s+(?:self\.)?(\w+)/);
+    if (defMatch) {
+      pushSymbol(symbols, {
+        name: defMatch[1]!,
+        kind: "method",
+        line: index + 1,
+        parentType: classDepth > 0 ? currentClass : moduleDepth > 0 ? currentModule : undefined,
+      });
+    }
+
+    if (line === "end") {
+      if (classDepth > 0) {
+        classDepth -= 1;
+        if (classDepth === 0) currentClass = undefined;
+      } else if (moduleDepth > 0) {
+        moduleDepth -= 1;
+        if (moduleDepth === 0) currentModule = undefined;
+      }
+    }
+  }
+
+  return { language: "ruby", filePath, symbols, imports, isTestFile, headings: [] };
+}
+
+function isPhpTestFile(filePath: string) {
+  const baseName = path.basename(filePath);
+  return /(?:^|\/)(?:tests?|spec)\//i.test(filePath) || /Test\.php$/i.test(baseName);
+}
+
+function parsePhpFile(body: string, filePath: string): EcosystemFileIndex {
+  const symbols: EcosystemSymbol[] = [];
+  const imports: string[] = [];
+  let currentNamespace: string | undefined;
+  let currentClass: string | undefined;
+  const isTestFile = isPhpTestFile(filePath);
+
+  for (const [index, rawLine] of body.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//") || line.startsWith("/*") || line.startsWith("*")) continue;
+
+    const namespaceMatch = line.match(/^namespace\s+([^;{]+)/);
+    if (namespaceMatch) {
+      currentNamespace = namespaceMatch[1]!.trim();
+      pushSymbol(symbols, { name: currentNamespace, kind: "namespace", line: index + 1 });
+      continue;
+    }
+
+    const useMatch = line.match(/^use\s+([^;]+);/);
+    if (useMatch) {
+      imports.push(useMatch[1]!.trim());
+      continue;
+    }
+
+    const requireMatch = line.match(/^(?:require|require_once|include|include_once)\s*\(?['"]([^'"]+)['"]/);
+    if (requireMatch) {
+      imports.push(requireMatch[1]!);
+      continue;
+    }
+
+    const typePatterns: Array<{ regex: RegExp; kind: string }> = [
+      { regex: /^(?:abstract\s+|final\s+)?class\s+(\w+)/, kind: "class" },
+      { regex: /^interface\s+(\w+)/, kind: "interface" },
+      { regex: /^trait\s+(\w+)/, kind: "trait" },
+    ];
+    let matchedType = false;
+    for (const pattern of typePatterns) {
+      const match = line.match(pattern.regex);
+      if (!match) continue;
+      currentClass = match[1];
+      pushSymbol(symbols, { name: currentClass, kind: pattern.kind, line: index + 1, parentType: currentNamespace });
+      const implementsMatch = line.match(/implements\s+([\w\\, ]+)/);
+      if (implementsMatch) {
+        for (const iface of implementsMatch[1]!.split(",")) {
+          imports.push(`implements:${iface.trim()}`);
+        }
+      }
+      const extendsMatch = line.match(/extends\s+([\w\\]+)/);
+      if (extendsMatch) imports.push(`inherit:${extendsMatch[1]!.trim()}`);
+      matchedType = true;
+      break;
+    }
+    if (matchedType) continue;
+
+    const hookMatch = line.match(/add_(?:action|filter)\s*\(\s*['"]([^'"]+)['"]/);
+    if (hookMatch) {
+      pushSymbol(symbols, { name: hookMatch[1]!, kind: "wp_hook", line: index + 1, parentType: currentClass });
+      continue;
+    }
+
+    const topLevelFnMatch = line.match(/^function\s+(\w+)\s*\(/);
+    if (topLevelFnMatch && !currentClass) {
+      pushSymbol(symbols, { name: topLevelFnMatch[1]!, kind: "function", line: index + 1, parentType: currentNamespace });
+      continue;
+    }
+
+    const methodMatch = line.match(
+      /^(?:(?:public|protected|private|static|final|abstract)\s+)*function\s+(\w+)\s*\(/
+    );
+    if (methodMatch) {
+      pushSymbol(symbols, {
+        name: methodMatch[1]!,
+        kind: "method",
+        line: index + 1,
+        parentType: currentClass ?? currentNamespace,
+      });
+    }
+
+    if (line === "}") {
+      currentClass = undefined;
+    }
+  }
+
+  return { language: "php", filePath, symbols, imports, isTestFile, headings: [] };
+}
+
 function parseTerraformFile(body: string, filePath: string): EcosystemFileIndex {
   const symbols: EcosystemSymbol[] = [];
   const imports: string[] = [];
@@ -506,11 +693,14 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
   if (fileName === "build.gradle") {
     const rootProjectMatch = body.match(/rootProject\.name\s*=\s*['"]([^'"]+)['"]/);
     if (rootProjectMatch) configMetadata.rootProject = rootProjectMatch[1]!;
+    const projectDeps = [...body.matchAll(/(?:api|implementation)\s+project\(['"]:(\w+)['"]\)/g)]
+      .map((match) => match[1]!);
+    if (projectDeps.length > 0) configMetadata.projectDependencies = projectDeps.join(", ");
     return {
       language: "java",
       filePath,
       symbols: rootProjectMatch ? [{ name: rootProjectMatch[1]!, kind: "project", line: 1 }] : [],
-      imports: [],
+      imports: projectDeps.map((dep) => `module:${dep}`),
       isTestFile: false,
       headings: [],
       configMetadata: { ...configMetadata, buildScript: "gradle-groovy" },
@@ -527,6 +717,72 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
       isTestFile: false,
       headings: [],
       configMetadata: { ...configMetadata, buildScript: "gradle-kotlin" },
+    };
+  }
+  if (fileName === "settings.gradle" || fileName === "settings.gradle.kts") {
+    const includes = [...body.matchAll(/include\s*\(?['"]:?([^'"]+)['"]/g)].map((match) => match[1]!.trim());
+    if (includes.length > 0) configMetadata.modules = includes.join(", ");
+    const rootProjectMatch = body.match(/rootProject\.name\s*=\s*['"]([^'"]+)['"]/);
+    if (rootProjectMatch) configMetadata.rootProject = rootProjectMatch[1]!;
+    return {
+      language: fileName.endsWith(".kts") ? "kotlin" : "java",
+      filePath,
+      symbols: includes.map((moduleName, index) => ({ name: moduleName, kind: "module", line: index + 1 })),
+      imports: includes.map((moduleName) => `module:${moduleName}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildScript: fileName },
+    };
+  }
+  if (fileName === "Gemfile") {
+    const railsMatch = body.match(/gem\s+['"]rails['"]/i);
+    return {
+      language: "ruby",
+      filePath,
+      symbols: [{ name: "Gemfile", kind: "project", line: 1 }],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { framework: railsMatch ? "rails" : "ruby" },
+    };
+  }
+  if (/\.gemspec$/i.test(fileName)) {
+    const nameMatch = body.match(/\.name\s*=\s*['"]([^'"]+)['"]/);
+    if (nameMatch) configMetadata.gem = nameMatch[1]!;
+    return {
+      language: "ruby",
+      filePath,
+      symbols: nameMatch ? [{ name: nameMatch[1]!, kind: "gem", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata,
+    };
+  }
+  if (fileName === "Rakefile") {
+    return {
+      language: "ruby",
+      filePath,
+      symbols: [{ name: "Rakefile", kind: "entrypoint", line: 1 }],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { framework: "rake" },
+    };
+  }
+  if (fileName === "composer.json") {
+    const nameMatch = body.match(/"name"\s*:\s*"([^"]+)"/);
+    if (nameMatch) configMetadata.package = nameMatch[1]!;
+    const laravelMatch = body.match(/"laravel\/framework"/);
+    if (laravelMatch) configMetadata.framework = "laravel";
+    return {
+      language: "php",
+      filePath,
+      symbols: nameMatch ? [{ name: nameMatch[1]!, kind: "project", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata,
     };
   }
   return undefined;
@@ -555,6 +811,10 @@ export function parseEcosystemFile(input: {
       return parseJavaFile(input.body, input.filePath);
     case "kotlin":
       return parseKotlinFile(input.body, input.filePath);
+    case "ruby":
+      return parseRubyFile(input.body, input.filePath);
+    case "php":
+      return parsePhpFile(input.body, input.filePath);
     case "terraform":
       return parseTerraformFile(input.body, input.filePath);
     case "documentation":
@@ -650,26 +910,6 @@ export function indexEcosystemFile(input: {
       createdAt: input.scannedAt,
       updatedAt: input.scannedAt,
     });
-  }
-
-  if (fileIndex.language !== "java" && fileIndex.language !== "kotlin") {
-    for (const importPath of fileIndex.imports.slice(0, 12)) {
-      edges.push({
-        id: input.stableId("code-scan:edge", `${fileNodeId}|import|${importPath}`),
-        kind: "depends_on",
-        sourceNodeId: fileNodeId,
-        targetNodeId: input.stableId("code-scan:external", `${fileIndex.language}|${importPath}`),
-        label: importPath.slice(0, input.maxEdgeLabelLength),
-        trust: "extracted",
-        metadata: input.compactMetadata({
-          scannerRelation: "import",
-          scannerLanguage: fileIndex.language,
-          scannerImportPath: importPath,
-        }),
-        createdAt: input.scannedAt,
-        updatedAt: input.scannedAt,
-      });
-    }
   }
 
   return { symbolNodes, edges, fileMetadata };
@@ -786,16 +1026,20 @@ export function isResolvedEcosystemRelationshipEdge(
   return knownNodeIds.has(edge.sourceNodeId) && knownNodeIds.has(edge.targetNodeId);
 }
 
+function ecosystemExternalNodeKey(language: EcosystemLanguage | "java-kotlin", importPath: string) {
+  return `${language}|${importPath}`;
+}
+
 function createExternalImportNode(input: {
   importPath: string;
-  language: EcosystemLanguage;
+  language: EcosystemLanguage | "java-kotlin";
   scanId: string;
   scannedAt: string;
   stableId: (prefix: string, raw: string) => string;
   compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
   maxTitleLength: number;
 }): ProductGraphNode {
-  const nodeId = input.stableId("code-scan:external", `java-kotlin|${input.importPath}`);
+  const nodeId = input.stableId("code-scan:external", ecosystemExternalNodeKey(input.language, input.importPath));
   return {
     id: nodeId,
     kind: "code_symbol",
@@ -808,12 +1052,84 @@ function createExternalImportNode(input: {
       scannedAt: input.scannedAt,
       scannerRelation: "external_import",
       scannerImportPath: input.importPath,
-      scannerLanguage: input.language,
+      scannerLanguage: input.language === "java-kotlin" ? "java" : input.language,
       scannerIndexingMode: "t1",
     }),
     createdAt: input.scannedAt,
     updatedAt: input.scannedAt,
   };
+}
+
+function ensureEcosystemExternalImportNode(
+  externalNodes: Map<string, ProductGraphNode>,
+  input: {
+    importPath: string;
+    language: EcosystemLanguage;
+    scanId: string;
+    scannedAt: string;
+    stableId: (prefix: string, raw: string) => string;
+    compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
+    maxTitleLength: number;
+  }
+) {
+  const nodeId = input.stableId("code-scan:external", ecosystemExternalNodeKey(input.language, input.importPath));
+  if (!externalNodes.has(nodeId)) {
+    externalNodes.set(nodeId, createExternalImportNode({ ...input, language: input.language }));
+  }
+  return nodeId;
+}
+
+function resolveRubyRequireTarget(
+  importPath: string,
+  filePath: string,
+  fileNodeIdsByPath: Map<string, string>
+) {
+  const normalizedDir = path.posix.dirname(filePath.replace(/\\/g, "/"));
+  const candidates = importPath.startsWith(".")
+    ? [
+        path.posix.normalize(path.posix.join(normalizedDir, importPath)),
+        path.posix.normalize(path.posix.join(normalizedDir, `${importPath}.rb`)),
+      ]
+    : [
+        `${importPath}.rb`,
+        `lib/${importPath}.rb`,
+        `lib/${importPath}/${importPath}.rb`,
+      ];
+  for (const candidate of candidates) {
+    const nodeId = fileNodeIdsByPath.get(candidate);
+    if (nodeId) return { targetNodeId: nodeId, resolution: "file" as const };
+  }
+  return undefined;
+}
+
+function appendEcosystemImportEdge(input: {
+  edges: ProductGraphEdge[];
+  sourceNodeId: string;
+  importPath: string;
+  language: EcosystemLanguage;
+  targetNodeId: string;
+  resolution: "file" | "symbol" | "external";
+  stableId: (prefix: string, raw: string) => string;
+  compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
+  maxEdgeLabelLength: number;
+  scannedAt: string;
+}) {
+  input.edges.push({
+    id: input.stableId("code-scan:edge", `${input.sourceNodeId}|import|${input.importPath}`),
+    kind: "depends_on",
+    sourceNodeId: input.sourceNodeId,
+    targetNodeId: input.targetNodeId,
+    label: input.importPath.slice(0, input.maxEdgeLabelLength),
+    trust: input.resolution === "external" ? "inferred" : "extracted",
+    metadata: input.compactMetadata({
+      scannerRelation: "import",
+      scannerLanguage: input.language,
+      scannerImportPath: input.importPath,
+      scannerImportResolution: input.resolution,
+    }),
+    createdAt: input.scannedAt,
+    updatedAt: input.scannedAt,
+  });
 }
 
 export function augmentEcosystemWorkspaceGraph(input: {
@@ -833,6 +1149,42 @@ export function augmentEcosystemWorkspaceGraph(input: {
 
   for (const file of input.files) {
     const extension = path.extname(file.relativePath).toLowerCase();
+    if (extension === ".py" || extension === ".go" || extension === ".rs") {
+      const parsed = parseEcosystemFile({
+        filePath: file.relativePath,
+        fileName: path.basename(file.relativePath),
+        extension,
+        body: file.body,
+      });
+      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
+      if (!parsed || !sourceNodeId) continue;
+      for (const importPath of parsed.imports.slice(0, 12)) {
+        if (/^(?:inherit|implements|module):/.test(importPath)) continue;
+        const targetNodeId = ensureEcosystemExternalImportNode(externalNodes, {
+          importPath,
+          language: parsed.language,
+          scanId: input.scanId,
+          scannedAt: input.scannedAt,
+          stableId: input.stableId,
+          compactMetadata: input.compactMetadata,
+          maxTitleLength: input.maxTitleLength ?? 180,
+        });
+        appendEcosystemImportEdge({
+          edges,
+          sourceNodeId,
+          importPath,
+          language: parsed.language,
+          targetNodeId,
+          resolution: "external",
+          stableId: input.stableId,
+          compactMetadata: input.compactMetadata,
+          maxEdgeLabelLength: input.maxEdgeLabelLength,
+          scannedAt: input.scannedAt,
+        });
+      }
+      continue;
+    }
+
     if (extension === ".java" || extension === ".kt" || extension === ".kts") {
       const parsed = parseEcosystemFile({
         filePath: file.relativePath,
@@ -857,7 +1209,7 @@ export function augmentEcosystemWorkspaceGraph(input: {
               resolved.targetNodeId,
               createExternalImportNode({
                 importPath: normalizeImportPath(importPath) ?? importPath,
-                language: parsed.language,
+                language: "java-kotlin",
                 scanId: input.scanId,
                 scannedAt: input.scannedAt,
                 stableId: input.stableId,
@@ -879,6 +1231,355 @@ export function augmentEcosystemWorkspaceGraph(input: {
             scannerLanguage: parsed.language,
             scannerImportPath: importPath,
             scannerImportResolution: resolved.resolution,
+          }),
+          createdAt: input.scannedAt,
+          updatedAt: input.scannedAt,
+        });
+      }
+      continue;
+    }
+
+    if (extension === ".rb" || extension === ".rake") {
+      const parsed = parseEcosystemFile({
+        filePath: file.relativePath,
+        fileName: path.basename(file.relativePath),
+        extension,
+        body: file.body,
+      });
+      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
+      if (!parsed || !sourceNodeId) continue;
+
+      const classSymbols = parsed.symbols.filter((symbol) => symbol.kind.includes("class") || symbol.kind.startsWith("rails_"));
+      const classByName = new Map(classSymbols.map((symbol) => [symbol.name, symbol]));
+
+      for (const importPath of parsed.imports) {
+        if (!importPath.startsWith("inherit:")) continue;
+        const parentName = importPath.slice("inherit:".length).split("::").pop() ?? importPath.slice("inherit:".length);
+        const parentSymbol = classByName.get(parentName)
+          ?? [...classSymbols].find((symbol) => symbol.name === parentName);
+        let targetNodeId: string | undefined;
+        for (const candidate of input.files) {
+          if (candidate.relativePath === file.relativePath) continue;
+          const candidateParsed = parseRubyFile(candidate.body, candidate.relativePath);
+          const parentClass = candidateParsed.symbols.find(
+            (symbol) => symbol.name === parentName && (symbol.kind === "class" || symbol.kind.startsWith("rails_"))
+          );
+          if (!parentClass) continue;
+          targetNodeId = input.stableId(
+            "code-scan:symbol",
+            `${candidate.relativePath}|${parentClass.parentType ?? "file"}|${parentClass.kind}|${parentClass.name}`
+          );
+          break;
+        }
+        if (!targetNodeId) continue;
+        edges.push({
+          id: input.stableId("code-scan:edge", `${sourceNodeId}|inherit|${parentName}`),
+          kind: "depends_on",
+          sourceNodeId,
+          targetNodeId,
+          label: `inherits ${parentName}`.slice(0, input.maxEdgeLabelLength),
+          trust: "extracted",
+          metadata: input.compactMetadata({
+            scannerRelation: "inheritance",
+            scannerLanguage: "ruby",
+            scannerParentType: parentName,
+          }),
+          createdAt: input.scannedAt,
+          updatedAt: input.scannedAt,
+        });
+      }
+
+      for (const importPath of parsed.imports) {
+        if (importPath.startsWith("inherit:")) continue;
+        const resolvedFile = resolveRubyRequireTarget(importPath, file.relativePath, input.fileNodeIdsByPath);
+        if (resolvedFile) {
+          appendEcosystemImportEdge({
+            edges,
+            sourceNodeId,
+            importPath,
+            language: "ruby",
+            targetNodeId: resolvedFile.targetNodeId,
+            resolution: resolvedFile.resolution,
+            stableId: input.stableId,
+            compactMetadata: input.compactMetadata,
+            maxEdgeLabelLength: input.maxEdgeLabelLength,
+            scannedAt: input.scannedAt,
+          });
+          continue;
+        }
+        const targetNodeId = ensureEcosystemExternalImportNode(externalNodes, {
+          importPath,
+          language: "ruby",
+          scanId: input.scanId,
+          scannedAt: input.scannedAt,
+          stableId: input.stableId,
+          compactMetadata: input.compactMetadata,
+          maxTitleLength: input.maxTitleLength ?? 180,
+        });
+        appendEcosystemImportEdge({
+          edges,
+          sourceNodeId,
+          importPath,
+          language: "ruby",
+          targetNodeId,
+          resolution: "external",
+          stableId: input.stableId,
+          compactMetadata: input.compactMetadata,
+          maxEdgeLabelLength: input.maxEdgeLabelLength,
+          scannedAt: input.scannedAt,
+        });
+      }
+
+      if (parsed.isTestFile) {
+        const normalized = file.relativePath.replace(/\\/g, "/");
+        const specMatch = normalized.match(/^(?:spec|test)\/(.+)_spec\.rb$/i);
+        const sourceCandidate = specMatch
+          ? `app/${specMatch[1]!.replace(/\/([^/]+)$/, (_match, tail: string) => {
+            if (tail.endsWith("_controller")) return `/controllers/${tail}.rb`;
+            return `/${tail}.rb`;
+          })}`
+          : undefined;
+        const adjusted = specMatch
+          ? normalized.includes("/models/")
+            ? `app/models/${path.basename(normalized).replace(/_spec\.rb$/i, ".rb")}`
+            : sourceCandidate
+          : undefined;
+        const targetNodeId = adjusted ? input.fileNodeIdsByPath.get(adjusted) : undefined;
+        if (targetNodeId) {
+          edges.push({
+            id: input.stableId("code-scan:edge", `${sourceNodeId}|tests|${targetNodeId}`),
+            kind: "depends_on",
+            sourceNodeId,
+            targetNodeId,
+            label: "tests".slice(0, input.maxEdgeLabelLength),
+            trust: "inferred",
+            metadata: input.compactMetadata({
+              scannerRelation: "test_target",
+              scannerLanguage: "ruby",
+              scannerTestFile: file.relativePath,
+            }),
+            createdAt: input.scannedAt,
+            updatedAt: input.scannedAt,
+          });
+        }
+      }
+
+      if (file.relativePath.replace(/\\/g, "/").endsWith("config/routes.rb")) {
+        const routePatterns = [
+          /resources\s+:(\w+)/g,
+          /get\s+['"][^'"]+['"],\s*to:\s*['"](\w+)#(\w+)['"]/g,
+        ];
+        for (const pattern of routePatterns) {
+          pattern.lastIndex = 0;
+          let match: RegExpExecArray | null;
+          while ((match = pattern.exec(file.body)) !== null) {
+            const resource = match[1]!;
+            const controllerName = resource.endsWith("s")
+              ? `${resource.slice(0, -1).replace(/_/g, "/")}_controller`.replace(/\//g, "_")
+              : `${resource}_controller`;
+            const controllerPath = `app/controllers/${controllerName}.rb`;
+            const targetNodeId = input.fileNodeIdsByPath.get(controllerPath)
+              ?? input.fileNodeIdsByPath.get(`app/controllers/${resource}_controller.rb`);
+            if (!targetNodeId) continue;
+            edges.push({
+              id: input.stableId("code-scan:edge", `${sourceNodeId}|route|${targetNodeId}|${resource}`),
+              kind: "depends_on",
+              sourceNodeId,
+              targetNodeId,
+              label: `route ${resource}`.slice(0, input.maxEdgeLabelLength),
+              trust: "inferred",
+              metadata: input.compactMetadata({
+                scannerRelation: "rails_route",
+                scannerLanguage: "ruby",
+                scannerRouteResource: resource,
+              }),
+              createdAt: input.scannedAt,
+              updatedAt: input.scannedAt,
+            });
+          }
+        }
+      }
+      continue;
+    }
+
+    if (extension === ".php" || extension === ".phtml") {
+      const parsed = parseEcosystemFile({
+        filePath: file.relativePath,
+        fileName: path.basename(file.relativePath),
+        extension,
+        body: file.body,
+      });
+      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
+      if (!parsed || !sourceNodeId) continue;
+
+      for (const importPath of parsed.imports) {
+        if (importPath.startsWith("inherit:") || importPath.startsWith("implements:")) {
+          const typeName = importPath.split(":")[1]!.split("\\").pop() ?? importPath.split(":")[1]!;
+          for (const candidate of input.files) {
+            const candidateParsed = parsePhpFile(candidate.body, candidate.relativePath);
+            const typeSymbol = candidateParsed.symbols.find(
+              (symbol) => symbol.name === typeName && ["class", "interface", "trait"].includes(symbol.kind)
+            );
+            if (!typeSymbol) continue;
+            edges.push({
+              id: input.stableId("code-scan:edge", `${sourceNodeId}|${importPath}|${candidate.relativePath}`),
+              kind: "depends_on",
+              sourceNodeId,
+              targetNodeId: input.stableId(
+                "code-scan:symbol",
+                `${candidate.relativePath}|${typeSymbol.parentType ?? "file"}|${typeSymbol.kind}|${typeSymbol.name}`
+              ),
+              label: importPath.slice(0, input.maxEdgeLabelLength),
+              trust: "extracted",
+              metadata: input.compactMetadata({
+                scannerRelation: importPath.startsWith("inherit:") ? "inheritance" : "implements",
+                scannerLanguage: "php",
+              }),
+              createdAt: input.scannedAt,
+              updatedAt: input.scannedAt,
+            });
+            break;
+          }
+          continue;
+        }
+
+        const usePath = importPath.replace(/\s+as\s+\w+$/, "").trim();
+        const simpleName = usePath.split("\\").pop() ?? usePath;
+        let resolvedUse = false;
+        for (const candidate of input.files) {
+          const candidateParsed = parsePhpFile(candidate.body, candidate.relativePath);
+          const typeSymbol = candidateParsed.symbols.find(
+            (symbol) => symbol.name === simpleName && ["class", "interface", "trait"].includes(symbol.kind)
+          );
+          if (!typeSymbol) continue;
+          appendEcosystemImportEdge({
+            edges,
+            sourceNodeId,
+            importPath: usePath,
+            language: "php",
+            targetNodeId: input.stableId(
+              "code-scan:symbol",
+              `${candidate.relativePath}|${typeSymbol.parentType ?? "file"}|${typeSymbol.kind}|${typeSymbol.name}`
+            ),
+            resolution: "symbol",
+            stableId: input.stableId,
+            compactMetadata: input.compactMetadata,
+            maxEdgeLabelLength: input.maxEdgeLabelLength,
+            scannedAt: input.scannedAt,
+          });
+          resolvedUse = true;
+          break;
+        }
+        if (!resolvedUse) {
+          const targetNodeId = ensureEcosystemExternalImportNode(externalNodes, {
+            importPath: usePath,
+            language: "php",
+            scanId: input.scanId,
+            scannedAt: input.scannedAt,
+            stableId: input.stableId,
+            compactMetadata: input.compactMetadata,
+            maxTitleLength: input.maxTitleLength ?? 180,
+          });
+          appendEcosystemImportEdge({
+            edges,
+            sourceNodeId,
+            importPath: usePath,
+            language: "php",
+            targetNodeId,
+            resolution: "external",
+            stableId: input.stableId,
+            compactMetadata: input.compactMetadata,
+            maxEdgeLabelLength: input.maxEdgeLabelLength,
+            scannedAt: input.scannedAt,
+          });
+        }
+      }
+
+      if (parsed.isTestFile) {
+        const baseName = path.basename(file.relativePath, ".php");
+        const classStem = baseName.replace(/Test$/, "");
+        const controllerCandidate = `app/Http/Controllers/${classStem}.php`;
+        const modelCandidate = `app/Models/${classStem}.php`;
+        const targetNodeId = input.fileNodeIdsByPath.get(controllerCandidate)
+          ?? input.fileNodeIdsByPath.get(modelCandidate);
+        if (targetNodeId) {
+          edges.push({
+            id: input.stableId("code-scan:edge", `${sourceNodeId}|tests|${targetNodeId}`),
+            kind: "depends_on",
+            sourceNodeId,
+            targetNodeId,
+            label: "tests".slice(0, input.maxEdgeLabelLength),
+            trust: "inferred",
+            metadata: input.compactMetadata({
+              scannerRelation: "test_target",
+              scannerLanguage: "php",
+              scannerTestFile: file.relativePath,
+            }),
+            createdAt: input.scannedAt,
+            updatedAt: input.scannedAt,
+          });
+        }
+      }
+
+      if (file.relativePath.replace(/\\/g, "/").includes("routes/")) {
+        const routeMatches = file.body.matchAll(/Route::(?:get|post|put|patch|delete)\([^,]+,\s*\[([^\]]+)\]/g);
+        for (const match of routeMatches) {
+          const controllerMatch = match[1]!.match(/(\w+)::class/);
+          if (!controllerMatch) continue;
+          const controllerName = controllerMatch[1]!;
+          for (const [candidatePath, nodeId] of input.fileNodeIdsByPath) {
+            if (!candidatePath.replace(/\\/g, "/").includes("Controllers/")) continue;
+            if (!candidatePath.includes(`${controllerName}.php`)) continue;
+            edges.push({
+              id: input.stableId("code-scan:edge", `${sourceNodeId}|route|${nodeId}`),
+              kind: "depends_on",
+              sourceNodeId,
+              targetNodeId: nodeId,
+              label: `route ${controllerName}`.slice(0, input.maxEdgeLabelLength),
+              trust: "inferred",
+              metadata: input.compactMetadata({
+                scannerRelation: "laravel_route",
+                scannerLanguage: "php",
+                scannerRouteController: controllerName,
+              }),
+              createdAt: input.scannedAt,
+              updatedAt: input.scannedAt,
+            });
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    const fileName = path.basename(file.relativePath);
+    if (fileName === "build.gradle" || fileName === "build.gradle.kts") {
+      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
+      if (!sourceNodeId) continue;
+      const moduleDeps = [...file.body.matchAll(/(?:api|implementation)\s+project\(['"]:(\w+)['"]\)/g)];
+      for (const match of moduleDeps) {
+        const moduleName = match[1]!;
+        const moduleCandidates = [
+          `${moduleName}/build.gradle`,
+          `${moduleName}/build.gradle.kts`,
+          `${moduleName}/src/main/java`,
+          `${moduleName}/src/main/kotlin`,
+        ];
+        const targetNodeId = moduleCandidates
+          .map((candidate) => input.fileNodeIdsByPath.get(candidate))
+          .find((nodeId): nodeId is string => Boolean(nodeId));
+        if (!targetNodeId) continue;
+        edges.push({
+          id: input.stableId("code-scan:edge", `${sourceNodeId}|module|${moduleName}`),
+          kind: "depends_on",
+          sourceNodeId,
+          targetNodeId,
+          label: `module ${moduleName}`.slice(0, input.maxEdgeLabelLength),
+          trust: "extracted",
+          metadata: input.compactMetadata({
+            scannerRelation: "gradle_module",
+            scannerLanguage: fileName.endsWith(".kts") ? "kotlin" : "java",
+            scannerModuleName: moduleName,
           }),
           createdAt: input.scannedAt,
           updatedAt: input.scannedAt,

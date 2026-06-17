@@ -42,16 +42,70 @@ const DOCUMENTATION_PRIMARY_TYPES = new Set([
   "docs-only",
 ]);
 
-const SCANNER_CATALOG: Record<string, { label: string; tier: string }> = {
-  typescript: { label: "TypeScript/JavaScript", tier: "T0" },
-  dotnet: { label: "C#/.NET", tier: "T0" },
-  python: { label: "Python", tier: "T1" },
-  go: { label: "Go", tier: "T1" },
-  rust: { label: "Rust", tier: "T1" },
-  terraform: { label: "Terraform/IaC", tier: "T1" },
-  java: { label: "Java/Kotlin", tier: "T1" },
-  generic: { label: "Generic polyglot", tier: "T3" },
+const SCANNER_CATALOG: Record<string, { label: string; tier: string; semanticSupported: boolean; limitation: string }> = {
+  typescript: {
+    label: "TypeScript/JavaScript",
+    tier: "T0",
+    semanticSupported: true,
+    limitation: "Compiler-backed semantic edges when project config is available.",
+  },
+  dotnet: {
+    label: "C#/.NET",
+    tier: "T0",
+    semanticSupported: true,
+    limitation: "Structural T0 indexing; optional Roslyn semantic edges when helper is available.",
+  },
+  python: {
+    label: "Python",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural symbols and imports only; AST semantic edges are not enabled.",
+  },
+  go: {
+    label: "Go",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural packages, functions, and imports only; go/types semantic edges are not enabled.",
+  },
+  rust: {
+    label: "Rust",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural modules and types only; rust-analyzer semantic edges are not enabled.",
+  },
+  terraform: {
+    label: "Terraform/IaC",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Config-level resources and modules only; full IaC graph resolution is not enabled.",
+  },
+  java: {
+    label: "Java/Kotlin",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural packages, classes, and imports only; javac/kotlinc semantic edges are not enabled.",
+  },
+  ruby: {
+    label: "Ruby/Rails",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural modules, classes, and requires only; runtime/metaprogramming semantic edges are not enabled.",
+  },
+  php: {
+    label: "PHP/Composer",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural namespaces, classes, and use/require only; composer/runtime semantic edges are not enabled.",
+  },
+  generic: {
+    label: "Generic polyglot",
+    tier: "T3",
+    semanticSupported: false,
+    limitation: "Honest file-level coverage for unrecognized or mixed layouts.",
+  },
 };
+
+const GENERATED_SKIP_REASONS = new Set(["global", "gitignore", "dockerignore", "oagignore", "breaker"]);
 
 function markerMatches(markers: string[], patterns: RegExp[]) {
   return markers.some((marker) => patterns.some((pattern) => pattern.test(marker)));
@@ -217,6 +271,28 @@ function buildRustSection(profile: WorkspaceKernelProfile): EcosystemScannerHeal
   return { scannerId: "rust", label: SCANNER_CATALOG.rust.label, tier: SCANNER_CATALOG.rust.tier, lines };
 }
 
+function buildRubySection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("ruby")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/Gemfile$/i, /\.gemspec$/i, /Rakefile$/i, /config\/routes\.rb$/i])
+      ? "Ruby/Rails project markers detected."
+      : "Ruby scanner active; project markers not detected.",
+    "Ruby indexing: T1 structural (modules, classes, methods, requires); runtime semantic edges are not enabled in base yet.",
+  ];
+  return { scannerId: "ruby", label: SCANNER_CATALOG.ruby.label, tier: SCANNER_CATALOG.ruby.tier, lines };
+}
+
+function buildPhpSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("php")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/composer\.json$/i, /artisan$/i, /wp-config\.php$/i, /symfony\.lock$/i])
+      ? "PHP/Composer project markers detected."
+      : "PHP scanner active; project markers not detected.",
+    "PHP indexing: T1 structural (namespaces, classes, functions, use/require); composer semantic edges are not enabled in base yet.",
+  ];
+  return { scannerId: "php", label: SCANNER_CATALOG.php.label, tier: SCANNER_CATALOG.php.tier, lines };
+}
+
 function buildTerraformSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
   if (!profile.activeScannerIds.includes("terraform")) return undefined;
   const lines = [
@@ -260,6 +336,8 @@ export function buildEcosystemScannerHealthSections(input: {
     buildPythonSection(profile),
     buildGoSection(profile),
     buildRustSection(profile),
+    buildRubySection(profile),
+    buildPhpSection(profile),
     buildTerraformSection(profile),
     buildGenericSection(profile),
   ];
@@ -271,6 +349,52 @@ export function buildEcosystemScannerHealthSections(input: {
     seen.add(section.scannerId);
     return true;
   });
+}
+
+export function buildEcosystemSupportMatrix(input: {
+  graph: UnifiedCodeGraph;
+  kernelProfile?: WorkspaceKernelProfile;
+}) {
+  const profile = input.kernelProfile;
+  if (!profile) return [];
+
+  const activeScannerIds = profile.activeScannerIds.length > 0 ? profile.activeScannerIds : ["generic"];
+  const indexedFileCount = input.graph.nodes.filter((node) =>
+    ["code_file", "config_file", "doc_file"].includes(node.kind)
+  ).length;
+  const symbolCount = input.graph.nodes.filter((node) => node.kind === "symbol").length;
+  const relationshipCount = input.graph.edges.length;
+  const skippedGeneratedCount = Object.entries(profile.skippedCountsByReason ?? {})
+    .filter(([reason]) => GENERATED_SKIP_REASONS.has(reason))
+    .reduce((sum, [, count]) => sum + (typeof count === "number" ? count : 0), 0);
+
+  return activeScannerIds.map((scannerId) => {
+    const catalog = SCANNER_CATALOG[scannerId] ?? SCANNER_CATALOG.generic;
+    const projectType = profile.primaryType;
+    return {
+      ecosystemId: scannerId,
+      projectType,
+      scannerId,
+      tier: catalog.tier,
+      semanticSupported: catalog.semanticSupported,
+      indexedFileCount,
+      symbolCount,
+      relationshipCount,
+      skippedGeneratedCount,
+      limitation: catalog.limitation,
+    };
+  });
+}
+
+export function renderEcosystemSupportMatrixMarkdown(input: {
+  graph: UnifiedCodeGraph;
+  kernelProfile?: WorkspaceKernelProfile;
+}) {
+  const rows = buildEcosystemSupportMatrix(input);
+  if (rows.length === 0) return ["- No ecosystem support matrix recorded."];
+  return rows.map((row) =>
+    `- **${row.scannerId} (${row.tier})** · project=${row.projectType} · files=${row.indexedFileCount} · symbols=${row.symbolCount} · edges=${row.relationshipCount} · skipped=${row.skippedGeneratedCount} · semantic=${row.semanticSupported ? "yes" : "no"} · ${row.limitation}`
+  );
 }
 
 export function flattenEcosystemScannerHealthDiagnostics(input: {

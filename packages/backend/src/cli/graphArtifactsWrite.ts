@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import type { GraphIncrementalManifest, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
 import {
+  buildGraphExportDocument,
   renderUnifiedGraphHandoffReport,
   renderUnifiedGraphHtml,
   renderUnifiedGraphWiki,
@@ -44,10 +45,12 @@ export async function writeGraphArtifacts(
   const writtenPaths: string[] = [];
   const previousSymbolCount = await readPreviousSymbolCount(workspaceRoot);
 
+  const exportGraph = buildGraphExportDocument(graph, kernelProfile, { exportedAt: handoffUpdatedAt });
+
   if (writeJson) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_JSON_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, `${JSON.stringify(graph, null, 2)}\n`, "utf8");
+    await fs.writeFile(outputPath, `${JSON.stringify(exportGraph, null, 2)}\n`, "utf8");
     writtenPaths.push(outputPath);
   }
 
@@ -61,14 +64,14 @@ export async function writeGraphArtifacts(
   if (writeHtml && kernelProfile) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_HTML_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphHtml(graph, { kernelProfile }), "utf8");
+    await fs.writeFile(outputPath, renderUnifiedGraphHtml(exportGraph, { kernelProfile }), "utf8");
     writtenPaths.push(outputPath);
   }
 
   if (writeWiki) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_WIKI_INDEX_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphWiki(graph), "utf8");
+    await fs.writeFile(outputPath, renderUnifiedGraphWiki(exportGraph, { kernelProfile }), "utf8");
     writtenPaths.push(outputPath);
   }
 

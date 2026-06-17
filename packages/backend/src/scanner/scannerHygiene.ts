@@ -72,6 +72,9 @@ export const BASE_SKIPPED_DIRECTORIES = [
   "storybook-static",
   "target",
   "test-results",
+  "tmp",
+  "log",
+  ".bundle",
   "vendor",
   "venv",
   "webview-dist",
@@ -119,6 +122,13 @@ export const WORKSPACE_MARKER_FILES = [
   { marker: "pyproject.toml", projectType: "python" },
   { marker: "manage.py", projectType: "django-app" },
   { marker: ".terraform.lock.hcl", projectType: "terraform-iac" },
+  { marker: "Gemfile", projectType: "rails-app" },
+  { marker: "Rakefile", projectType: "ruby-app" },
+  { marker: "composer.json", projectType: "php-app" },
+  { marker: "artisan", projectType: "laravel-app" },
+  { marker: "symfony.lock", projectType: "symfony-app" },
+  { marker: "settings.gradle", projectType: "java-gradle" },
+  { marker: "settings.gradle.kts", projectType: "kotlin-gradle" },
 ] as const;
 
 export const WORKSPACE_MARKER_GLOBS = [
@@ -127,6 +137,8 @@ export const WORKSPACE_MARKER_GLOBS = [
   { pattern: /\.csproj$/i, projectType: "dotnet" },
   { pattern: /\.sln$/i, projectType: "dotnet" },
   { pattern: /\.tf$/i, projectType: "terraform-iac" },
+  { pattern: /\.gemspec$/i, projectType: "ruby-gem" },
+  { pattern: /wp-config\.php$/i, projectType: "wordpress-plugin" },
 ] as const;
 
 export const FILE_LEVEL_ONLY_LANGUAGE_WARNING =
@@ -150,6 +162,12 @@ export const TERRAFORM_T1_SCANNER_NOTICE =
 export const JAVA_KOTLIN_T1_SCANNER_NOTICE =
   "Java/Kotlin: T1 structural indexing (packages, classes, interfaces, imports); javac/kotlinc semantic edges not yet enabled.";
 
+export const RUBY_T1_SCANNER_NOTICE =
+  "Ruby: T1 structural indexing (modules, classes, methods, requires); runtime/metaprogramming semantic edges not yet enabled.";
+
+export const PHP_T1_SCANNER_NOTICE =
+  "PHP: T1 structural indexing (namespaces, classes, functions, use/require); composer/runtime semantic edges not yet enabled.";
+
 export type DetectedProjectType =
   | "dotnet"
   | "typescript"
@@ -163,6 +181,17 @@ export type DetectedProjectType =
   | "next-app"
   | "terraform"
   | "terraform-iac"
+  | "ruby"
+  | "ruby-app"
+  | "rails-app"
+  | "ruby-gem"
+  | "php"
+  | "php-app"
+  | "laravel-app"
+  | "symfony-app"
+  | "wordpress-plugin"
+  | "java-gradle"
+  | "kotlin-gradle"
   | "documentation-corpus"
   | "generic";
 
@@ -232,7 +261,14 @@ export function isEcosystemConfigFileName(fileName: string) {
     || fileName === "manage.py"
     || fileName === "pom.xml"
     || fileName === "build.gradle"
-    || fileName === "build.gradle.kts";
+    || fileName === "build.gradle.kts"
+    || fileName === "settings.gradle"
+    || fileName === "settings.gradle.kts"
+    || fileName === "Gemfile"
+    || fileName === "Rakefile"
+    || fileName === "composer.json"
+    || fileName === "config/routes.rb"
+    || /\.gemspec$/i.test(fileName);
 }
 
 export function isProductGraphScannableExtension(extension: string) {

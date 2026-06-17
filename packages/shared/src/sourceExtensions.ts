@@ -24,6 +24,10 @@ export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [
   ".java",
   ".kt",
   ".kts",
+  ".rb",
+  ".rake",
+  ".php",
+  ".phtml",
   ".tf",
   ".tfvars",
   ".md",
@@ -33,8 +37,6 @@ export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [
 export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
 
 export const UNSUPPORTED_SOURCE_EXTENSIONS = [
-  ".rb",
-  ".php",
   ".swift",
   ".c",
   ".cc",

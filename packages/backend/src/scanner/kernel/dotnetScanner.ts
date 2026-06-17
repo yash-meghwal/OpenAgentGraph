@@ -543,6 +543,7 @@ export function augmentDotNetWorkspaceGraph(input: {
   maxEdgeLabelLength: number;
 }) {
   const edges: ProductGraphEdge[] = [];
+  const externalNodes = new Map<string, ProductGraphNode>();
   const csprojByPath = new Map<string, DotNetProjectIndex>();
   const csprojByName = new Map<string, string>();
   const xamlByClass = new Map<string, string>();
@@ -701,10 +702,27 @@ export function augmentDotNetWorkspaceGraph(input: {
     }
 
     for (const usingNamespace of csharp.usings) {
+      const targetNodeId = input.stableId("code-scan:external", usingNamespace);
+      if (!externalNodes.has(targetNodeId)) {
+        externalNodes.set(targetNodeId, {
+          id: targetNodeId,
+          kind: "code_symbol",
+          title: `${usingNamespace} (external)`.slice(0, 180),
+          status: "planned",
+          tags: ["code", "code-scan", "dotnet", "external-dependency"],
+          metadata: input.compactMetadata({
+            scannerRelation: "external_using",
+            scannerUsingNamespace: usingNamespace,
+            scannerDotNetVersion: DOTNET_SCANNER_VERSION,
+          }),
+          createdAt: input.scannedAt,
+          updatedAt: input.scannedAt,
+        });
+      }
       edges.push({
         id: input.stableId("code-scan:edge", `${sourceNodeId}|using|${usingNamespace}`),
         sourceNodeId,
-        targetNodeId: input.stableId("code-scan:external", usingNamespace),
+        targetNodeId,
         kind: "depends_on",
         trust: "extracted",
         label: `using ${usingNamespace}`.slice(0, input.maxEdgeLabelLength),
@@ -747,5 +765,5 @@ export function augmentDotNetWorkspaceGraph(input: {
     }
   }
 
-  return { edges, csprojByName, csprojByPath };
+  return { edges, externalNodes: [...externalNodes.values()], csprojByName, csprojByPath };
 }

@@ -1,4 +1,5 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
+import { summarizeUnifiedCommunityNode } from "./graphCommunities.js";
 
 function buildGraphAdjacency(graph: UnifiedCodeGraph) {
   const adjacency = new Map<string, Set<string>>();
@@ -245,23 +246,26 @@ export function buildGraphGodNodeSummaries(graph: UnifiedCodeGraph, limit = 8): 
   const adjacency = buildGraphAdjacency(graph);
 
   const summaries = communities.map((community) => {
+    const enriched = summarizeUnifiedCommunityNode(community);
     const neighborIds = [...(adjacency.get(community.id) ?? [])];
     const members = neighborIds
       .map((id) => nodesById.get(id))
       .filter((node): node is UnifiedCodeGraphNode => Boolean(node));
     const files = members.filter((node) => node.kind === "code_file" || node.kind === "config_file");
     const symbols = members.filter((node) => node.kind === "symbol");
-    const topFiles = files.map((node) => node.path ?? node.label).slice(0, 4);
+    const topFiles = enriched.topFiles.length > 0
+      ? enriched.topFiles
+      : files.map((node) => node.path ?? node.label).slice(0, 4);
     const topSymbols = symbols.map((node) => node.label).slice(0, 4);
-    const summary = [
+    const summary = enriched.summary || [
       `${community.label} community with ${members.length} connected node(s).`,
       topFiles.length > 0 ? `Start with ${topFiles.slice(0, 2).join(", ")}.` : "Inspect community members in the graph export.",
     ].join(" ");
     return {
       id: community.id,
-      label: community.label,
+      label: enriched.label,
       path: community.path,
-      memberCount: members.length,
+      memberCount: Math.max(members.length, enriched.fileCount),
       topSymbols,
       topFiles,
       summary,

@@ -65,8 +65,8 @@ describe("scan kernel", () => {
     expect(indexedPaths).toContain("src/app.py");
   });
 
-  it("records unsupported diagnostics for ruby source files", async () => {
-    const result = await runKernelWorkspaceScan(fixtureRoot("unsupported-ruby"));
+  it("records unsupported diagnostics for swift source files", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("unsupported-swift"));
     expect(result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0).toBeGreaterThan(0);
     expect(result.scanPlan.summary.diagnostics.join("\n")).toContain("unsupported=");
   });

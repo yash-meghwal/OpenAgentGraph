@@ -1,5 +1,6 @@
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
 import { getReadTheseFirstNodes, renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
+import { evaluateCommunityReleaseGates } from "./graphCommunities.js";
 import { evaluateOagFusionChecks } from "./graphFusion.js";
 import { queryUnifiedCodeGraph } from "./graphQueryEngine.js";
 
@@ -9,9 +10,15 @@ export const GRAPH_RELEASE_FIXTURE_IDS = [
   "fixture-next-app",
   "fixture-python-django",
   "fixture-java-maven",
+  "fixture-java-gradle-multimodule",
+  "fixture-kotlin-gradle",
   "fixture-go-module",
   "fixture-rust-workspace",
   "fixture-terraform",
+  "fixture-ruby-rails",
+  "fixture-ruby-gem",
+  "fixture-php-laravel",
+  "fixture-php-wordpress-plugin",
   "fixture-mixed-polyglot",
   "fixture-docs-only",
   "fixture-empty",
@@ -71,6 +78,40 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     resultPattern: /Order/i,
   },
   {
+    fixture: "fixture-java-gradle-multimodule",
+    query: "ApiService CoreService module",
+    seedPattern: /ApiService/i,
+    resultPattern: /CoreService/i,
+  },
+  {
+    fixture: "fixture-kotlin-gradle",
+    query: "Greeter formatGreeting",
+    seedPattern: /Greeter/i,
+    resultPattern: /formatGreeting/i,
+  },
+  {
+    fixture: "fixture-ruby-rails",
+    query: "UsersController User model",
+    seedPattern: /UsersController/i,
+    resultPattern: /User/i,
+  },
+  {
+    fixture: "fixture-ruby-gem",
+    query: "Mygem Runner module",
+    seedPattern: /Runner|Mygem/i,
+  },
+  {
+    fixture: "fixture-php-laravel",
+    query: "UserController User model",
+    seedPattern: /UserController/i,
+    resultPattern: /User/i,
+  },
+  {
+    fixture: "fixture-php-wordpress-plugin",
+    query: "Handler hook plugin",
+    seedPattern: /Handler/i,
+  },
+  {
     fixture: "fixture-go-module",
     query: "Runner service",
     seedPattern: /Runner/i,
@@ -112,9 +153,19 @@ export interface GraphQueryBenchmarkResult {
   detail: string;
 }
 
+export interface GraphCommunityGateResult {
+  ok: boolean;
+  communityCount: number;
+  meaningfulCommunityCount: number;
+  genericCommunityCount: number;
+  generatedDominanceRatio: number;
+  errors: string[];
+}
+
 export interface GraphReleaseGateResult {
   ok: boolean;
   handoffHygiene: GraphHandoffHygieneResult;
+  communityGates: GraphCommunityGateResult;
   queryBenchmarks: GraphQueryBenchmarkResult[];
   querySuccessRate: number;
   fusionOk: boolean;
@@ -177,8 +228,12 @@ export function evaluateGraphReleaseGates(input: {
 }): GraphReleaseGateResult {
   const errors: string[] = [];
   const handoffHygiene = evaluateHandoffReadFirstHygiene(input.graph);
+  const communityGates = evaluateCommunityReleaseGates(input.graph);
   if (!handoffHygiene.ok) {
     errors.push(`Read-first contains generated junk: ${handoffHygiene.junkPaths.join(", ")}`);
+  }
+  if (!communityGates.ok) {
+    errors.push(...communityGates.errors);
   }
 
   const fusion = evaluateOagFusionChecks({
@@ -224,9 +279,24 @@ export function evaluateGraphReleaseGates(input: {
     errors.push(`Release fixture scan budget exceeded (${input.totalScanMs}ms > ${GRAPH_RELEASE_MAX_SCAN_MS}ms).`);
   }
 
+  const activeScannerIds = input.kernelProfile?.activeScannerIds ?? input.graph.activeScannerIds;
+  const t1Scanners = new Set(["python", "go", "rust", "terraform", "java", "ruby", "php"]);
+  for (const scannerId of activeScannerIds) {
+    if (!t1Scanners.has(scannerId)) continue;
+    const handoffWarnings = [
+      ...(input.kernelProfile?.warnings ?? []),
+      ...input.graph.diagnostics,
+      handoff,
+    ].join("\n");
+    if (!/T1\s+(?:config\s+)?structural|structural indexing|structural symbols/i.test(handoffWarnings)) {
+      errors.push(`T1 scanner '${scannerId}' is active but handoff/export lacks an honest structural tier warning.`);
+    }
+  }
+
   return {
     ok: errors.length === 0,
     handoffHygiene,
+    communityGates,
     queryBenchmarks,
     querySuccessRate,
     fusionOk: fusion.ok,

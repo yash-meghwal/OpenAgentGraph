@@ -28,6 +28,12 @@ describe("graph artifacts", () => {
     const handoff = renderUnifiedGraphHandoffReport(graph, { handoffPath: "GRAPH_REPORT.md" });
 
     expect(wiki).toContain("# OpenAgentGraph Wiki");
+    expect(wiki).toContain("## Top communities");
+    expect(wiki).toContain("## Read first by lens");
+    expect(wiki).toContain("## Risks and gaps");
+    expect(wiki).toContain("## Refresh commands");
+    expect(wiki).toContain("## Offline navigation");
+    expect(wiki).not.toContain("${primaryLens}");
     expect(wiki).toMatch(/MainViewModel/i);
     expect(handoff).toContain("# OpenAgentGraph Handoff");
     expect(handoff).toContain("## Read these first");

@@ -1,4 +1,9 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphEdge, UnifiedCodeGraphNode } from "./codeGraph.js";
+import {
+  buildGraphCommunitySummaries,
+  findGraphCommunityForNode,
+  type GraphCommunityContext,
+} from "./graphCommunities.js";
 import { filterUnifiedGraphByLens, type GraphTaskLensId } from "./graphLenses.js";
 import { isGraphPathFileExtension } from "./sourceExtensions.js";
 
@@ -19,6 +24,7 @@ export interface GraphQueryResult {
   nodes: UnifiedCodeGraphNode[];
   edges: UnifiedCodeGraphEdge[];
   truncated: boolean;
+  communities?: GraphCommunityContext[];
 }
 
 export interface GraphPathOptions {
@@ -79,6 +85,7 @@ export interface GraphExplainResult {
   neighbors: UnifiedCodeGraphNode[];
   edges: UnifiedCodeGraphEdge[];
   summary: string;
+  community?: GraphCommunityContext;
 }
 
 function normalizeSearchText(value: string) {
@@ -191,9 +198,33 @@ export function queryUnifiedCodeGraph(
   const seedLimit = options.seedLimit ?? 5;
   const seeds = findGraphSeedNodes(scopedGraph, query, seedLimit);
   if (seeds.length === 0) {
-    return { query, mode, seeds, nodes: [], edges: [], truncated: false };
+    return {
+      query,
+      mode,
+      seeds,
+      nodes: [],
+      edges: [],
+      truncated: false,
+      communities: buildGraphCommunitySummaries(scopedGraph, 6).map((summary) => ({
+        id: summary.id,
+        label: summary.label,
+        path: summary.path,
+        summary: summary.summary,
+        fileCount: summary.fileCount,
+        taskLens: summary.taskLens,
+      })),
+    };
   }
   const subgraph = collectSubgraph(scopedGraph, seeds.map((node) => node.id), { mode, budget, maxDepth });
+  const communityIds = new Set<string>();
+  for (const node of subgraph.nodes) {
+    const community = findGraphCommunityForNode(scopedGraph, node.id);
+    if (community) communityIds.add(community.id);
+  }
+  const communities = [...communityIds]
+    .map((communityId) => findGraphCommunityForNode(scopedGraph, communityId))
+    .filter((community): community is GraphCommunityContext => Boolean(community))
+    .sort((left, right) => right.fileCount - left.fileCount || left.label.localeCompare(right.label));
   return {
     query,
     mode,
@@ -201,6 +232,7 @@ export function queryUnifiedCodeGraph(
     nodes: subgraph.nodes,
     edges: subgraph.edges,
     truncated: subgraph.truncated,
+    communities,
   };
 }
 
@@ -688,12 +720,15 @@ export function explainGraphNode(graph: UnifiedCodeGraph, target: string): Graph
     .filter((entry): entry is UnifiedCodeGraphNode => Boolean(entry))
     .sort((left, right) => left.label.localeCompare(right.label));
 
+  const community = findGraphCommunityForNode(graph, node.id);
   const summary = [
     `${node.label} (${node.kind})`,
     node.path ? `path: ${node.path}` : undefined,
+    community ? `community: ${community.label} (${community.fileCount} files)` : undefined,
+    community?.summary,
     node.scannerId ? `scanner: ${node.scannerId}` : undefined,
     `${edges.length} connected edge(s), ${neighbors.length} neighbor(s).`,
   ].filter(Boolean).join(" ");
 
-  return { target, resolved: true, node, neighbors, edges, summary };
+  return { target, resolved: true, node, neighbors, edges, summary, community };
 }

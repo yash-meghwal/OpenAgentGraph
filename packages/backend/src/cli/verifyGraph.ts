@@ -65,6 +65,25 @@ async function listFixtureDirectories(fixturesRoot: string) {
     .sort((left, right) => left.localeCompare(right));
 }
 
+function assertNoDanglingEdges(
+  nodes: Array<{ id: string }>,
+  edges: Array<{ id: string; sourceNodeId: string; targetNodeId: string; metadata?: Record<string, unknown> }>,
+  errors: string[]
+) {
+  const knownNodeIds = new Set(nodes.map((node) => node.id));
+  for (const edge of edges) {
+    const missingSource = !knownNodeIds.has(edge.sourceNodeId);
+    const missingTarget = !knownNodeIds.has(edge.targetNodeId);
+    if (!missingSource && !missingTarget) continue;
+    const relation = typeof edge.metadata?.scannerRelation === "string"
+      ? edge.metadata.scannerRelation
+      : "unknown";
+    errors.push(
+      `Dangling edge (${relation}): ${edge.id} missing ${missingSource ? "source" : ""}${missingSource && missingTarget ? " and " : ""}${missingTarget ? "target" : ""}.`
+    );
+  }
+}
+
 function assertNoGeneratedPaths(indexedPaths: string[], errors: string[]) {
   const noisyPatterns = ["/bin/", "/obj/", "graphify-out/", "/dist/"];
   for (const indexedPath of indexedPaths) {
@@ -146,9 +165,12 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
-    case "unsupported-ruby":
+    case "unsupported-swift":
       if ((result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0) <= 0) {
-        errors.push("Expected unsupported skip counts for .rb source files.");
+        errors.push("Expected unsupported skip counts for .swift source files.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.endsWith(".swift"))) {
+        errors.push(".swift source must remain unsupported in base v1.");
       }
       if (result.scanPlan.summary.diagnostics.join("\n").includes("No skipped paths recorded.")) {
         errors.push("Unsupported-language repos must not report 'No skipped paths recorded.'");
@@ -181,6 +203,102 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       if (indexedPaths.some((indexedPath) => indexedPath.includes(".venv/"))) {
         errors.push(".venv/ must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-ruby-rails":
+      if (!result.kernelProfile.activeScannerIds.includes("ruby")) {
+        errors.push("Expected ruby scanner to be active.");
+      }
+      if (!indexedPaths.includes("app/models/user.rb")) {
+        errors.push("Expected app/models/user.rb to be indexed.");
+      }
+      if (!indexedPaths.includes("app/controllers/users_controller.rb")) {
+        errors.push("Expected users_controller.rb to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("UsersController"))) {
+        errors.push("Expected Rails controller symbols to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "test_target")) {
+        errors.push("Expected Ruby spec-to-source test_target edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("tmp/"))) {
+        errors.push("tmp/ generated output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-ruby-gem":
+      if (!result.kernelProfile.activeScannerIds.includes("ruby")) {
+        errors.push("Expected ruby scanner to be active.");
+      }
+      if (!indexedPaths.includes("lib/mygem.rb")) {
+        errors.push("Expected lib/mygem.rb to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("Mygem"))) {
+        errors.push("Expected Ruby module symbols to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-php-laravel":
+      if (!result.kernelProfile.activeScannerIds.includes("php")) {
+        errors.push("Expected php scanner to be active.");
+      }
+      if (!indexedPaths.includes("app/Http/Controllers/UserController.php")) {
+        errors.push("Expected UserController.php to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("UserController"))) {
+        errors.push("Expected Laravel controller symbols to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "laravel_route")) {
+        errors.push("Expected Laravel route-to-controller edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-php-wordpress-plugin":
+      if (!result.kernelProfile.activeScannerIds.includes("php")) {
+        errors.push("Expected php scanner to be active.");
+      }
+      if (!indexedPaths.includes("includes/class-handler.php")) {
+        errors.push("Expected class-handler.php to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && /Handler|init/i.test(node.title))) {
+        errors.push("Expected WordPress plugin class or hook symbols to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-java-gradle-multimodule":
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active.");
+      }
+      if (!indexedPaths.includes("settings.gradle")) {
+        errors.push("Expected settings.gradle to be indexed.");
+      }
+      if (!indexedPaths.includes("api/src/main/java/com/example/api/ApiService.java")) {
+        errors.push("Expected ApiService.java to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "gradle_module")) {
+        errors.push("Expected Gradle module dependency edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("/build/"))) {
+        errors.push("build/ output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-kotlin-gradle":
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active for Kotlin Gradle fixture.");
+      }
+      if (!indexedPaths.includes("src/main/kotlin/com/example/Greeter.kt")) {
+        errors.push("Expected Greeter.kt to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("formatGreeting"))) {
+        errors.push("Expected top-level Kotlin function symbols to be indexed.");
+      }
+      const formatGreeting = result.scanPlan.nodes.find(
+        (node) => node.kind === "code_symbol" && node.title.includes("formatGreeting")
+      );
+      if (formatGreeting?.metadata?.scannerSymbolParentType) {
+        errors.push("Top-level Kotlin functions must not inherit the previous class parent.");
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
@@ -312,6 +430,20 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 4) {
         errors.push("Expected SampleMediaPlayer stand-in fixture to index multiple C# symbols.");
       }
+      const communityNodes = result.scanPlan.nodes.filter((node) => node.kind === "code_community");
+      const communityTitles = communityNodes.map((node) => String(node.metadata?.scannerCommunityLabel ?? node.title));
+      if (communityNodes.length < 3) {
+        errors.push(`Expected multiple meaningful communities, got ${communityNodes.length}.`);
+      }
+      if (!communityTitles.some((title) => /SampleMediaPlayer\.App/i.test(title))) {
+        errors.push("Expected SampleMediaPlayer.App community label.");
+      }
+      if (!communityTitles.some((title) => /SampleMediaPlayer\.Core/i.test(title))) {
+        errors.push("Expected SampleMediaPlayer.Core community label.");
+      }
+      if (communityNodes.every((node) => ["src", "root", "."].includes(String(node.metadata?.scannerCommunityLabel ?? node.title)))) {
+        errors.push("Community labels are too generic for the C# fixture.");
+      }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
     case "fixture-mixed-polyglot":
@@ -365,6 +497,8 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
   if (result.scanPlan.summary.kernelProfile?.activeScannerIds.length === 0) {
     errors.push("Kernel profile must declare at least one active scanner.");
   }
+
+  assertNoDanglingEdges(result.scanPlan.nodes, result.scanPlan.edges, errors);
 
   return {
     fixture: fixtureName,

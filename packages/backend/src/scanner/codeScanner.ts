@@ -13,8 +13,10 @@ import type {
   ScanProgressSnapshot,
   SkipDiagnostic,
   SkipReason,
+  ScannerCommunityFileInput,
   WorkspaceKernelProfile,
 } from "@openagentgraph/shared";
+import { buildScannerCommunityAssignments } from "@openagentgraph/shared";
 import {
   DEFAULT_LIGHTWEIGHT_SCAN_LIMITS,
   DEFAULT_SEMANTIC_SCAN_LIMITS,
@@ -1424,17 +1426,6 @@ function updateFileDependencyMetadata(
   });
 }
 
-function communityKeyForFilePath(filePath: string) {
-  const segments = normalizeProjectPath(filePath).split("/").filter(Boolean);
-  if (segments[0] === "packages" && segments[1]) {
-    return { key: `packages/${segments[1]}`, title: `packages/${segments[1]}`, communityKind: "package" };
-  }
-  if (segments.length > 1) {
-    return { key: segments[0], title: segments[0], communityKind: "directory" };
-  }
-  return { key: ".", title: "root", communityKind: "root" };
-}
-
 async function buildScannedEcosystemFile(
   file: ScanFile,
   scanId: string,
@@ -2250,38 +2241,31 @@ function buildSemanticSymbolEdges(input: {
 }
 
 function buildCommunityGraph(input: {
-  files: Array<{ filePath: string; fileNodeId: string }>;
+  files: ScannerCommunityFileInput[];
   dependencyEdges: ProductGraphEdge[];
   scanId: string;
   scannedAt: string;
   scanSummaryMetadata?: Record<string, ProductMetadataValue | undefined>;
 }) {
-  const communitiesByKey = new Map<string, {
-    key: string;
-    title: string;
-    communityKind: string;
-    filePaths: string[];
-    fileNodeIds: string[];
-  }>();
+  const assignments = buildScannerCommunityAssignments({
+    files: input.files,
+    dependencyEdges: input.dependencyEdges.map((edge) => ({
+      sourceNodeId: edge.sourceNodeId,
+      targetNodeId: edge.targetNodeId,
+      weight: typeof edge.metadata?.scannerDependencyCount === "number"
+        ? edge.metadata.scannerDependencyCount
+        : 1,
+    })),
+  });
   const communityKeyByFileNodeId = new Map<string, string>();
-
-  for (const file of input.files) {
-    const community = communityKeyForFilePath(file.filePath);
-    const existing = communitiesByKey.get(community.key) ?? {
-      key: community.key,
-      title: community.title,
-      communityKind: community.communityKind,
-      filePaths: [],
-      fileNodeIds: [],
-    };
-    existing.filePaths.push(file.filePath);
-    existing.fileNodeIds.push(file.fileNodeId);
-    communitiesByKey.set(community.key, existing);
-    communityKeyByFileNodeId.set(file.fileNodeId, community.key);
+  for (const community of assignments) {
+    for (const fileNodeId of community.fileNodeIds) {
+      communityKeyByFileNodeId.set(fileNodeId, community.key);
+    }
   }
 
   const communityNodeIdByKey = new Map<string, string>();
-  const communityNodes = [...communitiesByKey.values()].map((community): ProductGraphNode => {
+  const communityNodes = assignments.map((community): ProductGraphNode => {
     const nodeId = stableProductId("code-scan:community", community.key);
     communityNodeIdByKey.set(community.key, nodeId);
     const fileCount = community.filePaths.length;
@@ -2289,7 +2273,7 @@ function buildCommunityGraph(input: {
       id: nodeId,
       kind: "code_community",
       title: community.title.slice(0, MAX_PRODUCT_NODE_TITLE_LENGTH),
-      summary: `Scanned code module with ${fileCount} ${fileCount === 1 ? "file" : "files"}.`.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
+      summary: community.summary.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
       status: "planned",
       tags: ["code", "code-scan", "code-community"],
       source: codeScanSourceRef(community.key),
@@ -2299,8 +2283,15 @@ function buildCommunityGraph(input: {
         scannedAt: input.scannedAt,
         scannerCommunityPath: community.key,
         scannerCommunityKind: community.communityKind,
+        scannerCommunityLabel: community.title,
+        scannerCommunitySignal: community.segmentationSignal,
+        scannerCommunitySummary: community.summary,
+        scannerCommunityLens: community.taskLens,
         scannerCommunityFileCount: fileCount,
         scannerCommunityFiles: metadataList(community.filePaths),
+        scannerCommunityTopFiles: metadataList(community.dominantFiles),
+        scannerCommunityNamespaces: metadataList(community.namespaces),
+        scannerCommunityProjects: metadataList(community.projectNames),
         ...(input.scanSummaryMetadata ?? {}),
       }),
       createdAt: input.scannedAt,
@@ -2309,7 +2300,7 @@ function buildCommunityGraph(input: {
   }).sort((left, right) => left.id.localeCompare(right.id));
 
   const membershipEdges: ProductGraphEdge[] = [];
-  for (const community of communitiesByKey.values()) {
+  for (const community of assignments) {
     const communityNodeId = communityNodeIdByKey.get(community.key);
     if (!communityNodeId) continue;
     for (let index = 0; index < community.fileNodeIds.length; index += 1) {
@@ -2540,6 +2531,9 @@ export async function scanWorkspaceCodebase(input: {
   for (const edge of dotnetWorkspace.edges) {
     edgesById.set(edge.id, edge);
   }
+  for (const externalNode of dotnetWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
+  }
 
   let dotnetRoslynSemantic: DotNetRoslynSemanticResult | undefined;
   if (kernelProfile.activeScannerIds.includes("dotnet")) {
@@ -2677,7 +2671,23 @@ export async function scanWorkspaceCodebase(input: {
 
   const semanticModuleEdgeCount = dependencyGraph.edges.filter((edge) => edge.metadata?.scannerResolution === "semantic").length;
   const communityGraph = buildCommunityGraph({
-    files: scannedFileRecords,
+    files: scannedFileRecords.map((record) => {
+      const fileNode = nodesById.get(record.fileNodeId);
+      const metadata = fileNode?.metadata ?? {};
+      const extension = path.extname(record.filePath).toLowerCase();
+      return {
+        filePath: record.filePath,
+        fileNodeId: record.fileNodeId,
+        namespace: typeof metadata.scannerNamespace === "string" ? metadata.scannerNamespace : undefined,
+        projectName: typeof metadata.scannerProjectName === "string" ? metadata.scannerProjectName : undefined,
+        role: fileNode?.tags?.includes("code-doc")
+          ? "doc"
+          : fileNode?.tags?.includes("code-config")
+            ? "config"
+            : "source",
+        extension,
+      };
+    }),
     dependencyEdges: dependencyGraph.edges,
     scanId,
     scannedAt,
@@ -2945,6 +2955,9 @@ export async function scanWorkspaceRelativePaths(input: {
   });
   for (const edge of dotnetWorkspace.edges) {
     edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of dotnetWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
   }
 
   const nodes = [...nodesById.values()].sort((left, right) => left.id.localeCompare(right.id));

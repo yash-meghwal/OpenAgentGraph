@@ -252,6 +252,22 @@ describe("graph cli", () => {
 
     expect(result.resolved).toBe(true);
     expect(result.neighbors.length).toBeGreaterThan(0);
+    expect(result.community?.label).toMatch(/SampleMediaPlayer\.App/i);
+  });
+
+  it("returns community context from graph:query", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+    const result = await runGraphQueryCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "MainViewModel playback",
+    ]);
+
+    expect(Array.isArray(result.communities)).toBe(true);
+    expect(result.communities.length).toBeGreaterThan(0);
+    expect(result.communities.some((community) => /SampleMediaPlayer/i.test(community.label))).toBe(true);
   });
 
   it("exports graph artifacts under .oag and writes GRAPH_REPORT.md", async () => {
@@ -270,6 +286,23 @@ describe("graph cli", () => {
     expect(report).toContain("# OpenAgentGraph Handoff");
     expect(report).toMatch(/MainViewModel/i);
     expect(report).not.toContain("/bin/");
+
+    const html = fs.readFileSync(path.join(workspaceRoot, ".oag", "graph.html"), "utf8");
+    expect(html).toContain('id="oag-search"');
+    expect(html).toContain('id="oag-explain-panel"');
+    expect(html).toContain("Path preview");
+
+    const wiki = fs.readFileSync(path.join(workspaceRoot, ".oag", "wiki", "index.md"), "utf8");
+    expect(wiki).toContain("## Top communities");
+    expect(wiki).toContain("## Read first by lens");
+    expect(wiki).toContain("## Refresh commands");
+
+    const graphJson = JSON.parse(fs.readFileSync(path.join(workspaceRoot, ".oag", "graph.json"), "utf8"));
+    expect(graphJson.export?.graphVersion).toBe("1");
+    expect(graphJson.export?.communities?.length).toBeGreaterThan(0);
+    expect(graphJson.export?.scannerProfile?.primaryType).toBeTruthy();
+    expect(graphJson.export?.provenance).toBeTruthy();
+    expect(JSON.stringify(graphJson)).not.toMatch(/"body"\s*:/);
   });
 
   it("reports task lenses and god nodes for the csharp-wpf fixture", async () => {

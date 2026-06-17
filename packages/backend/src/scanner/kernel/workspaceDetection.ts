@@ -58,6 +58,12 @@ function extensionType(extension: string): string | undefined {
     case ".java":
     case ".kt":
       return "java";
+    case ".rb":
+    case ".rake":
+      return "ruby";
+    case ".php":
+    case ".phtml":
+      return "php";
     case ".py":
       return "python";
     case ".tf":
@@ -209,7 +215,8 @@ export async function detectWorkspaceKernelProfile(
   }
 
   const codeExtensionKeys = new Set([
-    ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt", ".ps1", ".sh",
+    ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt",
+    ".rb", ".rake", ".php", ".phtml", ".ps1", ".sh",
   ]);
   const docExtensionKeys = new Set([".md", ".rst", ".txt"]);
   const codeCount = [...sourceExtensionCounts.entries()]
@@ -286,6 +293,14 @@ export function kernelProfileToLegacyTypes(profile: WorkspaceKernelProfile): Det
     rust: "rust",
     go: "go",
     java: "java",
+    "java-gradle": "java",
+    "kotlin-gradle": "java",
+    ruby: "ruby",
+    "rails-app": "ruby",
+    "ruby-gem": "ruby",
+    php: "php",
+    "laravel-app": "php",
+    "wordpress-plugin": "php",
     python: "python",
     "django-app": "python",
     "terraform-iac": "terraform",

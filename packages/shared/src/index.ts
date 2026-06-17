@@ -9,6 +9,8 @@ export * from "./graphAnalyzers";
 export * from "./graphEcosystemHealth";
 export * from "./graphOperational";
 export * from "./graphReleaseGates";
+export * from "./graphCommunities";
+export * from "./graphExportBundle";
 export type { GraphFileFingerprint, GraphIncrementalManifest, GraphUpdatePlan } from "./graphIncremental";
 export * from "./report";
 export * from "./safeText";

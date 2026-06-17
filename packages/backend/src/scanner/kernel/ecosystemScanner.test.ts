@@ -230,6 +230,45 @@ describe("ecosystem scanner", () => {
     expect(resolved?.targetNodeId).toBe("code-scan:external:java-kotlin|org.junit.jupiter.api.Test");
   });
 
+  it("does not emit per-file import edges before workspace augmentation", () => {
+    for (const sample of [
+      {
+        filePath: "spec/models/user_spec.rb",
+        fileName: "user_spec.rb",
+        extension: ".rb",
+        body: "require 'rails_helper'\nclass UserSpec\nend\n",
+      },
+      {
+        filePath: "app/Http/Controllers/UserController.php",
+        fileName: "UserController.php",
+        extension: ".php",
+        body: "<?php\nuse App\\Models\\User;\nclass UserController {}\n",
+      },
+      {
+        filePath: "myapp/models.py",
+        fileName: "models.py",
+        extension: ".py",
+        body: "from django.db import models\nclass User:\n    pass\n",
+      },
+    ]) {
+      const contribution = indexEcosystemFile({
+        filePath: sample.filePath,
+        fileName: sample.fileName,
+        extension: sample.extension,
+        body: sample.body,
+        sizeBytes: sample.body.length,
+        scanId: "scan-1",
+        scannedAt: "2026-06-15T00:00:00.000Z",
+        stableId,
+        compactMetadata: (values) => values as Record<string, string>,
+        sourceRef: (projectPath) => ({ kind: "code_scan", path: projectPath }),
+        maxTitleLength: 180,
+        maxEdgeLabelLength: 180,
+      });
+      expect(contribution.edges.some((edge) => edge.metadata?.scannerRelation === "import")).toBe(false);
+    }
+  });
+
   it("does not emit per-file java import edges before workspace augmentation", () => {
     const contribution = indexEcosystemFile({
       filePath: "src/main/java/com/example/checkout/CheckoutService.java",
@@ -262,6 +301,53 @@ describe("ecosystem scanner", () => {
         knownNodeIds
       )
     ).toBe(false);
+  });
+
+  it("parses ruby modules, classes, methods, and requires", () => {
+    const index = parseEcosystemFile({
+      filePath: "app/models/user.rb",
+      fileName: "user.rb",
+      extension: ".rb",
+      body: [
+        "require_relative '../services/user_exporter'",
+        "",
+        "class User < ApplicationRecord",
+        "  def full_name",
+        "  end",
+        "end",
+      ].join("\n"),
+    });
+    expect(index?.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`)).toEqual(
+      expect.arrayContaining(["User:rails_model", "full_name:method"])
+    );
+    expect(index?.imports).toContain("../services/user_exporter");
+  });
+
+  it("parses php namespaces, classes, methods, and use imports", () => {
+    const index = parseEcosystemFile({
+      filePath: "app/Http/Controllers/UserController.php",
+      fileName: "UserController.php",
+      extension: ".php",
+      body: [
+        "<?php",
+        "namespace App\\Http\\Controllers;",
+        "",
+        "use App\\Models\\User;",
+        "",
+        "class UserController extends Controller",
+        "{",
+        "    public function index() {}",
+        "}",
+      ].join("\n"),
+    });
+    expect(index?.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`)).toEqual(
+      expect.arrayContaining([
+        "App\\Http\\Controllers:namespace",
+        "UserController:class",
+        "index:method",
+      ])
+    );
+    expect(index?.imports).toContain("App\\Models\\User");
   });
 
   it("indexes ecosystem symbols into product graph nodes", () => {

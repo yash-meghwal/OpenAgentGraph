@@ -19,18 +19,32 @@ function makeGraph(): UnifiedCodeGraph {
       { id: "workspace", kind: "workspace", label: "workspace", path: "." },
       { id: "project:.", kind: "project", label: "workspace-root", path: "." },
       { id: "file:xaml", kind: "code_file", label: "Views/MainView.xaml", path: "Views/MainView.xaml" },
+      { id: "file:vm", kind: "code_file", label: "ViewModels/MainViewModel.cs", path: "ViewModels/MainViewModel.cs" },
       { id: "file:playback", kind: "code_file", label: "Services/PlaybackService.cs", path: "Services/PlaybackService.cs" },
       { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "ViewModels/MainViewModel.cs" },
       { id: "sym:svc", kind: "symbol", label: "PlaybackService (class)", path: "Services/PlaybackService.cs" },
       { id: "sym:field", kind: "symbol", label: "MainViewModel._playbackService (field)", path: "ViewModels/MainViewModel.cs" },
-      { id: "comm:ui", kind: "community", label: "ui", path: "SampleMediaPlayer.App" },
+      {
+        id: "comm:ui",
+        kind: "community",
+        label: "ui",
+        path: "SampleMediaPlayer.App",
+        metadata: {
+          scannerCommunityLabel: "SampleMediaPlayer.App",
+          scannerCommunityFileCount: 2,
+          scannerCommunitySummary: "App UI project.",
+        },
+      },
     ],
     edges: [
       { id: "e0", sourceNodeId: "workspace", targetNodeId: "project:.", kind: "declares", provenance: "extracted" },
       { id: "e1", sourceNodeId: "file:xaml", targetNodeId: "sym:vm", kind: "references", provenance: "inferred", label: "View -> MainViewModel" },
       { id: "e2", sourceNodeId: "sym:vm", targetNodeId: "sym:svc", kind: "depends_on", provenance: "extracted", label: "using service" },
       { id: "e3", sourceNodeId: "file:xaml", targetNodeId: "comm:ui", kind: "belongs_to", provenance: "extracted" },
+      { id: "e3b", sourceNodeId: "file:vm", targetNodeId: "comm:ui", kind: "belongs_to", provenance: "extracted" },
       { id: "e4", sourceNodeId: "file:xaml", targetNodeId: "project:.", kind: "belongs_to", provenance: "extracted" },
+      { id: "e4c", sourceNodeId: "file:vm", targetNodeId: "project:.", kind: "belongs_to", provenance: "extracted" },
+      { id: "e4d", sourceNodeId: "sym:vm", targetNodeId: "file:vm", kind: "belongs_to", provenance: "extracted" },
       { id: "e4b", sourceNodeId: "file:playback", targetNodeId: "project:.", kind: "belongs_to", provenance: "extracted" },
       { id: "e5", sourceNodeId: "sym:vm", targetNodeId: "project:.", kind: "belongs_to", provenance: "extracted" },
       { id: "e6", sourceNodeId: "sym:svc", targetNodeId: "project:.", kind: "belongs_to", provenance: "extracted" },
@@ -188,6 +202,8 @@ describe("graph query engine", () => {
     expect(explained.resolved).toBe(true);
     expect(explained.neighbors.map((neighbor) => neighbor.id)).toEqual(expect.arrayContaining(["sym:svc", "file:xaml"]));
     expect(explained.summary).toContain("MainViewModel");
+    expect(explained.community?.label).toBe("SampleMediaPlayer.App");
+    expect(explained.summary).toContain("community:");
   });
 
   it.each([

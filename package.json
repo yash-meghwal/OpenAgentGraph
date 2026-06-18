@@ -1,6 +1,6 @@
 {
   "name": "openagentgraph",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Event-sourced execution graphs, code maps, handoffs, and coordination surfaces for supervised autonomous software work.",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -35,6 +35,8 @@
     "graph:lens": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphLens.js",
     "graph:check": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphCheck.js",
     "graph:update": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphUpdate.js",
+    "graph:benchmark:update": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphBenchmarkUpdate.js",
+    "graph:benchmark:external": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/graphBenchmarkExternal.js",
     "graph:smoke:workspace": "npm run build --workspace=packages/shared --silent && npm run build --workspace=packages/backend --silent && node packages/backend/scripts/graph-npm-smoke.mjs",
     "docker:build": "docker build -t openagentgraph-backend .",
     "typecheck": "npx tsc --noEmit --pretty false -p packages/frontend/tsconfig.json && npx tsc --noEmit --pretty false -p packages/electron/tsconfig.json && npx tsc --noEmit --pretty false -p packages/vscode-extension/tsconfig.json",

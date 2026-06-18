@@ -8,6 +8,7 @@ export type UnifiedCodeGraphNodeKind =
   | "code_file"
   | "config_file"
   | "doc_file"
+  | "doc_section"
   | "asset_file"
   | "symbol"
   | "test"
@@ -47,6 +48,10 @@ export interface UnifiedCodeGraphEdge {
   targetNodeId: string;
   kind: UnifiedCodeGraphEdgeKind;
   provenance: UnifiedCodeGraphProvenance;
+  /** Derivation trust source, e.g. roslyn, typescript, php-semantic-lite. */
+  source?: import("./graphEdgeProvenance.js").GraphEdgeDerivationSource;
+  /** Confidence from 0 to 1; required for inferred/ambiguous edges. */
+  confidence?: number;
   label?: string;
   scannerId?: string;
   metadata?: Record<string, string | number | boolean | null>;

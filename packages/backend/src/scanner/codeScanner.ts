@@ -76,6 +76,11 @@ import {
   type RubySemanticLiteResult,
 } from "./kernel/rubySemanticLite.js";
 import {
+  augmentScriptWorkspaceGraph,
+  indexScriptFile,
+  SCRIPT_SCANNER_VERSION,
+} from "./kernel/scriptScanner.js";
+import {
   augmentCppStructuralLite,
   type CppStructuralLiteResult,
 } from "./kernel/cppStructuralLite.js";
@@ -295,6 +300,30 @@ function stableProductId(prefix: string, rawValue: string) {
 
 function contentHash(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function buildDocumentationGraphLookups(nodesById: Map<string, ProductGraphNode>) {
+  const docSectionNodeIdsByKey = new Map<string, string>();
+  const symbolNodeIdsBySimpleName = new Map<string, string[]>();
+  for (const node of nodesById.values()) {
+    if (node.kind !== "code_symbol") continue;
+    const symbolKind = node.metadata?.scannerSymbolKind;
+    const symbolName = node.metadata?.scannerSymbolName;
+    const sourceFile = node.metadata?.scannerSourceFile;
+    if (typeof symbolName !== "string") continue;
+    if (symbolKind === "doc_section" && typeof sourceFile === "string") {
+      const slug = typeof node.metadata?.scannerDocSectionSlug === "string"
+        ? node.metadata.scannerDocSectionSlug
+        : symbolName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      docSectionNodeIdsByKey.set(`${sourceFile}|${slug}`, node.id);
+      continue;
+    }
+    const simpleName = symbolName.split(".").pop() ?? symbolName;
+    const current = symbolNodeIdsBySimpleName.get(simpleName) ?? [];
+    current.push(node.id);
+    symbolNodeIdsBySimpleName.set(simpleName, current);
+  }
+  return { docSectionNodeIdsByKey, symbolNodeIdsBySimpleName };
 }
 
 function normalizeProjectPath(projectPath: string) {
@@ -1603,13 +1632,26 @@ async function buildScannedScriptFile(
   const extension = path.extname(file.relativePath).toLowerCase();
   const hash = contentHash(body);
   const fileNodeId = stableProductId("code-scan:file", file.relativePath);
+  const indexed = indexScriptFile({
+    filePath: file.relativePath,
+    body,
+    fileNodeId,
+    scanId,
+    scannedAt,
+    stableId: stableProductId,
+    compactMetadata,
+    sourceRef: codeScanSourceRef,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+  });
+  const scannerLanguage = extension === ".ps1" ? "powershell" : "shell";
   const fileNode: ProductGraphNode = {
     id: fileNodeId,
     kind: "code_file",
     title: file.relativePath.slice(0, MAX_PRODUCT_NODE_TITLE_LENGTH),
     summary: `Scanned script file (${Math.round(file.size / 1024)} KB).`.slice(0, MAX_PRODUCT_NODE_SUMMARY_LENGTH),
     status: "planned",
-    tags: ["code", "code-scan", "code-source", "script-t2"],
+    tags: ["code", "code-scan", "code-source", "script-t1"],
     source: codeScanSourceRef(file.relativePath),
     metadata: compactMetadata({
       scannerVersion: SCANNER_VERSION,
@@ -1618,9 +1660,11 @@ async function buildScannedScriptFile(
       contentHash: hash,
       scannerSourceFile: file.relativePath,
       fileSizeBytes: file.size,
-      scannerLanguage: extension === ".ps1" ? "powershell" : "shell",
-      scannerIndexingMode: "t2",
+      scannerScriptVersion: SCRIPT_SCANNER_VERSION,
+      scannerLanguage,
+      scannerIndexingMode: "t1",
       scannerSemanticSupported: false,
+      ...indexed.fileMetadata,
     }),
     createdAt: scannedAt,
     updatedAt: scannedAt,
@@ -1629,8 +1673,8 @@ async function buildScannedScriptFile(
   return {
     file,
     fileNode,
-    symbolNodes: [],
-    edges: [],
+    symbolNodes: indexed.symbolNodes,
+    edges: indexed.edges,
     dependencySpecs: [],
     skippedFileCount: 0,
   };
@@ -2752,9 +2796,18 @@ export async function scanWorkspaceCodebase(input: {
   }
 
   const ecosystemFileBodies = new Map<string, string>();
+  const scriptFileBodies = new Map<string, string>();
   for (const file of files) {
     const extension = path.extname(file.relativePath).toLowerCase();
     const fileName = path.basename(file.relativePath);
+    if (isScriptScannableExtension(extension)) {
+      try {
+        scriptFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+      } catch {
+        // File bodies are optional for workspace-level script graph augmentation.
+      }
+      continue;
+    }
     if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
       continue;
     }
@@ -2770,11 +2823,14 @@ export async function scanWorkspaceCodebase(input: {
       relativePath: file.relativePath,
       body: ecosystemFileBodies.get(file.relativePath) ?? "",
     }));
+  const documentationLookups = buildDocumentationGraphLookups(nodesById);
   const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
     scanId,
     scannedAt,
     files: ecosystemFiles,
     fileNodeIdsByPath,
+    docSectionNodeIdsByKey: documentationLookups.docSectionNodeIdsByKey,
+    symbolNodeIdsBySimpleName: documentationLookups.symbolNodeIdsBySimpleName,
     stableId: stableProductId,
     compactMetadata,
     maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
@@ -2878,6 +2934,28 @@ export async function scanWorkspaceCodebase(input: {
     edgesById.set(edge.id, edge);
   }
   for (const externalNode of dotnetWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
+  }
+
+  const scriptWorkspace = augmentScriptWorkspaceGraph({
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => scriptFileBodies.has(file.relativePath))
+      .map((file) => ({
+        relativePath: file.relativePath,
+        body: scriptFileBodies.get(file.relativePath) ?? "",
+      })),
+    fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of scriptWorkspace.edges) {
+    edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of scriptWorkspace.externalNodes) {
     nodesById.set(externalNode.id, externalNode);
   }
 
@@ -3112,6 +3190,8 @@ export async function scanWorkspaceCodebase(input: {
     ...(cppStructuralLite?.diagnostics ?? []),
     ...(dartStructuralLite?.diagnostics ?? []),
     ...(gameEngineStructuralLite?.diagnostics ?? []),
+    ...(ecosystemWorkspace.diagnostics ?? []),
+    ...(scriptWorkspace.diagnostics ?? []),
   ];
   const analyzers = [
     dotnetRoslynSemantic?.analyzer,
@@ -3272,9 +3352,18 @@ export async function scanWorkspaceRelativePaths(input: {
   }
 
   const ecosystemFileBodies = new Map<string, string>();
+  const scriptFileBodies = new Map<string, string>();
   for (const file of files) {
     const extension = path.extname(file.relativePath).toLowerCase();
     const fileName = path.basename(file.relativePath);
+    if (isScriptScannableExtension(extension)) {
+      try {
+        scriptFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+      } catch {
+        // optional
+      }
+      continue;
+    }
     if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
       continue;
     }
@@ -3285,6 +3374,7 @@ export async function scanWorkspaceRelativePaths(input: {
     }
   }
 
+  const documentationLookups = buildDocumentationGraphLookups(nodesById);
   const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
     scanId,
     scannedAt,
@@ -3295,6 +3385,8 @@ export async function scanWorkspaceRelativePaths(input: {
         body: ecosystemFileBodies.get(file.relativePath) ?? "",
       })),
     fileNodeIdsByPath,
+    docSectionNodeIdsByKey: documentationLookups.docSectionNodeIdsByKey,
+    symbolNodeIdsBySimpleName: documentationLookups.symbolNodeIdsBySimpleName,
     stableId: stableProductId,
     compactMetadata,
     maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
@@ -3325,6 +3417,28 @@ export async function scanWorkspaceRelativePaths(input: {
     edgesById.set(edge.id, edge);
   }
   for (const externalNode of dotnetWorkspace.externalNodes) {
+    nodesById.set(externalNode.id, externalNode);
+  }
+
+  const scriptWorkspace = augmentScriptWorkspaceGraph({
+    scanId,
+    scannedAt,
+    files: files
+      .filter((file) => scriptFileBodies.has(file.relativePath))
+      .map((file) => ({
+        relativePath: file.relativePath,
+        body: scriptFileBodies.get(file.relativePath) ?? "",
+      })),
+    fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of scriptWorkspace.edges) {
+    edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of scriptWorkspace.externalNodes) {
     nodesById.set(externalNode.id, externalNode);
   }
 
@@ -3381,7 +3495,10 @@ export async function scanWorkspaceRelativePaths(input: {
         breakers: createScanBreakerStatus(normalizeScanBreakerLimits(undefined, DEFAULT_LIGHTWEIGHT_SCAN_LIMITS)),
         message: "Partial codebase scan completed.",
       }),
-      diagnostics: [`Partial scan updated ${files.length} file(s).`],
+      diagnostics: [
+        `Partial scan updated ${files.length} file(s).`,
+        ...(scriptWorkspace.diagnostics ?? []),
+      ],
       kernelProfile,
       skippedCountsByReason: {},
       skipDiagnostics: [],

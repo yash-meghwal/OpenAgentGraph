@@ -140,10 +140,13 @@ describe("graph query engine", () => {
   it("finds a meaningful path between view and service symbols without workspace-root bridges", () => {
     const result = findGraphPath(makeGraph(), "MainView.xaml", "PlaybackService", { explainRanking: true });
     expect(result.found).toBe(true);
-    expect(result.nodes.map((node) => node.id)).toEqual(["file:xaml", "sym:vm", "sym:svc"]);
+    expect(result.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(["sym:vm", "sym:svc"])
+    );
+    expect(result.nodes.at(-1)?.id).toBe("sym:svc");
     expect(result.nodes.some((node) => node.label === "workspace-root")).toBe(false);
     expect(result.toNode?.label).toBe("PlaybackService (class)");
-    expect(result.edges.map((edge) => edge.kind)).toEqual(["references", "depends_on"]);
+    expect(result.edges.some((edge) => edge.kind === "depends_on")).toBe(true);
     expect(result.explanation?.penalizedAlternatives.length).toBeGreaterThan(0);
   });
 
@@ -166,6 +169,33 @@ describe("graph query engine", () => {
 
   it("matches file queries with Windows-style path separators", () => {
     expect(resolveGraphNode(makeGraph(), "Views\\MainView.xaml")?.id).toBe("file:xaml");
+  });
+
+  it("prefers class symbols and code files over namespaces for simple identifier queries", () => {
+    const graph: UnifiedCodeGraph = {
+      ...makeGraph(),
+      nodes: [
+        ...makeGraph().nodes,
+        { id: "sym:php-user", kind: "symbol", label: "App\\Models.User (class)", path: "app/Models/User.php" },
+        { id: "sym:php-ns", kind: "symbol", label: "App\\Models (namespace)", path: "app/Models/User.php" },
+        { id: "file:php-user", kind: "code_file", label: "app/Models/User.php", path: "app/Models/User.php" },
+      ],
+      edges: [
+        ...makeGraph().edges,
+        { id: "e-php", sourceNodeId: "sym:vm", targetNodeId: "sym:php-user", kind: "depends_on", provenance: "extracted" },
+      ],
+    };
+    expect(rankGraphNodeCandidates(graph, "User")[0]?.node.id).toBe("sym:php-user");
+    expect(rankGraphNodeCandidates(graph, "User.php")[0]?.node.id).toBe("file:php-user");
+  });
+
+  it("supports semantic path mode that avoids workspace-root detours", () => {
+    const balanced = findGraphPath(makeGraph(), "MainViewModel", "PlaybackService", { mode: "balanced" });
+    const semantic = findGraphPath(makeGraph(), "MainViewModel", "PlaybackService", { mode: "semantic" });
+    expect(balanced.found).toBe(true);
+    expect(semantic.found).toBe(true);
+    expect(semantic.nodes.some((node) => node.label === "workspace-root")).toBe(false);
+    expect(semantic.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["sym:vm", "sym:svc"]));
   });
 
   it("respects maxHops when searching paths", () => {

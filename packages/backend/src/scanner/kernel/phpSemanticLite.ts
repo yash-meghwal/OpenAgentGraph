@@ -513,6 +513,7 @@ export function augmentPhpSemanticLite(input: {
       label: edge.label.slice(0, input.maxEdgeLabelLength),
       trust: edge.resolution === "external" ? "inferred" : "extracted",
       metadata: input.compactMetadata({
+        edgeDerivationSource: "php-semantic-lite",
         scannerRelation: edge.relation === "import" ? "import" : edge.relation,
         scannerLanguage: "php",
         scannerResolution: "semantic-lite",

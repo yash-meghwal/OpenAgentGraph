@@ -439,6 +439,7 @@ export function augmentRubySemanticLite(input: {
       label: edge.label.slice(0, input.maxEdgeLabelLength),
       trust: edge.resolution === "external" ? "inferred" : "extracted",
       metadata: input.compactMetadata({
+        edgeDerivationSource: "ruby-semantic-lite",
         scannerRelation: edge.relation === "require" || edge.relation === "require_relative"
           ? "import"
           : edge.relation,

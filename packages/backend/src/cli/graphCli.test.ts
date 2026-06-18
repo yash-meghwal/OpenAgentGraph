@@ -293,7 +293,7 @@ describe("graph cli", () => {
     expect(html).toContain("Path preview");
 
     const wiki = fs.readFileSync(path.join(workspaceRoot, ".oag", "wiki", "index.md"), "utf8");
-    expect(wiki).toContain("## Top communities");
+    expect(wiki).toContain("## Community hubs");
     expect(wiki).toContain("## Read first by lens");
     expect(wiki).toContain("## Refresh commands");
 
@@ -360,8 +360,26 @@ describe("graph cli", () => {
     const report = fs.readFileSync(path.join(workspaceRoot, "GRAPH_REPORT.md"), "utf8");
     expect(report).toContain("## OAG fusion checks");
     expect(report).toContain("## Agent context APIs");
+    expect(report).toContain("## Static OAG artifacts");
+    expect(report).toContain("## How an agent should use these files");
+    expect(report).toContain("## No provider key required");
     expect(report).toContain("## Ecosystem support matrix");
     expect(report).toContain("## Ecosystem tier legend");
+  });
+
+  it("exports offline-only without requiring server, sqlite, or provider APIs", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphExportCli } = await import("./graphExport.js");
+    const result = await runGraphExportCli(["--workspace", workspaceRoot, "--offline-only"]);
+
+    expect(result.offlineOnly).toBe(true);
+    expect(fs.existsSync(path.join(workspaceRoot, ".oag", "graph.json"))).toBe(true);
+    expect(fs.existsSync(path.join(workspaceRoot, ".oag", "graph.html"))).toBe(true);
+    expect(fs.existsSync(path.join(workspaceRoot, "GRAPH_REPORT.md"))).toBe(true);
+
+    const html = fs.readFileSync(path.join(workspaceRoot, ".oag", "graph.html"), "utf8");
+    expect(html).toContain('id="oag-explorer-data"');
+    expect(html).toContain("Ecosystem support");
   });
 
   it("includes ecosystem tiers in graph:query output for godot fixture", async () => {

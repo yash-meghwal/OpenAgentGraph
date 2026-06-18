@@ -1,6 +1,12 @@
 import fs from "fs/promises";
 import path from "path";
-import type { GraphIncrementalManifest, GraphTaskLensId, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
+import type {
+  GraphIncrementalManifest,
+  GraphPathMode,
+  GraphTaskLensId,
+  UnifiedCodeGraph,
+  WorkspaceKernelProfile,
+} from "@openagentgraph/shared";
 import {
   CODE_GRAPH_SCHEMA_VERSION,
   evaluateHandoffFreshness,
@@ -29,7 +35,10 @@ export interface GraphWorkspaceCliOptions {
   lens?: GraphTaskLensId;
   maxHops?: number;
   explainRanking: boolean;
+  pathMode?: GraphPathMode;
 }
+
+const GRAPH_PATH_MODES = new Set<GraphPathMode>(["semantic", "balanced", "structural"]);
 
 const DEFAULT_GRAPH_CLI_BUDGET = 40;
 
@@ -133,6 +142,13 @@ export function parseGraphWorkspaceArgv(argv: string[]) {
       index += 1;
     } else if (arg === "--explain-ranking") {
       options.explainRanking = true;
+    } else if (arg === "--mode") {
+      const value = readRequiredCliValue(argv, index, "--mode");
+      if (!GRAPH_PATH_MODES.has(value as GraphPathMode)) {
+        throw new Error(`Unknown graph path mode '${value}'. Expected semantic, balanced, or structural.`);
+      }
+      options.pathMode = value as GraphPathMode;
+      index += 1;
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown graph option: ${arg}`);
     } else {
@@ -154,6 +170,9 @@ export function collectIgnoredGraphCliOptions(
     }
     if (options.explainRanking) {
       warnings.push("--explain-ranking is only used by graph:path; ignoring.");
+    }
+    if (options.pathMode) {
+      warnings.push("--mode is only used by graph:path; ignoring.");
     }
   }
   if (command !== "query") {

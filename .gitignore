@@ -26,3 +26,7 @@ packages/backend/scanner-tools/**/obj/
 /OpenAgentGraphPro-phase0-export.zip
 /agent-tools/
 /terminals/
+
+# Generated graph export artifacts from local fixture dogfood/export runs
+tests/fixtures/graph/**/.oag/
+tests/fixtures/graph/**/GRAPH_REPORT.md

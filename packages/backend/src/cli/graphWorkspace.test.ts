@@ -102,6 +102,18 @@ describe("parseGraphWorkspaceArgv", () => {
     expect(parsed.options.explainRanking).toBe(true);
     expect(parsed.positionals).toEqual(["from", "to target"]);
   });
+
+  it("parses graph:path --mode semantic", () => {
+    const parsed = parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--mode",
+      "semantic",
+      "from",
+      "to",
+    ]);
+    expect(parsed.options.pathMode).toBe("semantic");
+  });
 });
 
 describe("collectIgnoredGraphCliOptions", () => {

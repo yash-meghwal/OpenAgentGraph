@@ -303,6 +303,8 @@ export function buildAgentCodeContextSlice(
       sourceNodeId: edge.sourceNodeId,
       targetNodeId: edge.targetNodeId,
       provenance: edge.provenance,
+      source: edge.source,
+      confidence: edge.confidence,
     }));
 
   if (mergedFocusNodes.length < nodeBudget) {

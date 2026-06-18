@@ -690,7 +690,7 @@ function resolveCommunityNodeId(index: GraphCommunityIndex, nodeId: string): str
       communityId = index.directCommunityByNodeId.get(parentFileId);
     }
   }
-  if (!communityId && node?.path && (node.kind === "symbol" || node.kind === "test")) {
+  if (!communityId && node?.path && (node.kind === "symbol" || node.kind === "test" || node.kind === "doc_section")) {
     const fileId = index.filePathToId.get(normalizeCommunityPath(node.path));
     if (fileId) communityId = index.directCommunityByNodeId.get(fileId);
   }

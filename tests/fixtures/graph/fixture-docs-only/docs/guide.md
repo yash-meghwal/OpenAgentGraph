@@ -2,4 +2,4 @@
 
 ## Getting started
 
-Read this first.
+Read this first. Linked from [architecture](./architecture.md).

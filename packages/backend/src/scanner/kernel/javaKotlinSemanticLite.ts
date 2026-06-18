@@ -372,6 +372,7 @@ export function augmentJavaKotlinSemanticLite(input: {
       label: edge.label.slice(0, input.maxEdgeLabelLength),
       trust: edge.resolution === "external" ? "inferred" : "extracted",
       metadata: input.compactMetadata({
+        edgeDerivationSource: "javakotlin-semantic-lite",
         scannerRelation: edge.relation,
         scannerLanguage: edge.language,
         scannerResolution: "semantic-lite",

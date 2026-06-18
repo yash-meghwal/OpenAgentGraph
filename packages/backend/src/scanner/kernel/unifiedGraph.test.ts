@@ -78,6 +78,7 @@ describe("unified code graph", () => {
       "symbol",
     ]));
     expect(graph.edges.some((edge) => edge.kind === "belongs_to")).toBe(true);
+    expect(graph.edges.every((edge) => edge.source && typeof edge.confidence === "number")).toBe(true);
     expect(graph.diagnostics).toContain("Primary project type: typescript.");
   });
 

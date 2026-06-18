@@ -166,9 +166,13 @@ export function diffFileFingerprints(
   };
 }
 
-function isStructuralPath(filePath: string) {
+export function isStructuralWorkspacePath(filePath: string) {
   const normalized = normalizeGraphPath(filePath);
   return STRUCTURAL_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isStructuralPath(filePath: string) {
+  return isStructuralWorkspacePath(filePath);
 }
 
 export function isDependencyBearingPath(filePath: string) {

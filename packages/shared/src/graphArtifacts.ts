@@ -19,10 +19,15 @@ import {
   evaluateOagFusionChecks,
   type GraphHandoffFreshnessResult,
 } from "./graphFusion.js";
+import { buildGraphCommunitySummaries } from "./graphCommunities.js";
 import {
-  buildGraphCommunitySummaries,
-  formatCommunityHubMarkdown,
-} from "./graphCommunities.js";
+  buildGraphCommunityHubSummaries,
+  formatHighDegreeHubWarnings,
+  formatReadFirstByCommunityMarkdown,
+  formatRichCommunityHubMarkdown,
+} from "./graphCommunityHubs.js";
+import { renderDocsGraphMarkdown } from "./graphDocs.js";
+import { renderEdgeProvenanceMarkdown } from "./graphEdgeProvenance.js";
 import {
   buildGraphExportRisks,
   buildGraphRefreshCommands,
@@ -62,6 +67,7 @@ export function renderUnifiedGraphWiki(
   const primaryLens = recommendPrimaryGraphLens(graph, options.kernelProfile);
   const primaryLensLabel = GRAPH_TASK_LENS_DEFINITIONS.find((definition) => definition.id === primaryLens)?.label ?? primaryLens;
   const communitySummaries = buildGraphCommunitySummaries(graph);
+  const communityHubs = buildGraphCommunityHubSummaries(graph);
   const symbols = graph.nodes.filter((node) => node.kind === "symbol");
   const files = graph.nodes.filter((node) => node.kind === "code_file");
   const provenance = graph.export?.provenance;
@@ -109,8 +115,14 @@ export function renderUnifiedGraphWiki(
     }),
     "",
     ...renderEcosystemTierLegendMarkdown(),
-    "## Top communities",
-    ...formatCommunityHubMarkdown(communitySummaries.slice(0, 8)),
+    ...renderEdgeProvenanceMarkdown(graph),
+    "",
+    ...renderDocsGraphMarkdown(graph),
+    "## Community hubs",
+    ...formatRichCommunityHubMarkdown(communityHubs.slice(0, 8)),
+    "",
+    ...formatReadFirstByCommunityMarkdown(communityHubs),
+    ...formatHighDegreeHubWarnings(communityHubs),
     "",
     "## Read these first",
     ...readFirst.map((node) => `- \`${node.path ?? node.label}\` (${node.kind}) — ${node.label}`),
@@ -176,6 +188,7 @@ export function renderUnifiedGraphHandoffReport(
   const primaryLens = recommendPrimaryGraphLens(graph, options.kernelProfile);
   const primaryLensLabel = GRAPH_TASK_LENS_DEFINITIONS.find((definition) => definition.id === primaryLens)?.label ?? primaryLens;
   const communitySummaries = buildGraphCommunitySummaries(graph);
+  const communityHubs = buildGraphCommunityHubSummaries(graph);
   const symbols = graph.nodes.filter((node) => node.kind === "symbol");
   const files = graph.nodes.filter((node) => node.kind === "code_file");
   const configFiles = graph.nodes.filter((node) => node.kind === "config_file");
@@ -208,6 +221,24 @@ export function renderUnifiedGraphHandoffReport(
       ? profile.warnings.map((warning) => `- Warning: ${warning}`)
       : []),
     "",
+    "## Static OAG artifacts",
+    "- `.oag/graph.json` — self-contained graph export with nodes, edges, communities, provenance, analyzers, support matrix, task lenses, read-first seeds, refresh commands, and generated timestamp.",
+    "- `.oag/graph.html` — offline explorer with search, lens filters, community navigation, explain panel, and path preview.",
+    "- `.oag/wiki/index.md` — markdown wiki with communities, read-first guidance, risks, and refresh commands.",
+    `- \`${options.handoffPath ?? "GRAPH_REPORT.md"}\` — this handoff report for fast agent orientation.`,
+    "",
+    "## How an agent should use these files",
+    "1. Start with `GRAPH_REPORT.md` for project type, health, read-first files, and risks.",
+    "2. Open `.oag/graph.html` when you need interactive neighborhood and path exploration without running Node.",
+    "3. Query `.oag/graph.json` `export` metadata for scanner profile, ecosystem support matrix, provenance counts, and refresh commands.",
+    "4. Use `.oag/wiki/index.md` for lens-specific read-first lists and community hubs.",
+    "5. Refresh static artifacts after meaningful code changes with `npm run graph:export -- --workspace \"<path>\" --offline-only`.",
+    "",
+    "## No provider key required",
+    "- Static OAG artifacts are produced by the local scanner kernel only.",
+    "- No OpenAI, Anthropic, or other model provider key is required to read or navigate these files.",
+    "- Optional analyzers may require local runtimes (for example .NET SDK), but exported artifacts remain usable when analyzers are unavailable.",
+    "",
     "## Detected project types",
     ...(projectTypes.length > 0
       ? projectTypes.map((typeId) => `- ${typeId}`)
@@ -237,6 +268,9 @@ export function renderUnifiedGraphHandoffReport(
     }),
     "",
     ...renderEcosystemTierLegendMarkdown(),
+    ...renderEdgeProvenanceMarkdown(graph),
+    "",
+    ...renderDocsGraphMarkdown(graph),
     "## Graph health",
     ...health.badges.map((badge) => `- [${badge.tone}] ${badge.label}: ${badge.detail}`),
     "",
@@ -264,8 +298,10 @@ export function renderUnifiedGraphHandoffReport(
       : ["- No god nodes inferred."]),
     "",
     "## Community hubs",
-    ...formatCommunityHubMarkdown(communitySummaries),
+    ...formatRichCommunityHubMarkdown(communityHubs),
     "",
+    ...formatReadFirstByCommunityMarkdown(communityHubs),
+    ...formatHighDegreeHubWarnings(communityHubs),
     "## Entrypoints",
     ...(entrypoints.length > 0
       ? entrypoints.map((node) => `- ${node.label}${node.path ? ` (\`${node.path}\`)` : ""}`)

@@ -1,11 +1,22 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphEdge, UnifiedCodeGraphNode } from "./codeGraph.js";
+import { formatEdgeProvenanceLabel } from "./graphEdgeProvenance.js";
 import {
   buildGraphCommunitySummaries,
   findGraphCommunityForNode,
   type GraphCommunityContext,
 } from "./graphCommunities.js";
 import { filterUnifiedGraphByLens, type GraphTaskLensId } from "./graphLenses.js";
-import { isGraphPathFileExtension } from "./sourceExtensions.js";
+import {
+  countIndexedSymbols,
+  isDocsOrientedQuery,
+  scoreDocSectionForQuery,
+  summarizeDocSectionNeighbors,
+} from "./graphDocs.js";
+import {
+  rankGraphPathSeedCandidates,
+  scoreGraphPathSeedNodeForQuery,
+  tokenizeGraphPathSeedQuery,
+} from "./graphPathSeedResolution.js";
 
 export type GraphTraversalMode = "bfs" | "dfs";
 
@@ -27,10 +38,13 @@ export interface GraphQueryResult {
   communities?: GraphCommunityContext[];
 }
 
+export type GraphPathMode = "semantic" | "balanced" | "structural";
+
 export interface GraphPathOptions {
   lens?: GraphTaskLensId;
   maxHops?: number;
   explainRanking?: boolean;
+  mode?: GraphPathMode;
 }
 
 export interface GraphPathSeedResolution {
@@ -54,10 +68,13 @@ export interface GraphPathPenalizedAlternative {
   summary: string;
   nodeLabels: string[];
   bridgeKinds: string[];
+  totalCost?: number;
+  mode?: GraphPathMode;
 }
 
 export interface GraphPathExplanation {
   lens: GraphTaskLensId;
+  mode: GraphPathMode;
   seedResolution: {
     from: GraphPathSeedResolution;
     to: GraphPathSeedResolution;
@@ -88,34 +105,12 @@ export interface GraphExplainResult {
   community?: GraphCommunityContext;
 }
 
-function normalizeSearchText(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
 export function tokenizeGraphQuery(query: string) {
-  return normalizeSearchText(query)
-    .split(/\s+/)
-    .filter((token) => token.length > 1);
+  return tokenizeGraphPathSeedQuery(query);
 }
 
 export function scoreGraphNodeForQuery(node: UnifiedCodeGraphNode, tokens: string[]) {
-  if (tokens.length === 0) return 0;
-  const haystack = normalizeSearchText(
-    [
-      node.id,
-      node.kind,
-      node.label,
-      node.path ?? "",
-      node.scannerId ?? "",
-      node.projectType ?? "",
-      ...Object.values(node.metadata ?? {}).map((value) => String(value)),
-    ].join(" ")
-  );
-  let score = 0;
-  for (const token of tokens) {
-    if (haystack.includes(token)) score += token.length;
-  }
-  return score;
+  return scoreGraphPathSeedNodeForQuery(node, tokens);
 }
 
 export function findGraphSeedNodes(
@@ -124,12 +119,32 @@ export function findGraphSeedNodes(
   seedLimit = 5
 ) {
   const tokens = tokenizeGraphQuery(query);
-  return [...graph.nodes]
-    .map((node) => ({ node, score: scoreGraphNodeForQuery(node, tokens) }))
+  const ranked = [...graph.nodes]
+    .map((node) => {
+      let score = scoreGraphNodeForQuery(node, tokens);
+      if (node.kind === "doc_section") {
+        score = Math.max(score, scoreDocSectionForQuery(node, tokens));
+      }
+      if (isDocsOrientedQuery(query) && (node.kind === "doc_section" || node.kind === "doc_file")) {
+        score += 40;
+      }
+      return { node, score };
+    })
     .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || left.node.label.localeCompare(right.node.label))
-    .slice(0, seedLimit)
+    .sort((left, right) => right.score - left.score || left.node.label.localeCompare(right.node.label));
+
+  const seeds = ranked.slice(0, seedLimit).map((entry) => entry.node);
+  const symbolSeeds = seeds.filter((node) => node.kind === "symbol");
+  const sparseSymbols = countIndexedSymbols(graph) <= 3 || symbolSeeds.length === 0;
+  if (!sparseSymbols && !isDocsOrientedQuery(query)) {
+    return seeds;
+  }
+
+  const docSeeds = ranked
+    .filter((entry) => entry.node.kind === "doc_section" || entry.node.kind === "doc_file")
+    .slice(0, Math.max(2, Math.floor(seedLimit / 2)))
     .map((entry) => entry.node);
+  return [...new Set([...seeds, ...docSeeds])].slice(0, seedLimit);
 }
 
 export function buildGraphAdjacency(graph: UnifiedCodeGraph) {
@@ -236,116 +251,8 @@ export function queryUnifiedCodeGraph(
   };
 }
 
-function pathBasename(value: string) {
-  return value.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.toLowerCase() ?? "";
-}
-
-function normalizePathQuery(query: string) {
-  return query.trim().replace(/\\/g, "/").toLowerCase();
-}
-
-function looksLikeFileQuery(normalizedPathQuery: string) {
-  const extension = pathBasename(normalizedPathQuery).split(".").pop()?.toLowerCase() ?? "";
-  return extension.length >= 2 && isGraphPathFileExtension(extension);
-}
-
-function fileQueryStemTokens(normalizedPathQuery: string) {
-  const queryBasename = pathBasename(normalizedPathQuery);
-  const stem = queryBasename.replace(/\.[^.]+$/, "");
-  return tokenizeGraphQuery(stem);
-}
-
-function hasFileQueryPathAlignment(
-  normalizedPath: string,
-  basename: string,
-  normalizedPathQuery: string
-) {
-  if (normalizedPath === normalizedPathQuery) return true;
-  if (basename && basename === normalizedPathQuery) return true;
-  if (normalizedPath.endsWith(`/${normalizedPathQuery}`)) return true;
-  const stemTokens = fileQueryStemTokens(normalizedPathQuery);
-  return stemTokens.length > 0 && stemTokens.every((token) =>
-    basename.includes(token) || normalizedPath.includes(token)
-  );
-}
-
-function scoreGraphNodeForPathResolution(node: UnifiedCodeGraphNode, query: string, tokens: string[]) {
-  const normalizedPathQuery = normalizePathQuery(query);
-  const fileQuery = looksLikeFileQuery(normalizedPathQuery);
-  const resolutionTokens = fileQuery ? fileQueryStemTokens(normalizedPathQuery) : tokens;
-  const normalizedQuery = normalizeSearchText(query);
-  const normalizedPath = (node.path ?? "").replace(/\\/g, "/").toLowerCase();
-  const normalizedLabel = normalizeSearchText(node.label);
-  const basename = pathBasename(node.path ?? node.label);
-  let score = scoreGraphNodeForQuery(node, resolutionTokens);
-  let matchReason = score > 0 ? "token overlap" : "no match";
-  let hasPathMatch = false;
-
-  if (node.id.toLowerCase() === query.trim().toLowerCase()) {
-    return { score: 10_000, matchReason: "exact node id" };
-  }
-  if (normalizedPath === normalizedPathQuery) {
-    return { score: 9_000, matchReason: "exact path" };
-  }
-  if (basename && basename === normalizedPathQuery) {
-    score += 2_000;
-    matchReason = "path basename";
-    hasPathMatch = true;
-  } else if (normalizedPath.endsWith(`/${normalizedPathQuery}`)) {
-    score += 1_500;
-    matchReason = "path suffix";
-    hasPathMatch = true;
-  }
-  if (node.label.toLowerCase() === normalizedPathQuery) {
-    score += 1_200;
-    matchReason = "exact label";
-    hasPathMatch = true;
-  } else if (node.label.toLowerCase().startsWith(`${normalizedPathQuery} `)) {
-    score += 1_000;
-    matchReason = "label prefix";
-    hasPathMatch = true;
-  }
-
-  if (fileQuery) {
-    const pathAligned = hasPathMatch || hasFileQueryPathAlignment(normalizedPath, basename, normalizedPathQuery);
-    if (node.kind === "code_file") {
-      if (!pathAligned) {
-        score = 0;
-        matchReason = "no match";
-      } else if (!hasPathMatch && score > 0) {
-        matchReason = "filename token";
-      }
-    } else if (!pathAligned) {
-      score = 0;
-      matchReason = "no match";
-    }
-  }
-  if (node.kind === "symbol") {
-    if (normalizedLabel.startsWith(`${normalizedQuery} `) && node.label.includes("(class)")) {
-      score += 800;
-      matchReason = "class symbol";
-    }
-    if (/\(field\)|\(method\)|\(property\)|\.|_/i.test(node.label) && !/[._]/.test(query)) {
-      score -= 250;
-    }
-  }
-  if (node.kind === "workspace" || (node.kind === "project" && (node.label === "workspace-root" || node.path === "."))) {
-    score -= 500;
-  }
-
-  return { score, matchReason };
-}
-
 export function rankGraphNodeCandidates(graph: UnifiedCodeGraph, target: string, limit = 5) {
-  const tokens = tokenizeGraphQuery(target);
-  return [...graph.nodes]
-    .map((node) => {
-      const scored = scoreGraphNodeForPathResolution(node, target, tokens);
-      return { node, ...scored };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || left.node.label.localeCompare(right.node.label))
-    .slice(0, limit);
+  return rankGraphPathSeedCandidates(graph.nodes, target, limit);
 }
 
 export function resolveGraphNode(graph: UnifiedCodeGraph, target: string) {
@@ -358,63 +265,110 @@ function isLowValueBridgeNode(node: UnifiedCodeGraphNode) {
   if (node.kind === "package" || node.kind === "directory") return true;
   if (node.kind === "community") return true;
   if (node.kind === "god_node") return true;
+  if (node.kind === "symbol" && /\(namespace\)/i.test(node.label)) return true;
+  if (node.kind === "symbol" && /\(external\)/i.test(node.label)) return true;
   return false;
 }
 
-function scoreGraphNodePenalty(node: UnifiedCodeGraphNode, options: GraphPathOptions) {
-  switch (node.kind) {
-    case "workspace":
-      return 1_000;
-    case "project":
-      return node.label === "workspace-root" || node.path === "." ? 500 : 250;
-    case "package":
-    case "directory":
-      return 200;
-    case "community":
-      return 150;
-    case "god_node":
-      return 100;
-    case "config_file":
-      return 80;
-    case "doc_file":
-    case "asset_file":
-      return 60;
-    case "external_dep":
-      return 40;
-    case "test":
-      return options.lens === "tests" ? 2 : 25;
-    case "code_file":
-      return 5;
-    case "symbol":
-      return 1;
-    case "route":
-    case "command":
-      return 8;
-    default:
-      return 20;
-  }
+const SEMANTIC_PATH_EDGE_KINDS = new Set<UnifiedCodeGraphEdge["kind"]>([
+  "references",
+  "depends_on",
+  "implements",
+  "inherits",
+  "tests",
+  "declares",
+]);
+
+function resolveGraphPathMode(options: GraphPathOptions): GraphPathMode {
+  return options.mode ?? "balanced";
 }
 
-function scoreGraphEdgeForPath(edge: UnifiedCodeGraphEdge, options: GraphPathOptions) {
-  const kindBase: Record<UnifiedCodeGraphEdge["kind"], number> = {
-    tests: options.lens === "tests" ? 4 : 18,
-    implements: 8,
-    depends_on: 10,
-    references: 12,
-    inherits: 15,
-    declares: 90,
-    belongs_to: 100,
+function isSemanticPathEdge(edge: UnifiedCodeGraphEdge, mode: GraphPathMode) {
+  if (mode !== "semantic") return true;
+  if (edge.provenance !== "extracted" && edge.provenance !== "manual") return false;
+  return SEMANTIC_PATH_EDGE_KINDS.has(edge.kind);
+}
+
+function buildNodeDegreeMap(graph: UnifiedCodeGraph) {
+  const degree = new Map<string, number>();
+  const bump = (nodeId: string) => degree.set(nodeId, (degree.get(nodeId) ?? 0) + 1);
+  for (const edge of graph.edges) {
+    bump(edge.sourceNodeId);
+    bump(edge.targetNodeId);
+  }
+  return degree;
+}
+
+function isHighDegreeHubNode(graph: UnifiedCodeGraph, node: UnifiedCodeGraphNode, degreeMap: Map<string, number>) {
+  if (isLowValueBridgeNode(node)) return true;
+  return (degreeMap.get(node.id) ?? 0) >= 12;
+}
+
+export function computeGraphPathNodePenalty(node: UnifiedCodeGraphNode, options: GraphPathOptions = {}) {
+  const mode = resolveGraphPathMode(options);
+  if (mode === "semantic" && isLowValueBridgeNode(node)) {
+    return 50_000;
+  }
+
+  const balancedPenalty: Partial<Record<UnifiedCodeGraphNode["kind"], number>> = {
+    workspace: 5_000,
+    project: node.label === "workspace-root" || node.path === "." ? 2_500 : 600,
+    package: 450,
+    directory: 400,
+    community: 350,
+    god_node: 250,
+    config_file: 120,
+    doc_section: 35,
+    doc_file: 100,
+    asset_file: 90,
+    external_dep: 500,
+    test: options.lens === "tests" ? 4 : 60,
+    code_file: 18,
+    symbol: /\(namespace\)/i.test(node.label) ? 900 : /\(external\)/i.test(node.label) ? 700 : 2,
+    route: 24,
+    command: 24,
+  };
+
+  const structuralMultiplier = mode === "structural" ? 0.35 : 1;
+  const penalty = balancedPenalty[node.kind] ?? 40;
+  return Math.round(penalty * structuralMultiplier);
+}
+
+export function computeGraphPathEdgeCost(edge: UnifiedCodeGraphEdge, options: GraphPathOptions = {}) {
+  const mode = resolveGraphPathMode(options);
+  if (!isSemanticPathEdge(edge, mode)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const balancedKindBase: Record<UnifiedCodeGraphEdge["kind"], number> = {
+    references: 4,
+    depends_on: 6,
+    implements: 5,
+    inherits: 7,
+    tests: options.lens === "tests" ? 4 : 8,
+    declares: 20,
+    belongs_to: mode === "structural" ? 45 : 120,
     documents: 55,
-    related_to: 45,
-    build_produces: 70,
+    related_to: 50,
+    build_produces: 75,
   };
   const provenanceMultiplier: Record<UnifiedCodeGraphEdge["provenance"], number> = {
     extracted: 1,
     manual: 1,
-    inferred: 1.25,
-    ambiguous: 1.6,
+    inferred: mode === "structural" ? 1.1 : 1.35,
+    ambiguous: mode === "structural" ? 1.25 : 1.75,
   };
-  return (kindBase[edge.kind] ?? 30) * (provenanceMultiplier[edge.provenance] ?? 1.3);
+  const relation = typeof edge.metadata?.scannerRelation === "string"
+    ? edge.metadata.scannerRelation
+    : undefined;
+  let cost = (balancedKindBase[edge.kind] ?? 35) * (provenanceMultiplier[edge.provenance] ?? 1.4);
+  if (relation === "extends" || relation === "implements") {
+    cost *= 0.9;
+  }
+  if (edge.kind === "belongs_to" && mode === "balanced") {
+    cost *= 1.15;
+  }
+  return cost;
 }
 
 function buildWeightedAdjacency(graph: UnifiedCodeGraph, options: GraphPathOptions) {
@@ -425,7 +379,8 @@ function buildWeightedAdjacency(graph: UnifiedCodeGraph, options: GraphPathOptio
     adjacency.set(sourceId, current);
   };
   for (const edge of graph.edges) {
-    const cost = scoreGraphEdgeForPath(edge, options);
+    const cost = computeGraphPathEdgeCost(edge, options);
+    if (!Number.isFinite(cost)) continue;
     add(edge.sourceNodeId, edge.targetNodeId, edge, cost);
     add(edge.targetNodeId, edge.sourceNodeId, edge, cost);
   }
@@ -510,7 +465,7 @@ function dijkstraGraphPath(
       if (!neighbor) continue;
       const nextHops = currentHops + 1;
       if (options.maxHops !== undefined && nextHops > options.maxHops) continue;
-      const nodePenalty = scoreGraphNodePenalty(neighbor, options);
+      const nodePenalty = computeGraphPathNodePenalty(neighbor, options);
       const nextDist = currentDist + entry.cost + nodePenalty;
       const knownDist = dist.get(entry.neighborId);
       if (knownDist !== undefined && nextDist >= knownDist) continue;
@@ -540,8 +495,8 @@ function dijkstraGraphPath(
   const steps: GraphPathStep[] = pathIds.map((nodeId, index) => {
     const node = nodesById.get(nodeId)!;
     const viaEdge = index > 0 ? pathEdges[index - 1] : undefined;
-    const edgeCost = viaEdge ? scoreGraphEdgeForPath(viaEdge, options) : undefined;
-    const nodePenalty = index > 0 ? scoreGraphNodePenalty(node, options) : 0;
+    const edgeCost = viaEdge ? computeGraphPathEdgeCost(viaEdge, options) : undefined;
+    const nodePenalty = index > 0 ? computeGraphPathNodePenalty(node, options) : 0;
     return { node, viaEdge, edgeCost, nodePenalty, hop: index };
   });
 
@@ -569,6 +524,39 @@ function buildSeedResolution(query: string, candidate?: ReturnType<typeof rankGr
 
 const PATH_SEED_CANDIDATE_LIMIT = 3;
 
+function pathHasHubDetour(
+  graph: UnifiedCodeGraph,
+  nodes: UnifiedCodeGraphNode[],
+  degreeMap: Map<string, number>
+) {
+  if (nodes.length <= 2) return false;
+  return nodes.slice(1, -1).some((node) => isHighDegreeHubNode(graph, node, degreeMap));
+}
+
+function buildPathExplanation(
+  graph: UnifiedCodeGraph,
+  options: GraphPathOptions,
+  lens: GraphTaskLensId,
+  fromQuery: string,
+  toQuery: string,
+  chosenFrom: ReturnType<typeof rankGraphNodeCandidates>[number],
+  chosenTo: ReturnType<typeof rankGraphNodeCandidates>[number],
+  weighted: NonNullable<ReturnType<typeof dijkstraGraphPath>>,
+  alternatives: GraphPathPenalizedAlternative[]
+): GraphPathExplanation {
+  return {
+    lens,
+    mode: resolveGraphPathMode(options),
+    seedResolution: {
+      from: buildSeedResolution(fromQuery, chosenFrom),
+      to: buildSeedResolution(toQuery, chosenTo),
+    },
+    steps: weighted.steps,
+    totalCost: weighted.totalCost,
+    penalizedAlternatives: alternatives,
+  };
+}
+
 export function findGraphPath(
   graph: UnifiedCodeGraph,
   fromQuery: string,
@@ -576,7 +564,9 @@ export function findGraphPath(
   options: GraphPathOptions = {}
 ): GraphPathResult {
   const lens = options.lens ?? "all";
+  const pathMode = resolveGraphPathMode(options);
   const scopedGraph = lens !== "all" ? filterUnifiedGraphByLens(graph, lens) : graph;
+  const degreeMap = buildNodeDegreeMap(scopedGraph);
   const fromCandidates = rankGraphNodeCandidates(scopedGraph, fromQuery, PATH_SEED_CANDIDATE_LIMIT);
   const toCandidates = rankGraphNodeCandidates(scopedGraph, toQuery, PATH_SEED_CANDIDATE_LIMIT);
   const fallbackFromNode = fromCandidates[0]?.node;
@@ -607,7 +597,7 @@ export function findGraphPath(
       scopedGraph,
       fromCandidate.node,
       toCandidate.node,
-      { ...options, lens }
+      { ...options, lens, mode: pathMode }
     );
     if (!candidatePath) return;
     if (!weighted || candidatePath.totalCost < weighted.totalCost) {
@@ -622,9 +612,10 @@ export function findGraphPath(
     const primaryConnected = findUnweightedGraphPath(
       scopedGraph,
       fromCandidates[0]!.node,
-      toCandidates[0]!.node
+      toCandidates[0]!.node,
+      options.maxHops
     );
-    if (!primaryConnected) {
+    if (!primaryConnected && options.maxHops === undefined) {
       for (const fromCandidate of fromCandidates) {
         for (const toCandidate of toCandidates) {
           if (fromCandidate === fromCandidates[0] && toCandidate === toCandidates[0]) continue;
@@ -637,32 +628,47 @@ export function findGraphPath(
   const fromNode = chosenFrom.node;
   const toNode = chosenTo.node;
 
-  if (!weighted) {
+  if (!weighted || fromNode.id === toNode.id) {
     return {
       from: fromQuery,
       to: toQuery,
       fromNode: fallbackFromNode,
       toNode: fallbackToNode,
       found: false,
-      nodes: [fallbackFromNode, fallbackToNode],
+      nodes: [fallbackFromNode, fallbackToNode].filter((node, index, array) =>
+        array.findIndex((entry) => entry.id === node.id) === index
+      ),
       edges: [],
     };
   }
 
-  const explanation: GraphPathExplanation | undefined = options.explainRanking
-    ? {
-        lens,
-        seedResolution: {
-          from: buildSeedResolution(fromQuery, chosenFrom),
-          to: buildSeedResolution(toQuery, chosenTo),
-        },
-        steps: weighted.steps,
-        totalCost: weighted.totalCost,
-        penalizedAlternatives: [],
-      }
-    : undefined;
+  const penalizedAlternatives: GraphPathPenalizedAlternative[] = [];
+  const balancedPath = weighted;
 
-  if (explanation) {
+  if (pathMode === "balanced" && pathHasHubDetour(scopedGraph, balancedPath.nodes, degreeMap)) {
+    const semanticPath = dijkstraGraphPath(
+      scopedGraph,
+      fromNode,
+      toNode,
+      { ...options, lens, mode: "semantic" }
+    );
+    if (semanticPath && !pathHasHubDetour(scopedGraph, semanticPath.nodes, degreeMap)) {
+      penalizedAlternatives.push({
+        summary: "Balanced path detoured through high-degree or low-value hubs; semantic path preferred.",
+        nodeLabels: balancedPath.nodes.map((node) => node.label),
+        bridgeKinds: [...new Set(
+          balancedPath.nodes
+            .filter((node) => isHighDegreeHubNode(scopedGraph, node, degreeMap))
+            .map((node) => node.kind)
+        )],
+        totalCost: balancedPath.totalCost,
+        mode: "balanced",
+      });
+      weighted = semanticPath;
+    }
+  }
+
+  if (options.explainRanking) {
     const hopPath = findUnweightedGraphPath(scopedGraph, fromNode, toNode, options.maxHops);
     const weightedIds = weighted.nodes.map((node) => node.id).join("|");
     const hopIds = hopPath?.map((node) => node.id).join("|");
@@ -670,13 +676,28 @@ export function findGraphPath(
       const bridgeKinds = hopPath
         .filter((node) => isLowValueBridgeNode(node))
         .map((node) => node.kind);
-      explanation.penalizedAlternatives.push({
+      penalizedAlternatives.push({
         summary: "Shorter hop-count path avoided due to low-value bridge nodes or weak edge provenance.",
         nodeLabels: hopPath.map((node) => node.label),
         bridgeKinds: [...new Set(bridgeKinds)],
+        mode: "structural",
       });
     }
   }
+
+  const explanation: GraphPathExplanation | undefined = options.explainRanking
+    ? buildPathExplanation(
+      scopedGraph,
+      options,
+      lens,
+      fromQuery,
+      toQuery,
+      chosenFrom,
+      chosenTo,
+      weighted,
+      penalizedAlternatives
+    )
+    : undefined;
 
   return {
     from: fromQuery,
@@ -721,13 +742,19 @@ export function explainGraphNode(graph: UnifiedCodeGraph, target: string): Graph
     .sort((left, right) => left.label.localeCompare(right.label));
 
   const community = findGraphCommunityForNode(graph, node.id);
+  const docSectionSummary = summarizeDocSectionNeighbors(node, neighbors, edges);
+  const provenanceSummary = edges.length > 0
+    ? `edge trust: ${edges.slice(0, 4).map((edge) => formatEdgeProvenanceLabel(edge)).join("; ")}`
+    : undefined;
   const summary = [
     `${node.label} (${node.kind})`,
     node.path ? `path: ${node.path}` : undefined,
     community ? `community: ${community.label} (${community.fileCount} files)` : undefined,
     community?.summary,
+    docSectionSummary,
     node.scannerId ? `scanner: ${node.scannerId}` : undefined,
     `${edges.length} connected edge(s), ${neighbors.length} neighbor(s).`,
+    provenanceSummary,
   ].filter(Boolean).join(" ");
 
   return { target, resolved: true, node, neighbors, edges, summary, community };

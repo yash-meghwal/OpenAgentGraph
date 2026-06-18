@@ -8,7 +8,11 @@ import type {
   UnifiedCodeGraphNode,
   WorkspaceKernelProfile,
 } from "@openagentgraph/shared";
-import { CODE_GRAPH_SCHEMA_VERSION } from "@openagentgraph/shared";
+import {
+  CODE_GRAPH_SCHEMA_VERSION,
+  finalizeUnifiedGraphEdge,
+  mapProductTrustToProvenance,
+} from "@openagentgraph/shared";
 
 function stableId(prefix: string, raw: string) {
   return `${prefix}:${raw.replace(/[^A-Za-z0-9._:-]+/g, "-")}`;
@@ -23,12 +27,21 @@ function mapProductNodeKind(node: ProductGraphNode): UnifiedCodeGraphNode["kind"
     }
     return "code_file";
   }
-  if (node.kind === "code_symbol") return "symbol";
+  if (node.kind === "code_symbol") {
+    if (node.metadata?.scannerSymbolKind === "doc_section") return "doc_section";
+    return "symbol";
+  }
   if (node.kind === "code_community") return "community";
   return "directory";
 }
 
-function mapProductEdgeKind(kind: ProductGraphEdge["kind"]): UnifiedCodeGraphEdge["kind"] | undefined {
+function mapProductEdgeKind(
+  kind: ProductGraphEdge["kind"],
+  metadata?: ProductGraphEdge["metadata"]
+): UnifiedCodeGraphEdge["kind"] | undefined {
+  if (kind === "uses" && metadata?.scannerRelation === "doc_code_ref") {
+    return "documents";
+  }
   switch (kind) {
     case "belongs_to":
       return "belongs_to";
@@ -77,14 +90,14 @@ export function buildUnifiedCodeGraph(input: {
       projectType: input.kernelProfile.primaryType,
       scannerId: input.kernelProfile.activeScannerIds[0],
     });
-    edges.push({
+    edges.push(finalizeUnifiedGraphEdge({
       id: stableId("edge", `${projectNodeId}->workspace|declares`),
       sourceNodeId: stableId("workspace", input.workspaceRoot),
       targetNodeId: projectNodeId,
       kind: "declares",
       provenance: "extracted",
       scannerId: "kernel",
-    });
+    }, { scannerId: "kernel" }));
   }
 
   for (const node of input.projection.nodes) {
@@ -122,6 +135,15 @@ export function buildUnifiedCodeGraph(input: {
         ...(typeof node.metadata?.scannerRelation === "string"
           ? { scannerRelation: node.metadata.scannerRelation }
           : {}),
+        ...(typeof node.metadata?.scannerLanguage === "string"
+          ? { scannerLanguage: node.metadata.scannerLanguage }
+          : {}),
+        ...(typeof node.metadata?.scannerSymbolKind === "string"
+          ? { scannerSymbolKind: node.metadata.scannerSymbolKind }
+          : {}),
+        ...(typeof node.metadata?.scannerScriptEnvVars === "string"
+          ? { scannerScriptEnvVars: node.metadata.scannerScriptEnvVars }
+          : {}),
         ...Object.fromEntries(
           Object.entries(communityMetadata).filter(([, value]) => value !== undefined && value !== null)
         ),
@@ -133,18 +155,18 @@ export function buildUnifiedCodeGraph(input: {
       const nodePath = unifiedNode.path ?? "";
       return root === "." || nodePath === root || nodePath.startsWith(`${root}/`);
     }) ?? ".";
-    edges.push({
+    edges.push(finalizeUnifiedGraphEdge({
       id: stableId("edge", `${unifiedNode.id}->${parentProject}|belongs_to`),
       sourceNodeId: unifiedNode.id,
       targetNodeId: stableId("project", parentProject),
       kind: "belongs_to",
       provenance: "extracted",
       scannerId: unifiedNode.scannerId,
-    });
+    }, { scannerId: unifiedNode.scannerId }));
   }
 
   for (const edge of input.projection.edges) {
-    const mappedKind = mapProductEdgeKind(edge.kind);
+    const mappedKind = mapProductEdgeKind(edge.kind, edge.metadata);
     if (!mappedKind) continue;
     const edgeMetadata: Record<string, string | number | boolean | null> = {};
     if (typeof edge.metadata?.scannerRelation === "string") {
@@ -156,18 +178,19 @@ export function buildUnifiedCodeGraph(input: {
     if (typeof edge.metadata?.scannerImportResolution === "string") {
       edgeMetadata.scannerImportResolution = edge.metadata.scannerImportResolution;
     }
-    edges.push({
+    const provenance = mapProductTrustToProvenance(edge.trust);
+    edges.push(finalizeUnifiedGraphEdge({
       id: stableId("edge", edge.id),
       sourceNodeId: stableId("node", edge.sourceNodeId),
       targetNodeId: stableId("node", edge.targetNodeId),
       kind: mappedKind,
-      provenance: edge.trust === "manual" ? "manual" : edge.trust === "inferred" ? "inferred" : "extracted",
+      provenance,
       label: edge.label,
       scannerId: typeof edge.metadata?.scannerLanguage === "string"
         ? String(edge.metadata.scannerLanguage)
         : undefined,
       ...(Object.keys(edgeMetadata).length > 0 ? { metadata: edgeMetadata } : {}),
-    });
+    }, { productEdge: edge }));
   }
 
   return {

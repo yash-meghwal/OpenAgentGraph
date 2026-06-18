@@ -11,6 +11,11 @@ import {
   parseGodotProject,
   parseUnrealProject,
 } from "./gameEngineProjectParsing.js";
+import {
+  augmentDocumentationWorkspaceGraph,
+  indexDocumentationFile,
+  parseDocumentationFile,
+} from "./documentationScanner.js";
 
 export const ECOSYSTEM_SCANNER_VERSION = "1.1";
 
@@ -866,19 +871,15 @@ function parseTerraformFile(body: string, filePath: string): EcosystemFileIndex 
   return { language: "terraform", filePath, symbols, imports, isTestFile: false, headings: [] };
 }
 
-function parseDocumentationFile(body: string, filePath: string): EcosystemFileIndex {
-  const headings: string[] = [];
-  for (const rawLine of body.split("\n")) {
-    const headingMatch = rawLine.match(/^#{1,3}\s+(.+?)\s*$/);
-    if (headingMatch) headings.push(headingMatch[1]!.trim());
-  }
+function parseDocumentationEcosystemFile(body: string, filePath: string): EcosystemFileIndex {
+  const parsed = parseDocumentationFile(body, filePath);
   return {
     language: "documentation",
     filePath,
     symbols: [],
     imports: [],
     isTestFile: false,
-    headings: headings.slice(0, 12),
+    headings: parsed.headings,
   };
 }
 
@@ -1225,7 +1226,7 @@ export function parseEcosystemFile(input: {
     case "terraform":
       return parseTerraformFile(input.body, input.filePath);
     case "documentation":
-      return parseDocumentationFile(input.body, input.filePath);
+      return parseDocumentationEcosystemFile(input.body, input.filePath);
     default:
       return undefined;
   }
@@ -1253,6 +1254,27 @@ export function indexEcosystemFile(input: {
   });
   if (!fileIndex) {
     return { symbolNodes: [], edges: [] };
+  }
+
+  if (fileIndex.language === "documentation") {
+    const fileNodeId = input.stableId("code-scan:file", input.filePath);
+    const indexed = indexDocumentationFile({
+      filePath: input.filePath,
+      body: input.body,
+      fileNodeId,
+      scanId: input.scanId,
+      scannedAt: input.scannedAt,
+      stableId: input.stableId,
+      compactMetadata: input.compactMetadata,
+      sourceRef: input.sourceRef,
+      maxTitleLength: input.maxTitleLength,
+      maxEdgeLabelLength: input.maxEdgeLabelLength,
+    });
+    return {
+      symbolNodes: indexed.symbolNodes,
+      edges: indexed.edges,
+      fileMetadata: indexed.fileMetadata,
+    };
   }
 
   const symbolNodes: ProductGraphNode[] = [];
@@ -1526,12 +1548,15 @@ export function augmentEcosystemWorkspaceGraph(input: {
   scannedAt: string;
   files: Array<{ relativePath: string; body: string }>;
   fileNodeIdsByPath: Map<string, string>;
+  docSectionNodeIdsByKey?: Map<string, string>;
+  symbolNodeIdsBySimpleName?: Map<string, string[]>;
   stableId: (prefix: string, raw: string) => string;
   compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
   maxEdgeLabelLength: number;
   maxTitleLength?: number;
 }) {
   const edges: ProductGraphEdge[] = [];
+  const diagnostics: string[] = [];
   const externalNodes = new Map<string, ProductGraphNode>();
   const terraformModules = new Map<string, string>();
   const javaKotlinIndex = buildJavaKotlinWorkspaceIndex(input.files);
@@ -1704,7 +1729,26 @@ export function augmentEcosystemWorkspaceGraph(input: {
     }
   }
 
-  return { edges, externalNodes: [...externalNodes.values()], terraformModules };
+  const documentation = augmentDocumentationWorkspaceGraph({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.files,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    docSectionNodeIdsByKey: input.docSectionNodeIdsByKey ?? new Map(),
+    symbolNodeIdsBySimpleName: input.symbolNodeIdsBySimpleName ?? new Map(),
+    stableId: input.stableId,
+    compactMetadata: input.compactMetadata,
+    maxEdgeLabelLength: input.maxEdgeLabelLength,
+  });
+  edges.push(...documentation.edges);
+  diagnostics.push(...documentation.diagnostics);
+
+  return {
+    edges,
+    externalNodes: [...externalNodes.values()],
+    terraformModules,
+    diagnostics,
+  };
 }
 
 export function buildEcosystemParsedFileIndex(files: Array<{ relativePath: string; body: string }>) {

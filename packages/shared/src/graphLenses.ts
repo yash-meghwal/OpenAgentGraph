@@ -159,7 +159,7 @@ export function graphLensIdsForNode(node: UnifiedCodeGraphNode): GraphTaskLensId
     scopes.add(lensId);
   }
   if (node.kind === "community") scopes.add("backend-runtime");
-  if (node.kind === "doc_file") scopes.add("docs-handoff");
+  if (node.kind === "doc_file" || node.kind === "doc_section") scopes.add("docs-handoff");
   if (node.kind === "config_file" && /\.(tf|tfvars)$/i.test(pathValue)) scopes.add("infra");
   if (node.kind === "symbol" && /viewmodel|view|page|component/i.test(node.label)) scopes.add("frontend");
   if (node.kind === "symbol" && /test/i.test(node.label)) scopes.add("tests");

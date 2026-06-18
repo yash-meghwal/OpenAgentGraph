@@ -78,6 +78,10 @@ export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
     });
   }
 
+  if (result.plan.mode === "full" && result.plan.reasons.length === 0 && !graphOptions.refresh) {
+    result.plan.reasons.push("Full scan fallback reason was not recorded.");
+  }
+
   const payload = {
     status: result.plan.mode === "noop" ? "graph_update_noop" : "graph_update_complete",
     workspaceRoot,

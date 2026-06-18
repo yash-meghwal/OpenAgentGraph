@@ -1,10 +1,17 @@
 import fs from "fs/promises";
 import path from "path";
 import {
+  evaluateGraphExternalBenchmarkSuite,
+  evaluateGraphUpdateBenchmarkSuite,
   evaluateReleaseBenchmarkSuite,
+  formatGraphExternalBenchmarkSummaryLine,
+  formatGraphUpdateBenchmarkSummaryLine,
   GRAPH_RELEASE_FIXTURE_IDS,
+  GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
   GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
 } from "@openagentgraph/shared";
+import { runGraphExternalBenchmarkCatalog } from "../scanner/kernel/graphExternalBenchmarkRunner.js";
+import { runGraphUpdateBenchmarkSuite } from "../scanner/kernel/graphUpdateBenchmarkRunner.js";
 import { runKernelWorkspaceScan, type KernelScanResult } from "../scanner/kernel/scanKernel.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
@@ -840,8 +847,47 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!indexedPaths.includes("docs/architecture.md")) {
         errors.push("Expected docs/architecture.md to be indexed.");
       }
-      if (result.scanPlan.nodes.some((node) => node.kind === "code_symbol")) {
+      if (result.scanPlan.nodes.some((node) =>
+        node.kind === "code_symbol" && node.metadata?.scannerSymbolKind !== "doc_section")) {
         errors.push("Docs-only fixture should not emit code symbols.");
+      }
+      if (result.scanPlan.nodes.filter((node) => node.metadata?.scannerSymbolKind === "doc_section").length < 4) {
+        errors.push("Expected doc_section nodes from markdown headings.");
+      }
+      if (!result.scanPlan.edges.some((edge) =>
+        edge.metadata?.scannerRelation === "doc_link" || edge.metadata?.scannerRelation === "doc_wikilink")) {
+        errors.push("Expected markdown or wikilink documentation edges.");
+      }
+      break;
+    case "fixture-docs-mixed-code":
+      if (!indexedPaths.includes("docs/feature.md")) {
+        errors.push("Expected docs/feature.md to be indexed.");
+      }
+      if (!indexedPaths.includes("src/checkout/service.ts")) {
+        errors.push("Expected src/checkout/service.ts to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.metadata?.scannerSymbolKind === "doc_section")) {
+        errors.push("Expected doc_section nodes in mixed docs/code fixture.");
+      }
+      if (!result.scanPlan.nodes.some((node) =>
+        node.kind === "code_symbol"
+        && node.metadata?.scannerSymbolKind !== "doc_section"
+        && String(node.title).includes("CheckoutService"))) {
+        errors.push("Expected CheckoutService symbol in mixed docs/code fixture.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "doc_code_ref")) {
+        errors.push("Expected doc_code_ref edges linking docs to source.");
+      }
+      break;
+    case "fixture-docs-broken-links":
+      if (!indexedPaths.includes("README.md")) {
+        errors.push("Expected README.md to be indexed.");
+      }
+      if (!result.unifiedGraph.diagnostics.some((line) => /Broken doc link/i.test(line))) {
+        errors.push("Expected broken-link diagnostics in scan output.");
+      }
+      if (result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "doc_link")) {
+        errors.push("Broken-link fixture should not create edges for missing targets.");
       }
       break;
     case "fixture-csharp-wpf":
@@ -905,10 +951,51 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!indexedPaths.includes("Scripts/Build.ps1")) {
         errors.push("Expected Scripts/Build.ps1 to be indexed.");
       }
+      if (!indexedPaths.includes("Scripts/Common.ps1")) {
+        errors.push("Expected Scripts/Common.ps1 to be indexed.");
+      }
       if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("AppService"))) {
         errors.push("Expected AppService C# symbol to be indexed.");
       }
+      if (!result.scanPlan.nodes.some((node) =>
+        node.kind === "code_symbol"
+        && node.metadata?.scannerSymbolKind === "function"
+        && String(node.metadata?.scannerSymbolName ?? "").includes("Build-App"))) {
+        errors.push("Expected Build-App PowerShell function symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "dot_sources")) {
+        errors.push("Expected PowerShell dot-source edges in mixed polyglot fixture.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "runs_command")) {
+        errors.push("Expected script runs_command edges in mixed polyglot fixture.");
+      }
       assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-scripts-shell":
+      if (!indexedPaths.includes("scripts/build.sh")) {
+        errors.push("Expected scripts/build.sh to be indexed.");
+      }
+      if (!indexedPaths.includes("scripts/helper.sh")) {
+        errors.push("Expected scripts/helper.sh to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) =>
+        node.kind === "code_symbol"
+        && node.metadata?.scannerSymbolKind === "function"
+        && String(node.metadata?.scannerSymbolName ?? "") === "build_app")) {
+        errors.push("Expected build_app shell function symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "dot_sources")) {
+        errors.push("Expected shell dot-source edges in scripts fixture.");
+      }
+      if (result.scanPlan.nodes.some((node) =>
+        JSON.stringify(node.metadata ?? {}).includes("TEST_SECRET_PLACEHOLDER"))) {
+        errors.push("Shell fixture must not expose secret env values in graph metadata.");
+      }
+      if (result.scanPlan.nodes.some((node) =>
+        typeof node.metadata?.scannerScriptEnvVars === "string"
+        && node.metadata.scannerScriptEnvVars.includes("="))) {
+        errors.push("Shell fixture must store env var names only, not assignments.");
+      }
       break;
     case "fixture-empty":
       if (result.kernelProfile.primaryType !== "empty-greenfield") {
@@ -925,7 +1012,8 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!indexedPaths.includes("README.md")) {
         errors.push("Expected README.md to be indexed.");
       }
-      if (result.scanPlan.nodes.some((node) => node.kind === "code_symbol")) {
+      if (result.scanPlan.nodes.some((node) =>
+        node.kind === "code_symbol" && node.metadata?.scannerSymbolKind !== "doc_section")) {
         errors.push("Asset-heavy fixture should not emit code symbols.");
       }
       if (indexedPaths.some((indexedPath) => indexedPath.includes("dist/"))) {
@@ -1060,10 +1148,16 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       })),
   });
 
+  const updateBenchmarkResults = await runGraphUpdateBenchmarkSuite({ fixturesRoot });
+  const updateBenchmarkSuite = evaluateGraphUpdateBenchmarkSuite(updateBenchmarkResults);
+
+  const externalBenchmarkResults = await runGraphExternalBenchmarkCatalog({ fixturesRoot });
+  const externalBenchmarkSuite = evaluateGraphExternalBenchmarkSuite(externalBenchmarkResults);
+
   const payload = {
     fixturesRoot,
     fixtureCount: results.length,
-    passed: failed.length === 0 && releaseSuite.ok,
+    passed: failed.length === 0 && releaseSuite.ok && updateBenchmarkSuite.ok && externalBenchmarkSuite.ok,
     results,
     releaseGates: {
       fixtures: [...GRAPH_RELEASE_FIXTURE_IDS],
@@ -1071,6 +1165,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       pathSuccessRate: releaseSuite.pathSuccessRate,
       agentBenchmarkSuccessRate: releaseSuite.agentBenchmarkSuccessRate,
       minQuerySuccessRate: GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
+      minPathSuccessRate: GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
       misleadingHandoffRate: releaseSuite.misleadingHandoffRate,
       totalScanMs: bundles
         .filter((bundle) => (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(bundle.fixture))
@@ -1078,6 +1173,17 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       passed: releaseSuite.ok,
       errors: releaseSuite.errors,
       results: releaseSuite.releaseResults,
+    },
+    updateBenchmarks: {
+      passed: updateBenchmarkSuite.ok,
+      maxWarmMs: updateBenchmarkSuite.maxWarmMs,
+      errors: updateBenchmarkSuite.errors,
+      results: updateBenchmarkSuite.results,
+    },
+    externalBenchmarks: {
+      passed: externalBenchmarkSuite.ok,
+      errors: externalBenchmarkSuite.errors,
+      results: externalBenchmarkSuite.results,
     },
   };
 
@@ -1097,6 +1203,14 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     for (const error of releaseSuite.errors) {
       console.log(`  - ${error}`);
     }
+    console.log(formatGraphUpdateBenchmarkSummaryLine(updateBenchmarkSuite));
+    for (const error of updateBenchmarkSuite.errors) {
+      console.log(`  - ${error}`);
+    }
+    console.log(formatGraphExternalBenchmarkSummaryLine(externalBenchmarkSuite));
+    for (const error of externalBenchmarkSuite.errors) {
+      console.log(`  - ${error}`);
+    }
     console.log(`Graph fixture verification: ${payload.passed ? "PASS" : "FAIL"} (${results.length} fixtures)`);
   }
 
@@ -1104,6 +1218,8 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     const failedNames = [
       ...failed.map((result) => result.fixture),
       ...(releaseSuite.ok ? [] : ["release-gates"]),
+      ...(updateBenchmarkSuite.ok ? [] : ["update-benchmarks"]),
+      ...(externalBenchmarkSuite.ok ? [] : ["external-benchmarks"]),
     ];
     throw new Error(`Graph fixture verification failed for: ${failedNames.join(", ")}`);
   }

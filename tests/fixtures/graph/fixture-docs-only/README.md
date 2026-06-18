@@ -2,4 +2,4 @@
 
 ## Architecture
 
-High-level overview.
+High-level overview. Jump to [[guide]].

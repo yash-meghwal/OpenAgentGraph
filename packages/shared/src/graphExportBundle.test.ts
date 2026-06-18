@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import { renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 import {
   buildGraphExportDocument,
   buildGraphExplorerPayload,
+  evaluateStaticExportReleaseGates,
+  extractExplorerPayloadFromHtml,
+  findForbiddenExportContent,
   renderGraphExplorerHtml,
   sanitizeGraphForExport,
   serializeJsonForScriptTag,
 } from "./graphExportBundle.js";
-
-function extractExplorerPayloadFromHtml(html: string) {
-  const match = html.match(/<script type="application\/json" id="oag-explorer-data">([\s\S]*?)<\/script>/);
-  if (!match?.[1]) throw new Error("Explorer payload script tag not found.");
-  return JSON.parse(match[1]) as ReturnType<typeof buildGraphExplorerPayload>;
-}
 
 function makeGraph(): UnifiedCodeGraph {
   return {
@@ -87,9 +85,26 @@ describe("graph export bundle", () => {
       ],
     };
 
-    const exported = buildGraphExportDocument(graph, makeProfile(), { exportedAt: "2026-06-17T12:00:00.000Z" });
+    const graphWithEdgeBody: UnifiedCodeGraph = {
+      ...graph,
+      edges: [
+        ...graph.edges,
+        {
+          id: "e-body",
+          sourceNodeId: "file:vm",
+          targetNodeId: "sym:vm",
+          kind: "declares",
+          provenance: "extracted",
+          metadata: { body: "class MainViewModel {}", scannerRelation: "declares" },
+        },
+      ],
+    };
+
+    const exported = buildGraphExportDocument(graphWithEdgeBody, makeProfile(), { exportedAt: "2026-06-17T12:00:00.000Z" });
     expect(exported.nodes[0]?.metadata?.body).toBeUndefined();
     expect(exported.nodes[0]?.metadata?.scannerCommunityLabel).toBe("App");
+    expect(exported.edges.find((edge) => edge.id === "e-body")?.metadata?.body).toBeUndefined();
+    expect(exported.edges.find((edge) => edge.id === "e-body")?.metadata?.scannerRelation).toBe("declares");
     expect(exported.export?.graphVersion).toBe("1");
     expect(exported.export?.exportedAt).toBe("2026-06-17T12:00:00.000Z");
     expect(exported.export?.scannerProfile?.primaryType).toBe("dotnet");
@@ -115,6 +130,11 @@ describe("graph export bundle", () => {
     expect(html).toContain('id="oag-explain-panel"');
     expect(html).toContain('id="oag-path-from"');
     expect(html).toContain("Community navigation");
+    expect(html).toContain('id="oag-hub-search"');
+    expect(html).toContain('role="button"');
+    expect(html).toContain('event.key !== "Enter" && event.key !== " "');
+    expect(html).toContain("graphPathSeedResolution.ts");
+    expect(html).toContain("const hopCount = Math.max(0, result.nodes.length - 1)");
     expect(html).not.toContain("Raw JSON");
     expect(html).not.toContain("class MainViewModel");
     expect(html).not.toContain("&quot;workspaceRoot&quot;");
@@ -128,6 +148,24 @@ describe("graph export bundle", () => {
     expect(serialized).toContain('"workspaceRoot":"/workspace"');
     expect(serialized).not.toContain("&quot;");
     expect(JSON.parse(serialized)).toEqual({ workspaceRoot: "/workspace", label: "A & B <C>" });
+  });
+
+  it("flags forbidden export content and secret-like values", () => {
+    const violations = findForbiddenExportContent('{"metadata":{"body":"class Secret {}"},"token":"sk_123456789012"}');
+    expect(violations).toContain("forbidden metadata key 'body'");
+    expect(violations).toContain("secret-looking API key value");
+  });
+
+  it("passes static export release gates for a complete export bundle", () => {
+    const exported = buildGraphExportDocument(makeGraph(), makeProfile());
+    const handoff = renderUnifiedGraphHandoffReport(exported, { kernelProfile: makeProfile() });
+    const gate = evaluateStaticExportReleaseGates({
+      graph: makeGraph(),
+      kernelProfile: makeProfile(),
+      handoffMarkdown: handoff,
+    });
+    expect(gate.ok).toBe(true);
+    expect(gate.errors).toEqual([]);
   });
 
   it("drops explorer edges that point at hidden node kinds", () => {

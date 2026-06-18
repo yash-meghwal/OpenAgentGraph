@@ -9,6 +9,7 @@ import {
   formatHandoffWorkspaceRootForReport,
   isPathInsideRoot,
 } from "../productGraphHandoffTrust.js";
+import { runOfflineKernelGraphExport } from "./offlineGraphExport.js";
 import { readGraphWorkspaceCliValue } from "./graphWorkspace.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
@@ -20,6 +21,7 @@ interface DogfoodCliOptions {
   workspace?: string;
   output?: string;
   json: boolean;
+  noExport: boolean;
 }
 
 function readRequiredCliValue(argv: string[], index: number, flag: string) {
@@ -31,7 +33,7 @@ function readRequiredCliValue(argv: string[], index: number, flag: string) {
 }
 
 function parseArgs(argv: string[]): DogfoodCliOptions {
-  const options: DogfoodCliOptions = { json: false };
+  const options: DogfoodCliOptions = { json: false, noExport: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -43,6 +45,8 @@ function parseArgs(argv: string[]): DogfoodCliOptions {
       index += 1;
     } else if (arg === "--json") {
       options.json = true;
+    } else if (arg === "--no-export") {
+      options.noExport = true;
     } else {
       throw new Error(`Unknown dogfood option: ${arg}`);
     }
@@ -88,6 +92,23 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
     throw new Error(`Workspace path does not exist or is not a directory: ${workspaceRoot}`);
   }
 
+  let staticExportPaths: string[] = [];
+  let staticNodeCount = 0;
+  let staticEdgeCount = 0;
+  let staticScannerIds: string[] = [];
+
+  const handoffOutput = parsed.output ?? DEFAULT_HANDOFF_OUTPUT;
+
+  if (!parsed.noExport) {
+    const staticExport = await runOfflineKernelGraphExport(workspaceRoot, {
+      handoffPath: handoffOutput,
+    });
+    staticExportPaths = staticExport.writtenPaths;
+    staticNodeCount = staticExport.graph.nodes.length;
+    staticEdgeCount = staticExport.graph.edges.length;
+    staticScannerIds = staticExport.graph.activeScannerIds;
+  }
+
   const repoRoot = await resolveOpenAgentGraphRepoRoot();
   const dataDir = path.join(repoRoot, DOGFOOD_DATA_DIR_NAME, workspaceDataDirHash(workspaceRoot));
   await fs.mkdir(dataDir, { recursive: true });
@@ -119,29 +140,44 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
       role: "operator",
     });
 
-    const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
-    const config = loadAppConfig(process.env);
-    const handoffOptions = {
-      workspaceRoot: formatHandoffWorkspaceRootForReport(workspaceRoot, config.env.isProduction),
-      workspaceRootSource: "configured" as const,
-      dataSource: formatHandoffDataSourceForReport(config.database.filePath, config.env.isProduction),
-      workspacePathCheck: await checkProductGraphWorkspacePaths(projection, workspaceRoot),
-      handoffFile: {
-        path: parsed.output ?? DEFAULT_HANDOFF_OUTPUT,
-        exists: true,
-      },
-    };
-    const report = buildProductGraphHandoffReport(projection, handoffOptions);
-    const outputPath = resolveOutputPath(workspaceRoot, parsed.output ?? DEFAULT_HANDOFF_OUTPUT);
-    await fs.writeFile(outputPath, report.markdown, "utf8");
+    const outputPath = resolveOutputPath(workspaceRoot, handoffOutput);
+    let reportSummary: unknown;
+
+    if (parsed.noExport) {
+      const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
+      const config = loadAppConfig(process.env);
+      const handoffOptions = {
+        workspaceRoot: formatHandoffWorkspaceRootForReport(workspaceRoot, config.env.isProduction),
+        workspaceRootSource: "configured" as const,
+        dataSource: formatHandoffDataSourceForReport(config.database.filePath, config.env.isProduction),
+        workspacePathCheck: await checkProductGraphWorkspacePaths(projection, workspaceRoot),
+        handoffFile: {
+          path: handoffOutput,
+          exists: true,
+        },
+      };
+      const report = buildProductGraphHandoffReport(projection, handoffOptions);
+      await fs.writeFile(outputPath, report.markdown, "utf8");
+      reportSummary = report.summary;
+    } else if (!staticExportPaths.includes(outputPath)) {
+      throw new Error(`Static export did not write the requested handoff report: ${handoffOutput}`);
+    }
 
     const payload = {
       status: "dogfood_complete",
       workspaceRoot,
       dataDir,
       outputPath,
+      staticExport: parsed.noExport
+        ? undefined
+        : {
+            writtenPaths: staticExportPaths,
+            nodeCount: staticNodeCount,
+            edgeCount: staticEdgeCount,
+            activeScannerIds: staticScannerIds,
+          },
       scan: scanResult.scanned,
-      summary: report.summary,
+      summary: reportSummary,
     };
 
     if (parsed.json) {
@@ -151,6 +187,13 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
 
     console.log(`Workspace: ${workspaceRoot}`);
     console.log(`Data dir: ${dataDir}`);
+    if (!parsed.noExport) {
+      console.log(`Static export: ${staticNodeCount} nodes | ${staticEdgeCount} edges`);
+      console.log(`Static scanners: ${staticScannerIds.join(", ") || "generic"}`);
+      for (const writtenPath of staticExportPaths) {
+        console.log(`Wrote ${writtenPath}`);
+      }
+    }
     console.log(`Files indexed: ${scanResult.scanned.fileCount}`);
     console.log(`Symbols indexed: ${scanResult.scanned.symbolCount}`);
     console.log(`Skipped directories: ${scanResult.scanned.skippedDirectoryCount}`);

@@ -1,13 +1,10 @@
-import { buildGraphIncrementalManifest } from "@openagentgraph/shared/graphIncremental";
-import { collectWorkspaceFileFingerprints } from "../scanner/kernel/graphFingerprints.js";
-import { GRAPH_INCREMENTAL_TOOL_VERSION } from "../scanner/kernel/graphIncrementalScan.js";
-import { runKernelWorkspaceScan } from "../scanner/kernel/scanKernel.js";
-import { writeGraphArtifacts } from "./graphArtifactsWrite.js";
+import { runOfflineKernelGraphExport } from "./offlineGraphExport.js";
 import { readGraphWorkspaceCliValue, requireWorkspaceOption } from "./graphWorkspace.js";
 
 interface GraphExportCliOptions {
   workspace?: string;
   refresh: boolean;
+  offlineOnly: boolean;
 }
 
 interface GraphExportFormatOptions {
@@ -18,7 +15,7 @@ interface GraphExportFormatOptions {
 }
 
 function parseGraphExportArgv(argv: string[]) {
-  const options: GraphExportCliOptions = { refresh: false };
+  const options: GraphExportCliOptions = { refresh: false, offlineOnly: false };
   const formats: GraphExportFormatOptions = {
     writeJson: false,
     writeHtml: false,
@@ -34,6 +31,8 @@ function parseGraphExportArgv(argv: string[]) {
       index += 1;
     } else if (arg === "--refresh") {
       options.refresh = true;
+    } else if (arg === "--offline-only") {
+      options.offlineOnly = true;
     } else if (arg === "--json") {
       formats.writeJson = true;
     } else if (arg === "--html") {
@@ -66,41 +65,44 @@ function parseGraphExportArgv(argv: string[]) {
   return { options, formats: resolvedFormats };
 }
 
+function assertOfflineOnlyContract() {
+  if (process.env.OPENAGENTGRAPH_FORCE_PROVIDER_EXPORT === "1") {
+    throw new Error("graph:export --offline-only cannot run when OPENAGENTGRAPH_FORCE_PROVIDER_EXPORT=1.");
+  }
+}
+
 export async function runGraphExportCli(argv = process.argv.slice(2)) {
   const { options, formats } = parseGraphExportArgv(argv);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
-  const scanResult = await runKernelWorkspaceScan(workspaceRoot);
-  const graph = scanResult.unifiedGraph;
-  const fingerprintResult = await collectWorkspaceFileFingerprints(workspaceRoot);
-  const manifest = buildGraphIncrementalManifest({
-    graph,
-    kernelProfile: scanResult.kernelProfile,
-    incrementalToolVersion: GRAPH_INCREMENTAL_TOOL_VERSION,
-    ignoreRuleFingerprint: fingerprintResult.ignoreRuleFingerprint,
-    files: fingerprintResult.files,
-  });
+  if (options.offlineOnly) {
+    assertOfflineOnlyContract();
+  }
 
-  const writtenPaths = await writeGraphArtifacts(workspaceRoot, graph, {
+  const exportResult = await runOfflineKernelGraphExport(workspaceRoot, {
     writeJson: formats.writeJson,
     writeHtml: formats.writeHtml,
     writeWiki: formats.writeWiki,
     writeReport: formats.writeReport,
-    manifest,
-    kernelProfile: scanResult.kernelProfile,
   });
+
+  const { graph, kernelProfile, writtenPaths } = exportResult;
 
   const payload = {
     status: "graph_export_complete",
     workspaceRoot,
+    offlineOnly: options.offlineOnly,
     formats,
     writtenPaths,
     nodeCount: graph.nodes.length,
     edgeCount: graph.edges.length,
     activeScannerIds: graph.activeScannerIds,
-    primaryType: scanResult.kernelProfile.primaryType,
+    primaryType: kernelProfile.primaryType,
   };
 
   console.log(`Workspace: ${workspaceRoot}`);
+  if (options.offlineOnly) {
+    console.log("Mode: offline-only (kernel scan, no server/SQLite/provider APIs)");
+  }
   console.log(`Nodes: ${graph.nodes.length} | Edges: ${graph.edges.length}`);
   console.log(`Scanners: ${graph.activeScannerIds.join(", ") || "generic"}`);
   for (const outputPath of writtenPaths) {

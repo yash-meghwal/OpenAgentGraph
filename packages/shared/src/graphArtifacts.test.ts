@@ -28,7 +28,8 @@ describe("graph artifacts", () => {
     const handoff = renderUnifiedGraphHandoffReport(graph, { handoffPath: "GRAPH_REPORT.md" });
 
     expect(wiki).toContain("# OpenAgentGraph Wiki");
-    expect(wiki).toContain("## Top communities");
+    expect(wiki).toContain("## Community hubs");
+    expect(wiki).toContain("## Read first by community");
     expect(wiki).toContain("## Read first by lens");
     expect(wiki).toContain("## Risks and gaps");
     expect(wiki).toContain("## Refresh commands");
@@ -37,9 +38,16 @@ describe("graph artifacts", () => {
     expect(wiki).toMatch(/MainViewModel/i);
     expect(handoff).toContain("# OpenAgentGraph Handoff");
     expect(handoff).toContain("## Read these first");
+    expect(handoff).toContain("## Community hubs");
+    expect(handoff).toContain("## Read first by community");
+    expect(handoff).toContain("## High-degree hub warnings");
     expect(handoff).toContain("## Ecosystem scanner health");
     expect(handoff).toContain("## OAG fusion checks");
     expect(handoff).toContain("## Agent context APIs");
+    expect(handoff).toContain("## Static OAG artifacts");
+    expect(handoff).toContain("## How an agent should use these files");
+    expect(handoff).toContain("## No provider key required");
+    expect(handoff).toMatch(/no provider key required/i);
     expect(handoff).toMatch(/MainViewModel/i);
     expect(handoff).not.toContain("/bin/");
   });

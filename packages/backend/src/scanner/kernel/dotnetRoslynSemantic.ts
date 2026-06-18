@@ -153,6 +153,7 @@ export function mapRoslynSemanticEdges(input: {
       label: `${edge.edgeKind} ${edge.sourceParentType ? `${edge.sourceParentType}.` : ""}${edge.sourceName} -> ${edge.targetParentType ? `${edge.targetParentType}.` : ""}${edge.targetName}`.slice(0, input.maxEdgeLabelLength),
       source: input.sourceRef(edge.sourceFile, edge.line),
       metadata: input.compactMetadata({
+        edgeDerivationSource: "roslyn",
         scannerRelation: edge.relation,
         scannerResolution: "semantic",
         scannerDotNetRoslynVersion: DOTNET_ROSLYN_SEMANTIC_VERSION,

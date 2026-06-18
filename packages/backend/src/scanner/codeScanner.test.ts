@@ -4,7 +4,7 @@ import path from "path";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProductGraphEdge, ProductGraphProjection, ProductGraphProjectionNode } from "@openagentgraph/shared";
-import { scanWorkspaceCodebase } from "./codeScanner.js";
+import { scanWorkspaceCodebase, scanWorkspaceRelativePaths } from "./codeScanner.js";
 
 const tempWorkspacePaths: string[] = [];
 
@@ -1053,6 +1053,29 @@ describe("code scanner", () => {
     });
     expect(plan.summary.semanticFallbackReason).toContain("budget");
     expect(plan.nodes.map((node) => node.title)).toContain("Consumer (class)");
+  });
+
+  it("surfaces unresolved script references in full and partial scan diagnostics", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    fs.mkdirSync(path.join(workspaceRoot, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "scripts", "deploy.ps1"),
+      '. "$PSScriptRoot\\Missing.ps1"\n'
+    );
+
+    const fullPlan = await scanWorkspaceCodebase({
+      workspaceRoot,
+      projection: makeProjection(),
+    });
+    expect(fullPlan.summary.diagnostics.some((diagnostic) =>
+      diagnostic.includes("Unresolved script dot_sources in scripts/deploy.ps1: Missing.ps1"))).toBe(true);
+
+    const partialPlan = await scanWorkspaceRelativePaths({
+      workspaceRoot,
+      relativePaths: ["scripts/deploy.ps1"],
+    });
+    expect(partialPlan.summary.diagnostics.some((diagnostic) =>
+      diagnostic.includes("Unresolved script dot_sources in scripts/deploy.ps1: Missing.ps1"))).toBe(true);
   });
 
   it("promotes method nodes only when the internal flag is enabled", async () => {

@@ -26,6 +26,8 @@ export interface WriteGraphArtifactsOptions {
   manifest?: GraphIncrementalManifest;
   kernelProfile?: WorkspaceKernelProfile;
   handoffUpdatedAt?: string;
+  /** Workspace-relative handoff report path; defaults to GRAPH_REPORT.md. */
+  handoffPath?: string;
 }
 
 export async function writeGraphArtifacts(
@@ -41,6 +43,7 @@ export async function writeGraphArtifacts(
     manifest,
     kernelProfile,
     handoffUpdatedAt = new Date().toISOString(),
+    handoffPath = GRAPH_HANDOFF_FILE_NAME,
   } = options;
   const writtenPaths: string[] = [];
   const previousSymbolCount = await readPreviousSymbolCount(workspaceRoot);
@@ -76,15 +79,16 @@ export async function writeGraphArtifacts(
   }
 
   if (writeReport && kernelProfile) {
-    const outputPath = resolveGraphArtifactPath(workspaceRoot, GRAPH_HANDOFF_FILE_NAME);
+    const outputPath = resolveGraphArtifactPath(workspaceRoot, handoffPath);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(
       outputPath,
-      renderUnifiedGraphHandoffReport(graph, {
+      renderUnifiedGraphHandoffReport(exportGraph, {
         kernelProfile,
-        handoffPath: GRAPH_HANDOFF_FILE_NAME,
+        handoffPath,
         handoffFreshness: {
           isStale: false,
-          handoffPath: GRAPH_HANDOFF_FILE_NAME,
+          handoffPath,
           graphGeneratedAt: graph.generatedAt,
           handoffUpdatedAt,
           detail: "Handoff written during graph artifact update.",

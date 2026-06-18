@@ -373,6 +373,8 @@ export interface AgentCodeContextSlice {
     sourceNodeId: string;
     targetNodeId: string;
     provenance: string;
+    source?: string;
+    confidence?: number;
   }>;
   linkedRunPaths: string[];
   truncated: boolean;

@@ -23,6 +23,7 @@ export async function runGraphPathCli(argv = process.argv.slice(2)) {
     lens: options.lens,
     maxHops: options.maxHops,
     explainRanking: options.explainRanking,
+    mode: options.pathMode ?? "balanced",
   });
 
   const payload = {
@@ -30,6 +31,7 @@ export async function runGraphPathCli(argv = process.argv.slice(2)) {
     workspaceRoot,
     fromCache: loaded.fromCache,
     lens: options.lens ?? "all",
+    mode: options.pathMode ?? "balanced",
     maxHops: options.maxHops,
     from: result.from,
     to: result.to,
@@ -49,6 +51,7 @@ export async function runGraphPathCli(argv = process.argv.slice(2)) {
   console.log(`Workspace: ${workspaceRoot}`);
   console.log(`Path: ${result.from} -> ${result.to}`);
   if (options.lens) console.log(`Lens: ${options.lens}`);
+  console.log(`Mode: ${options.pathMode ?? "balanced"}`);
   if (options.maxHops) console.log(`Max hops: ${options.maxHops}`);
   if (!result.found) {
     console.log("No path found.");
@@ -70,9 +73,12 @@ export async function runGraphPathCli(argv = process.argv.slice(2)) {
     console.log("Path steps:");
     for (const step of result.explanation.steps.slice(1)) {
       const edgeSummary = step.viaEdge
-        ? `${step.viaEdge.kind}/${step.viaEdge.provenance}`
+        ? `${step.viaEdge.kind}/${step.viaEdge.provenance}${step.viaEdge.source ? `/${step.viaEdge.source}` : ""}`
         : "n/a";
-      console.log(`  hop ${step.hop}: via ${edgeSummary} -> [${step.node.kind}] ${step.node.label}`);
+      const weightSummary = typeof step.edgeCost === "number"
+        ? ` cost=${Math.round(step.edgeCost)}${typeof step.nodePenalty === "number" ? ` penalty=${Math.round(step.nodePenalty)}` : ""}`
+        : "";
+      console.log(`  hop ${step.hop}: via ${edgeSummary}${weightSummary} -> [${step.node.kind}] ${step.node.label}`);
     }
     for (const alternative of result.explanation.penalizedAlternatives) {
       console.log(`Penalized alternative: ${alternative.summary}`);

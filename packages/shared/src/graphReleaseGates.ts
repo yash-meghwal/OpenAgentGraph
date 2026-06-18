@@ -1,8 +1,12 @@
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import { evaluateEdgeProvenanceReleaseGates } from "./graphEdgeProvenance.js";
 import { buildEcosystemSupportMatrix } from "./graphEcosystemHealth.js";
 import { evaluateAnalyzerReleaseGates, evaluateSemanticLiteEdgeKindPreservation } from "./graphAnalyzerGates.js";
 import { getReadTheseFirstNodes, renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
-import { evaluateCommunityReleaseGates } from "./graphCommunities.js";
+import { evaluateStaticExportReleaseGates } from "./graphExportBundle.js";
+import { evaluateCommunityReleaseGates, GRAPH_COMMUNITY_LARGE_REPO_FILE_THRESHOLD } from "./graphCommunities.js";
+import { evaluateCommunityHubReleaseGates } from "./graphCommunityHubs.js";
+import { evaluateScriptReleaseGates } from "./graphScriptGates.js";
 import { evaluateOagFusionChecks } from "./graphFusion.js";
 import { findGraphPath, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
 
@@ -43,6 +47,7 @@ export const GRAPH_RELEASE_FIXTURE_IDS = [
   "fixture-godot-lite",
   "fixture-mixed-polyglot",
   "fixture-docs-only",
+  "fixture-docs-mixed-code",
   "fixture-empty",
   "fixture-asset-heavy",
   "fixture-mixed-mobile-backend",
@@ -53,6 +58,7 @@ export type GraphReleaseFixtureId = (typeof GRAPH_RELEASE_FIXTURE_IDS)[number];
 
 export const GRAPH_RELEASE_MAX_SCAN_MS = 5 * 60 * 1000;
 export const GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE = 0.8;
+export const GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE = 0.95;
 
 const READ_FIRST_JUNK_PATTERNS = [
   "/bin/",
@@ -245,6 +251,11 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     seedPattern: /architecture|guide/i,
   },
   {
+    fixture: "fixture-docs-mixed-code",
+    query: "how does checkout work",
+    seedPattern: /checkout|CheckoutService|feature/i,
+  },
+  {
     fixture: "fixture-ruby-gem-autoload",
     query: "Runner version mygem",
     seedPattern: /Runner|version|Mygem/i,
@@ -312,6 +323,7 @@ export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
     to: "PlaybackService",
     fromPattern: /MainViewModel/i,
     toPattern: /PlaybackService/i,
+    pathNodePattern: /MainViewModel|PlaybackService/i,
   },
   {
     fixture: "fixture-csharp-media-player",
@@ -319,6 +331,7 @@ export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
     to: "PlaybackService",
     fromPattern: /MainViewModel/i,
     toPattern: /PlaybackService/i,
+    pathNodePattern: /MainViewModel|PlaybackService/i,
   },
   {
     fixture: "fixture-java-maven",
@@ -459,6 +472,7 @@ export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
     to: "engine.cpp",
     fromPattern: /player|Player/i,
     toPattern: /engine/i,
+    pathNodePattern: /player|engine/i,
   },
 ];
 
@@ -602,7 +616,7 @@ export function evaluateGraphPathBenchmark(
   graph: UnifiedCodeGraph,
   benchmark: GraphPathBenchmarkCase
 ): GraphPathBenchmarkResult {
-  const result = findGraphPath(graph, benchmark.from, benchmark.to);
+  const result = findGraphPath(graph, benchmark.from, benchmark.to, { mode: "balanced" });
   const pathLabels = result.nodes.map((node) => node.label);
   const fromLabel = result.fromNode?.label;
   const toLabel = result.toNode?.label;
@@ -644,6 +658,16 @@ export function evaluateGraphReleaseGates(input: {
     errors.push(...communityGates.errors);
   }
 
+  const sourceFileCount = input.graph.nodes.filter((node) =>
+    node.kind === "code_file" || node.kind === "config_file" || node.kind === "doc_file"
+  ).length;
+  if (sourceFileCount >= GRAPH_COMMUNITY_LARGE_REPO_FILE_THRESHOLD || communityGates.meaningfulCommunityCount >= 2) {
+    const hubGates = evaluateCommunityHubReleaseGates(input.graph);
+    if (!hubGates.ok) {
+      errors.push(...hubGates.errors);
+    }
+  }
+
   const fusion = evaluateOagFusionChecks({
     graph: input.graph,
     kernelProfile: input.kernelProfile,
@@ -672,6 +696,15 @@ export function evaluateGraphReleaseGates(input: {
   if (!handoff.includes("## Read these first")) {
     errors.push("Handoff report is missing read-these-first guidance.");
   }
+  if (!handoff.includes("## Community hubs")) {
+    errors.push("Handoff report is missing community hubs section.");
+  }
+  if (!handoff.includes("## Read first by community")) {
+    errors.push("Handoff report is missing read-first-by-community guidance.");
+  }
+  if (!handoff.includes("## High-degree hub warnings")) {
+    errors.push("Handoff report is missing high-degree hub warnings.");
+  }
   if (handoffHygiene.junkPaths.some((junkPath) => handoff.includes(junkPath))) {
     errors.push("Handoff markdown includes generated junk paths.");
   }
@@ -687,6 +720,25 @@ export function evaluateGraphReleaseGates(input: {
   const semanticLiteEdgeKinds = evaluateSemanticLiteEdgeKindPreservation(input.graph);
   if (!semanticLiteEdgeKinds.ok) {
     errors.push(...semanticLiteEdgeKinds.errors);
+  }
+
+  const edgeProvenanceGates = evaluateEdgeProvenanceReleaseGates(input.graph);
+  if (!edgeProvenanceGates.ok) {
+    errors.push(...edgeProvenanceGates.errors);
+  }
+
+  const staticExportGates = evaluateStaticExportReleaseGates({
+    graph: input.graph,
+    kernelProfile: input.kernelProfile,
+    handoffMarkdown: handoff,
+  });
+  if (!staticExportGates.ok) {
+    errors.push(...staticExportGates.errors);
+  }
+
+  const scriptGates = evaluateScriptReleaseGates(input.graph);
+  if (!scriptGates.ok) {
+    errors.push(...scriptGates.errors);
   }
 
   const ecosystemMatrixGate = evaluateEcosystemSupportMatrixGate({
@@ -840,6 +892,11 @@ export function evaluateReleaseBenchmarkSuite(input: {
   }
   for (const result of releaseResults) {
     errors.push(...result.errors.map((error) => `${result.fixture}: ${error}`));
+  }
+  if (pathSuccessRate < GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE) {
+    errors.push(
+      `Path benchmark success rate ${Math.round(pathSuccessRate * 100)}% is below ${Math.round(GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE * 100)}%.`
+    );
   }
   if (agentBenchmarkSuccessRate < GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE) {
     errors.push(

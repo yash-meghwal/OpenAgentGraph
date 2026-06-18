@@ -1,6 +1,27 @@
 # OpenAgentGraph
 
-OpenAgentGraph is an event-sourced execution graph for supervised autonomous work. Replay, reports, alerts, lineage, and operational views are all derived from append-only graph events rather than mutable graph-state tables.
+OpenAgentGraph is an event-sourced execution graph and universal static code graph for supervised autonomous software work. Replay, reports, alerts, lineage, operational views, code maps, agent handoffs, and offline workspace exports are derived from append-only graph events or deterministic scans rather than mutable graph-state tables.
+
+## What OpenAgentGraph Includes
+
+- Event-sourced Run Graph: plans, execution events, evidence, approvals, replay, diagnostics, and external-agent coordination.
+- Product Graph / Code Map: deterministic file, symbol, dependency, documentation, community, and provenance graph for a workspace.
+- Static workspace graph CLI: query, path, explain, export, check, update, and benchmark commands that work without an AI provider key.
+- Offline export bundle: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, and `GRAPH_REPORT.md` for agents working from a folder alone.
+- Agent context surfaces: bounded `/agent-context` and `/frontier` reads plus operator-gated progress, evidence, and inert plan proposal APIs.
+- Release gates: graph fixture checks, path/query benchmarks, update benchmarks, static export hygiene, provenance coverage, and external benchmark catalog prep.
+- Frontend shells: browser/Vite app, Electron shell scaffolding, and VS Code webview shell around the same React app.
+
+Scanner support is intentionally tiered:
+
+| Tier | Coverage |
+| --- | --- |
+| T0 | TypeScript/JavaScript semantic graph; .NET/C# structural graph with optional Roslyn semantic edges when the .NET SDK/helper is available |
+| T1.5 | Java/Kotlin, Ruby, and PHP semantic-lite project-aware relationships |
+| T1 | Python, Go, Rust, Terraform, Markdown/docs, Swift/Apple, C/C++, Dart/Flutter, Unity, Unreal, Godot, PowerShell, and shell structural indexing |
+| T2/T3 | File-level or explicitly unsupported ecosystems with visible diagnostics instead of silent overclaiming |
+
+OpenAgentGraph never needs an AI provider key for deterministic scans, static exports, graph navigation, handoff generation, or release gates. Provider keys are only for optional AI execution, planning, embeddings, and AI-generated summaries.
 
 ## Quick Start
 
@@ -20,10 +41,23 @@ Local startup commands:
 - Print deterministic handoff: `npm run handoff:print`
 - Write deterministic handoff: `npm run handoff:write`
 - Dogfood an external workspace (no provider key): `npm run dogfood -- --workspace "<absolute path>"`
+- Export a static workspace graph (no server, SQLite, or provider): `npm run graph:export -- --workspace "<absolute path>" --offline-only`
+- Query a workspace graph: `npm run graph:query -- --workspace "<absolute path>" "how does auth work?"`
+- Find a ranked path: `npm run graph:path -- --workspace "<absolute path>" "MainViewModel" "PlaybackService" --mode balanced --explain-ranking`
+- Explain a node or file: `npm run graph:explain -- --workspace "<absolute path>" "CheckoutService"`
+- Check graph quality gates: `npm run graph:check -- --workspace "<absolute path>" --mode hard`
+- Incrementally update `.oag/graph.json`: `npm run graph:update -- --workspace "<absolute path>"`
 - Handoff DB override when needed: `npm run handoff:print -- --data-dir packages/backend/data`
 - Gate DB override when needed: `npm run gate:check -- --mode hard --allow-empty --data-dir packages/backend/data`
 - Agent context pack: `GET /graphs/:graphId/agent-context`
 - Agent-ready frontier: `GET /graphs/:graphId/frontier`
+
+Static graph and benchmark commands:
+- `npm run verify:graph`: run graph fixtures, release gates, update benchmarks, and the local external benchmark catalog.
+- `npm run graph:lens -- --workspace "<absolute path>" --lens backend-runtime`: preview a task-scoped read-first lens.
+- `npm run graph:benchmark:update`: measure incremental-update scenarios.
+- `npm run graph:benchmark:external -- --catalog --report`: run the local public-category benchmark catalog without cloning remote repositories.
+- `npm run graph:benchmark:external -- --clone https://github.com/org/repo --category mixed-monorepo --report`: clone and score an external repository with a bounded, no-source-body report.
 
 Local frontend/backend integration:
 - Frontend development now talks to the backend through the Vite `/api` proxy.
@@ -110,6 +144,8 @@ OpenAgentGraph also does not store raw bearer tokens in events, logs, metrics, r
 
 The compact Codex handoff (`GET /product-graph/handoff`, Dashboard **Generate Handoff**, and `npm run handoff:write`) is deterministic Product Graph output. It does not call OpenAI, Ollama, or any model provider.
 When no `DATA_DIR` is set, the root handoff and gate scripts reuse `packages/backend/data` if its OpenAgentGraph database exists, so they match the local dashboard/dev backend by default.
+
+The static workspace export (`npm run graph:export -- --workspace "<absolute path>" --offline-only`) is kernel-only output. It does not require the backend server, SQLite product graph data, a browser, or an AI provider. It writes `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, and `GRAPH_REPORT.md` into the target workspace so another agent can navigate the repo offline. Exported graph data is metadata-only: paths, labels, relationships, provenance, tiers, diagnostics, and summaries, not source bodies.
 
 External agents can coordinate using provider-neutral surfaces: `GET /graphs/:graphId/agent-context` (bounded context pack), `GET /graphs/:graphId/frontier` (ready work), plus endpoints to report progress/evidence and submit inert plan proposals. These reads do not need an AI provider key, but JWT and production deployments require viewer-or-better auth; anonymous reads are local-dev only. Mutating agent endpoints require operator/admin authority; proposals only become executable work when explicitly accepted.
 
@@ -255,3 +291,12 @@ Run the full CI-equivalent path, including the Playwright smoke, before release 
 ```bash
 npm run verify:ci
 ```
+
+## Current Practical Limits
+
+- T0, T1.5, and T1 are support tiers, not promises that every ecosystem has compiler-grade semantic resolution.
+- TypeScript/JavaScript has the deepest semantic graph in base. .NET/C# uses structural indexing plus optional Roslyn semantic edges when the .NET SDK/helper can run.
+- Java/Kotlin, Ruby, and PHP use semantic-lite heuristics for project-aware imports, inheritance, routes, tests, packages, and modules; they do not run full javac/kotlinc/parser/tokenizer semantic analysis yet.
+- Swift/Apple, C/C++, Dart/Flutter, Unity, Unreal, Godot, Python, Go, Rust, Terraform, docs, PowerShell, and shell support is structural. OAG reports this in health, exports, and agent context instead of pretending to know runtime behavior.
+- Unsupported ecosystems are surfaced with diagnostics and skip reasons so agents know what was not indexed.
+- Static exports and benchmark reports intentionally avoid source bodies, secret values, `.env` contents, local databases, and private runtime artifacts.

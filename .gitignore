@@ -27,6 +27,11 @@ packages/backend/scanner-tools/**/obj/
 /agent-tools/
 /terminals/
 
+# Local planning / review scratch notes - keep GitHub focused on product docs
+/PLAN*.md
+/MULTI-AGENT-HUB-DISCUSSION.md
+/OAGimprovement/
+
 # Generated graph export artifacts from local fixture dogfood/export runs
 tests/fixtures/graph/**/.oag/
 tests/fixtures/graph/**/GRAPH_REPORT.md

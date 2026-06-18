@@ -134,6 +134,55 @@ export function GraphOperationalPanel({
             )}
           </div>
 
+          {context.ecosystemSupport && context.ecosystemSupport.length > 0 ? (
+            <div
+              role="group"
+              aria-label="Ecosystem support matrix"
+              style={{ border: "1px solid #263244", borderRadius: 10, padding: 9, display: "grid", gap: 6 }}
+            >
+              <div style={{ color: "#7dd3fc", fontSize: 10, fontWeight: 900, textTransform: "uppercase" }}>Ecosystem tiers</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {context.ecosystemSupport.map((row) => (
+                  <span
+                    key={row.scannerId}
+                    title={row.limitation}
+                    style={{
+                      border: "1px solid #334155",
+                      borderRadius: 999,
+                      padding: "4px 8px",
+                      color: "#cbd5e1",
+                      fontSize: 11,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {row.label} · {row.tier}
+                  </span>
+                ))}
+              </div>
+              {context.analyzers && context.analyzers.length > 0 ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ color: "#94a3b8", fontSize: 11, fontWeight: 800 }}>Analyzers:</span>
+                  {context.analyzers.map((analyzer) => (
+                    <span
+                      key={analyzer.id}
+                      title={analyzer.fallbackReason ? `${analyzer.label}: ${analyzer.fallbackReason}` : analyzer.label}
+                      style={{
+                        border: "1px solid #334155",
+                        borderRadius: 999,
+                        padding: "4px 8px",
+                        color: analyzer.status === "unavailable" ? "#fbbf24" : "#cbd5e1",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {analyzer.label} ({analyzer.status})
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {context.health ? (
             <div
               role="group"

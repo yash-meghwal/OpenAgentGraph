@@ -165,16 +165,304 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
-    case "unsupported-swift":
+    case "fixture-unsupported-scala":
       if ((result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0) <= 0) {
-        errors.push("Expected unsupported skip counts for .swift source files.");
+        errors.push("Expected unsupported skip counts for .scala source files.");
       }
-      if (indexedPaths.some((indexedPath) => indexedPath.endsWith(".swift"))) {
-        errors.push(".swift source must remain unsupported in base v1.");
+      if (indexedPaths.some((indexedPath) => indexedPath.endsWith(".scala"))) {
+        errors.push(".scala source must remain unsupported in base.");
       }
       if (result.scanPlan.summary.diagnostics.join("\n").includes("No skipped paths recorded.")) {
         errors.push("Unsupported-language repos must not report 'No skipped paths recorded.'");
       }
+      break;
+    case "fixture-cpp-cmake":
+      if (!result.kernelProfile.activeScannerIds.includes("cpp")) {
+        errors.push("Expected cpp scanner to be active.");
+      }
+      if (!indexedPaths.includes("src/main.cpp")) {
+        errors.push("Expected src/main.cpp to be indexed.");
+      }
+      if (!indexedPaths.includes("include/service.h")) {
+        errors.push("Expected include/service.h to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerImportPath === "local:service.h")) {
+        errors.push("Expected local include edge from main.cpp to service.h.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "cmake_link")) {
+        errors.push("Expected CMake target_link_libraries edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected C++ test-to-subject edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /C\/C\+\+.*T1|structural/i.test(line))) {
+        errors.push("Expected C/C++ T1 structural diagnostics.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("build/"))) {
+        errors.push("build/ output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-c-embedded-make":
+      if (!result.kernelProfile.activeScannerIds.includes("cpp")) {
+        errors.push("Expected cpp scanner to be active.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.endsWith("Makefile"))) {
+        errors.push("Expected Makefile workspace marker.");
+      }
+      if (!indexedPaths.includes("src/main.c")) {
+        errors.push("Expected src/main.c to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerImportPath === "local:driver.h")) {
+        errors.push("Expected local include edge to driver.h.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-cpp-compile-commands":
+      if (!result.kernelProfile.activeScannerIds.includes("cpp")) {
+        errors.push("Expected cpp scanner to be active.");
+      }
+      if (!indexedPaths.includes("compile_commands.json")) {
+        errors.push("Expected compile_commands.json to be indexed.");
+      }
+      if (!indexedPaths.includes("src/app.cpp")) {
+        errors.push("Expected src/app.cpp to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerCompileDirectory)) {
+        errors.push("Expected compile_commands.json compile-unit edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-swift-package":
+      if (!result.kernelProfile.activeScannerIds.includes("swift")) {
+        errors.push("Expected swift scanner to be active.");
+      }
+      if (!indexedPaths.includes("Sources/MyLib/Service.swift")) {
+        errors.push("Expected Sources/MyLib/Service.swift to be indexed.");
+      }
+      if (!indexedPaths.includes("Tests/MyLibTests/ServiceTests.swift")) {
+        errors.push("Expected ServiceTests.swift to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("Service"))) {
+        errors.push("Expected Swift Service symbols to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected Swift test-to-subject edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "package_dependency")) {
+        errors.push("Expected Package.swift dependency edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /Swift.*T1|structural/i.test(line))) {
+        errors.push("Expected Swift T1 structural diagnostics.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".build/"))) {
+        errors.push(".build/ SwiftPM output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-swiftui-app-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("swift")) {
+        errors.push("Expected swift scanner to be active.");
+      }
+      if (!indexedPaths.includes("Sources/SwiftUIAppLite/ContentView.swift")) {
+        errors.push("Expected ContentView.swift to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("ContentView"))) {
+        errors.push("Expected SwiftUI ContentView symbol to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-ios-xcode-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("swift")) {
+        errors.push("Expected swift scanner to be active.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.includes("project.pbxproj"))) {
+        errors.push("Expected Xcode project.pbxproj workspace marker.");
+      }
+      if (!indexedPaths.includes("Sources/AppDelegate.swift")) {
+        errors.push("Expected Sources/AppDelegate.swift to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.kind === "extends" && edge.metadata?.scannerRelatedType === "UIResponder")) {
+        errors.push("Expected AppDelegate class inheritance edge to UIResponder.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "conforms_to" && edge.metadata?.scannerRelatedType === "UIApplicationDelegate")) {
+        errors.push("Expected AppDelegate protocol conformance edge to UIApplicationDelegate.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("DerivedData/"))) {
+        errors.push("DerivedData/ must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-dart-package":
+      if (!result.kernelProfile.activeScannerIds.includes("flutter")) {
+        errors.push("Expected flutter scanner to be active.");
+      }
+      if (!indexedPaths.includes("pubspec.yaml")) {
+        errors.push("Expected pubspec.yaml to be indexed.");
+      }
+      if (!indexedPaths.includes("lib/calculator.dart")) {
+        errors.push("Expected lib/calculator.dart to be indexed.");
+      }
+      if (!indexedPaths.includes("lib/repository.dart")) {
+        errors.push("Expected lib/repository.dart to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("Repository"))) {
+        errors.push("Expected generic Repository class symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "extends" && edge.metadata?.scannerRelatedType === "Base")) {
+        errors.push("Expected generic Repository extends Base edge.");
+      }
+      if (!indexedPaths.includes("test/calculator_test.dart")) {
+        errors.push("Expected calculator_test.dart to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "package_dependency")) {
+        errors.push("Expected pubspec package dependency edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected Dart test-to-subject edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /Dart\/Flutter.*T1|structural/i.test(line))) {
+        errors.push("Expected Dart/Flutter T1 structural diagnostics.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".dart_tool/"))) {
+        errors.push(".dart_tool/ output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-flutter-app":
+      if (!result.kernelProfile.activeScannerIds.includes("flutter")) {
+        errors.push("Expected flutter scanner to be active.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.endsWith("pubspec.yaml"))) {
+        errors.push("Expected pubspec.yaml workspace marker.");
+      }
+      if (!indexedPaths.includes("lib/main.dart")) {
+        errors.push("Expected lib/main.dart to be indexed.");
+      }
+      if (!indexedPaths.includes("lib/widgets/home_screen.dart")) {
+        errors.push("Expected HomeScreen widget file to be indexed.");
+      }
+      if (!indexedPaths.includes("lib/services/api_service.dart")) {
+        errors.push("Expected ApiService file to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("HomeScreen"))) {
+        errors.push("Expected HomeScreen widget symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "widget_state")) {
+        errors.push("Expected widget-to-state edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => {
+        const importPath = edge.metadata?.scannerImportPath;
+        return typeof importPath === "string" && importPath.includes("api_service.dart");
+      })) {
+        errors.push("Expected workspace import edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".dart_tool/") || indexedPath.includes("android/build/"))) {
+        errors.push("Generated Flutter outputs must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-flutter-plugin-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("flutter")) {
+        errors.push("Expected flutter scanner to be active.");
+      }
+      if (!indexedPaths.includes("lib/my_plugin.dart")) {
+        errors.push("Expected plugin library to be indexed.");
+      }
+      if (!indexedPaths.includes("example/lib/main.dart")) {
+        errors.push("Expected example app main.dart to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected plugin test edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-unity-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("unity")) {
+        errors.push("Expected unity scanner to be active.");
+      }
+      if (!result.kernelProfile.activeScannerIds.includes("dotnet")) {
+        errors.push("Expected dotnet scanner to be active for Unity C# scripts.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.endsWith("ProjectSettings/ProjectVersion.txt"))) {
+        errors.push("Expected ProjectSettings/ProjectVersion.txt workspace marker.");
+      }
+      if (!indexedPaths.includes("Assets/Scripts/PlayerController.cs")) {
+        errors.push("Expected PlayerController.cs to be indexed.");
+      }
+      if (!indexedPaths.includes("Assets/Game.asmdef")) {
+        errors.push("Expected Game.asmdef to be indexed.");
+      }
+      if (!indexedPaths.includes("Assets/Scenes/Main.unity")) {
+        errors.push("Expected Main.unity scene to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("PlayerController"))) {
+        errors.push("Expected PlayerController C# symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "assembly_reference")) {
+        errors.push("Expected Unity asmdef assembly_reference edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /Game engine|Unity.*T1|structural/i.test(line))) {
+        errors.push("Expected game engine structural diagnostics.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("Library/"))) {
+        errors.push("Library/ Unity cache must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-unreal-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("unreal")) {
+        errors.push("Expected unreal scanner to be active.");
+      }
+      if (!result.kernelProfile.activeScannerIds.includes("cpp")) {
+        errors.push("Expected cpp scanner to be active for Unreal C++ sources.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.endsWith("Demo.uproject"))) {
+        errors.push("Expected Demo.uproject workspace marker.");
+      }
+      if (!indexedPaths.includes("Source/Demo/DemoGameMode.cpp")) {
+        errors.push("Expected DemoGameMode.cpp to be indexed.");
+      }
+      if (!indexedPaths.includes("Source/Demo/Demo.Build.cs")) {
+        errors.push("Expected Demo.Build.cs to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "module_dependency")) {
+        errors.push("Expected Unreal module_dependency edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("Intermediate/"))) {
+        errors.push("Intermediate/ Unreal output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-godot-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("godot")) {
+        errors.push("Expected godot scanner to be active.");
+      }
+      if (!result.kernelProfile.markerPaths.some((marker) => marker.endsWith("project.godot"))) {
+        errors.push("Expected project.godot workspace marker.");
+      }
+      if (!indexedPaths.includes("scripts/player.gd")) {
+        errors.push("Expected scripts/player.gd to be indexed.");
+      }
+      if (!indexedPaths.includes("scenes/main.tscn")) {
+        errors.push("Expected scenes/main.tscn to be indexed.");
+      }
+      if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("Player"))) {
+        errors.push("Expected Player GDScript symbol to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "autoload")) {
+        errors.push("Expected Godot autoload edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "main_scene")) {
+        errors.push("Expected Godot main_scene edge.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "scene_script")) {
+        errors.push("Expected Godot scene_script edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes(".godot/"))) {
+        errors.push(".godot/ import cache must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
       break;
     case "fixture-next-app":
       if (!result.kernelProfile.activeScannerIds.includes("typescript")) {
@@ -219,8 +507,20 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && node.title.includes("UsersController"))) {
         errors.push("Expected Rails controller symbols to be indexed.");
       }
-      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "test_target")) {
-        errors.push("Expected Ruby spec-to-source test_target edges.");
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected Ruby spec-to-source tests edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "rails_route")) {
+        errors.push("Expected Rails route edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRouteAction === "show")) {
+        errors.push("Expected Rails route-to-action metadata for users#show.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "gem_dependency")) {
+        errors.push("Expected Gemfile gem dependency edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /Ruby.*semantic-lite|T1\.5/i.test(line))) {
+        errors.push("Expected Ruby semantic-lite diagnostics.");
       }
       if (indexedPaths.some((indexedPath) => indexedPath.includes("tmp/"))) {
         errors.push("tmp/ generated output must not be indexed.");
@@ -239,6 +539,30 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
+    case "fixture-ruby-gem-autoload":
+      if (!result.kernelProfile.activeScannerIds.includes("ruby")) {
+        errors.push("Expected ruby scanner to be active.");
+      }
+      if (!indexedPaths.includes("lib/mygem/runner.rb")) {
+        errors.push("Expected lib/mygem/runner.rb to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerImportPath === "relative:mygem/version")) {
+        errors.push("Expected require_relative edge for mygem/version.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-ruby-sinatra-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("ruby")) {
+        errors.push("Expected ruby scanner to be active.");
+      }
+      if (!indexedPaths.includes("app.rb")) {
+        errors.push("Expected app.rb to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "gem_dependency")) {
+        errors.push("Expected Sinatra Gemfile gem dependency edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
     case "fixture-php-laravel":
       if (!result.kernelProfile.activeScannerIds.includes("php")) {
         errors.push("Expected php scanner to be active.");
@@ -252,6 +576,15 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "laravel_route")) {
         errors.push("Expected Laravel route-to-controller edges.");
       }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRouteAction === "index")) {
+        errors.push("Expected Laravel route-to-action metadata.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "composer_dependency")) {
+        errors.push("Expected Composer dependency edges.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /PHP.*semantic-lite|T1\.5/i.test(line))) {
+        errors.push("Expected PHP semantic-lite diagnostics.");
+      }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
     case "fixture-php-wordpress-plugin":
@@ -263,6 +596,45 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       if (!result.scanPlan.nodes.some((node) => node.kind === "code_symbol" && /Handler|init/i.test(node.title))) {
         errors.push("Expected WordPress plugin class or hook symbols to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "wordpress_hook")) {
+        errors.push("Expected WordPress hook callback edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-php-composer-psr4":
+      if (!result.kernelProfile.activeScannerIds.includes("php")) {
+        errors.push("Expected php scanner to be active.");
+      }
+      if (!indexedPaths.includes("src/Application/UserService.php")) {
+        errors.push("Expected UserService.php to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerImportPath === "App\\Domain\\User")) {
+        errors.push("Expected PSR-4 use import edge for App\\Domain\\User.");
+      }
+      const userSymbol = result.scanPlan.nodes.find(
+        (node) => node.kind === "code_symbol" && node.title.includes("User (class)")
+      );
+      const userImportEdge = result.scanPlan.edges.find(
+        (edge) => edge.metadata?.scannerImportPath === "App\\Domain\\User"
+      );
+      if (userSymbol && userImportEdge && userImportEdge.targetNodeId !== userSymbol.id) {
+        errors.push("Expected aliased PSR-4 import to resolve to workspace User class symbol.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "composer_dependency")) {
+        errors.push("Expected Composer dependency edges.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-php-symfony-lite":
+      if (!result.kernelProfile.activeScannerIds.includes("php")) {
+        errors.push("Expected php scanner to be active.");
+      }
+      if (!indexedPaths.includes("src/Controller/HomeController.php")) {
+        errors.push("Expected HomeController.php to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerImportPath === "App\\Service\\GreetingService")) {
+        errors.push("Expected PSR-4 import edge for GreetingService.");
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
@@ -278,6 +650,9 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "gradle_module")) {
         errors.push("Expected Gradle module dependency edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected ApiServiceTest test_to_subject edge.");
       }
       if (indexedPaths.some((indexedPath) => indexedPath.includes("/build/"))) {
         errors.push("build/ output must not be indexed.");
@@ -344,6 +719,71 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       }
       if (indexedPaths.some((indexedPath) => indexedPath.includes("/target/"))) {
         errors.push("target/ build output must not be indexed.");
+      }
+      if (!result.scanPlan.summary.diagnostics.some((line: string) => /semantic-lite|T1\.5/i.test(line))) {
+        errors.push("Expected Java/Kotlin semantic-lite diagnostics.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-java-maven-parent-child":
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active.");
+      }
+      if (!indexedPaths.includes("checkout-module/src/main/java/com/example/checkout/CheckoutController.java")) {
+        errors.push("Expected CheckoutController.java to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "module_dependency")) {
+        errors.push("Expected Maven parent/child module dependency edges.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected CheckoutServiceTest test_to_subject edge.");
+      }
+      if (indexedPaths.some((pathValue) => pathValue.includes("/target/"))) {
+        errors.push("target/ build output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-java-gradle-multimodule-deep":
+      if (!indexedPaths.includes("web/src/main/java/com/example/web/WebController.java")) {
+        errors.push("Expected WebController.java to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "gradle_module")) {
+        errors.push("Expected Gradle module dependency edges.");
+      }
+      const coreImport = result.scanPlan.edges.find(
+        (edge) =>
+          edge.metadata?.scannerRelation === "import"
+          && edge.metadata?.scannerImportPath === "com.example.core.CoreRepository"
+      );
+      if (!coreImport) {
+        errors.push("Expected ApiService import edge for CoreRepository.");
+      }
+      if (indexedPaths.some((pathValue) => pathValue.includes("/.gradle/"))) {
+        errors.push(".gradle/ cache output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-kotlin-spring":
+      if (!indexedPaths.includes("src/main/kotlin/com/example/demo/web/OrderController.kt")) {
+        errors.push("Expected OrderController.kt to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "entrypoint")) {
+        errors.push("Expected Kotlin main entrypoint edge.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "tests")) {
+        errors.push("Expected OrderServiceTest test_to_subject edge.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-android-lite":
+      if (!indexedPaths.includes("src/main/kotlin/com/example/app/MainActivity.kt")) {
+        errors.push("Expected MainActivity.kt to be indexed.");
+      }
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active for Android Kotlin fixture.");
+      }
+      if (indexedPaths.some((pathValue) => pathValue.includes("/build/"))) {
+        errors.push("build/ output must not be indexed.");
       }
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
@@ -478,6 +918,72 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
         errors.push("Empty fixture must not index source code files.");
       }
       break;
+    case "fixture-asset-heavy":
+      if (!result.kernelProfile.activeScannerIds.includes("generic")) {
+        errors.push("Expected generic scanner for asset-heavy fixture.");
+      }
+      if (!indexedPaths.includes("README.md")) {
+        errors.push("Expected README.md to be indexed.");
+      }
+      if (result.scanPlan.nodes.some((node) => node.kind === "code_symbol")) {
+        errors.push("Asset-heavy fixture should not emit code symbols.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("dist/"))) {
+        errors.push("dist/ generated output must not be indexed.");
+      }
+      {
+        const skippedGlobal = result.scanPlan.summary.skippedCountsByReason?.global ?? 0;
+        const skippedGitignore = result.scanPlan.summary.skippedCountsByReason?.gitignore ?? 0;
+        if (skippedGlobal + skippedGitignore <= 0) {
+          errors.push("Expected skip counts proving dist/ generated output is excluded.");
+        }
+      }
+      break;
+    case "fixture-mixed-mobile-backend":
+      if (!result.kernelProfile.activeScannerIds.includes("typescript")) {
+        errors.push("Expected typescript scanner to be active.");
+      }
+      if (!result.kernelProfile.activeScannerIds.includes("java")) {
+        errors.push("Expected java scanner to be active for Android Kotlin sources.");
+      }
+      if (!result.kernelProfile.secondaryTypes.includes("mixed-polyglot")) {
+        errors.push("Expected mixed-polyglot secondary project type.");
+      }
+      if (!indexedPaths.includes("backend/src/ApiService.ts")) {
+        errors.push("Expected backend ApiService.ts to be indexed.");
+      }
+      if (!indexedPaths.includes("mobile/android/src/main/kotlin/com/example/mobile/MainActivity.kt")) {
+        errors.push("Expected MainActivity.kt to be indexed.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("mobile/android/build/"))) {
+        errors.push("mobile/android/build/ output must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-mixed-game-native":
+      if (!result.kernelProfile.activeScannerIds.includes("godot")) {
+        errors.push("Expected godot scanner to be active.");
+      }
+      if (!result.kernelProfile.activeScannerIds.includes("cpp")) {
+        errors.push("Expected cpp scanner to be active for native engine sources.");
+      }
+      if (!result.kernelProfile.secondaryTypes.includes("mixed-polyglot")) {
+        errors.push("Expected mixed-polyglot secondary project type.");
+      }
+      if (!indexedPaths.includes("game/scripts/player.gd")) {
+        errors.push("Expected game/scripts/player.gd to be indexed.");
+      }
+      if (!indexedPaths.includes("native/src/engine.cpp")) {
+        errors.push("Expected native/src/engine.cpp to be indexed.");
+      }
+      if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "autoload")) {
+        errors.push("Expected Godot autoload edges.");
+      }
+      if (indexedPaths.some((indexedPath) => indexedPath.includes("game/.godot/"))) {
+        errors.push("game/.godot/ cache must not be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
     case "dockerignore-artifacts":
       if ((result.scanPlan.summary.skippedCountsByReason?.dockerignore ?? 0) <= 0) {
         errors.push("Expected dockerignore skip counts for artifacts/ output.");
@@ -562,6 +1068,8 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     releaseGates: {
       fixtures: [...GRAPH_RELEASE_FIXTURE_IDS],
       querySuccessRate: releaseSuite.querySuccessRate,
+      pathSuccessRate: releaseSuite.pathSuccessRate,
+      agentBenchmarkSuccessRate: releaseSuite.agentBenchmarkSuccessRate,
       minQuerySuccessRate: GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
       misleadingHandoffRate: releaseSuite.misleadingHandoffRate,
       totalScanMs: bundles
@@ -584,7 +1092,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       }
     }
     console.log(
-      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} querySuccess=${Math.round(releaseSuite.querySuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% totalScanMs=${payload.releaseGates.totalScanMs}`
+      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% totalScanMs=${payload.releaseGates.totalScanMs}`
     );
     for (const error of releaseSuite.errors) {
       console.log(`  - ${error}`);

@@ -1,6 +1,5 @@
-import { spawn } from "child_process";
-import path from "path";
 import type { GraphAnalyzerAvailability, ProductEdgeKind, ProductGraphEdge, ProductMetadataValue } from "@openagentgraph/shared";
+import { runAnalyzerHelper, validateAnalyzerHelperJson } from "./analyzerHelperRunner.js";
 import {
   isResolvedDotNetRelationshipEdge,
   resolveDotNetSymbolId,
@@ -172,51 +171,52 @@ export function mapRoslynSemanticEdges(input: {
   return edges;
 }
 
+function isRoslynHelperResponse(value: unknown): value is RoslynHelperResponse {
+  if (!value || typeof value !== "object") return false;
+  const status = (value as RoslynHelperResponse).status;
+  return status === "ok" || status === "failed" || status === "unavailable";
+}
+
 async function invokeRoslynHelper(request: RoslynHelperRequest, timeoutMs: number) {
   const dllPath = await findRoslynHelperDllPath();
   if (!dllPath) {
     throw new Error("Roslyn helper binary not built.");
   }
 
-  return new Promise<RoslynHelperResponse>((resolve, reject) => {
-    const child = spawn("dotnet", ["exec", dllPath], {
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Roslyn helper timed out after ${timeoutMs}ms.`));
-    }, timeoutMs + 2_000);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (!stdout.trim()) {
-        reject(new Error(stderr.trim() || `Roslyn helper exited with code ${code ?? "unknown"}.`));
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout) as RoslynHelperResponse);
-      } catch (error) {
-        reject(new Error(error instanceof Error ? error.message : "Failed to parse Roslyn helper JSON."));
-      }
-    });
-
-    child.stdin.write(`${JSON.stringify(request)}\n`);
-    child.stdin.end();
+  const result = await runAnalyzerHelper<RoslynHelperResponse>({
+    run: {
+      command: ["dotnet", "exec", dllPath],
+      workspaceRoot: request.workspaceRoot,
+      stdinPayload: request,
+      limits: { timeoutMs },
+    },
   });
+
+  if (result.timedOut) {
+    throw new Error(result.error ?? `Roslyn helper timed out after ${timeoutMs}ms.`);
+  }
+
+  if (result.stdout.trim()) {
+    try {
+      const validated = validateAnalyzerHelperJson(JSON.parse(result.stdout), isRoslynHelperResponse);
+      if (validated.ok) {
+        return validated.value;
+      }
+    } catch {
+      // fall through to invocation error handling
+    }
+  }
+
+  if (!result.ok || !result.stdout.trim()) {
+    throw new Error(
+      result.error
+      ?? result.parseError
+      ?? result.stderr.trim()
+      ?? "Roslyn helper invocation failed."
+    );
+  }
+
+  throw new Error(result.parseError ?? "Roslyn helper returned invalid JSON.");
 }
 
 export async function runDotNetRoslynSemanticAnalysis(input: {

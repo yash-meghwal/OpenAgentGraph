@@ -42,7 +42,21 @@ const DOCUMENTATION_PRIMARY_TYPES = new Set([
   "docs-only",
 ]);
 
-const SCANNER_CATALOG: Record<string, { label: string; tier: string; semanticSupported: boolean; limitation: string }> = {
+export interface EcosystemScannerCatalogEntry {
+  label: string;
+  tier: string;
+  semanticSupported: boolean;
+  limitation: string;
+}
+
+export const ECOSYSTEM_TIER_LEGEND = [
+  "T0: compiler-backed semantic indexing where project config or helpers are available.",
+  "T1.5: semantic-lite project-aware edges; optional analyzer enrichment when runtime is available.",
+  "T1: structural symbols, imports, config, and asset edges only; no full semantic graph.",
+  "T3: honest file-level coverage for unrecognized or mixed layouts.",
+] as const;
+
+const SCANNER_CATALOG: Record<string, EcosystemScannerCatalogEntry> = {
   typescript: {
     label: "TypeScript/JavaScript",
     tier: "T0",
@@ -81,21 +95,57 @@ const SCANNER_CATALOG: Record<string, { label: string; tier: string; semanticSup
   },
   java: {
     label: "Java/Kotlin",
-    tier: "T1",
-    semanticSupported: false,
-    limitation: "Structural packages, classes, and imports only; javac/kotlinc semantic edges are not enabled.",
+    tier: "T1.5",
+    semanticSupported: true,
+    limitation: "Semantic-lite project-aware imports, inheritance, tests, and module edges; optional JDK enrichment only.",
   },
   ruby: {
     label: "Ruby/Rails",
-    tier: "T1",
-    semanticSupported: false,
-    limitation: "Structural modules, classes, and requires only; runtime/metaprogramming semantic edges are not enabled.",
+    tier: "T1.5",
+    semanticSupported: true,
+    limitation: "Semantic-lite Gemfile/gemspec, require/require_relative, inheritance, Rails routes, and specs; optional Ruby parser enrichment only.",
   },
   php: {
     label: "PHP/Composer",
+    tier: "T1.5",
+    semanticSupported: true,
+    limitation: "Semantic-lite Composer PSR-4, use/extends/implements, Laravel routes, and WordPress hooks; optional PHP tokenizer enrichment only.",
+  },
+  swift: {
+    label: "Swift/Apple",
     tier: "T1",
     semanticSupported: false,
-    limitation: "Structural namespaces, classes, and use/require only; composer/runtime semantic edges are not enabled.",
+    limitation: "Structural imports, types, extensions, and tests only; SourceKit semantic edges are not enabled.",
+  },
+  cpp: {
+    label: "C/C++",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural includes, types, CMake/Make targets, and tests only; clang semantic edges are not enabled.",
+  },
+  flutter: {
+    label: "Flutter/Dart",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural imports, types, widgets, pubspec dependencies, and tests only; Dart analyzer semantic edges are not enabled.",
+  },
+  unity: {
+    label: "Unity",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural asmdef references, scenes/prefabs as assets, and C# via .NET scanner only; GUID script refs are not resolved.",
+  },
+  unreal: {
+    label: "Unreal Engine",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural modules, Build.cs dependencies, and C++ via C/C++ scanner only; UObject runtime graph is not modeled.",
+  },
+  godot: {
+    label: "Godot",
+    tier: "T1",
+    semanticSupported: false,
+    limitation: "Structural GDScript, scenes, autoloads, and static script-to-scene refs only; engine runtime behavior is not modeled.",
   },
   generic: {
     label: "Generic polyglot",
@@ -244,7 +294,7 @@ function buildJavaSection(profile: WorkspaceKernelProfile): EcosystemScannerHeal
     markerMatches(profile.markerPaths, [/pom\.xml$/i, /build\.gradle(?:\.kts)?$/i, /settings\.gradle(?:\.kts)?$/i])
       ? "Java/Kotlin Maven or Gradle project detected."
       : "Java/Kotlin scanner active; build markers not detected.",
-    "Java/Kotlin indexing: T1 structural; compiler semantic edges are not enabled in base yet.",
+    "Java/Kotlin indexing: T1.5 semantic-lite; optional JDK enrichment when available.",
   ];
   return { scannerId: "java", label: SCANNER_CATALOG.java.label, tier: SCANNER_CATALOG.java.tier, lines };
 }
@@ -277,7 +327,7 @@ function buildRubySection(profile: WorkspaceKernelProfile): EcosystemScannerHeal
     markerMatches(profile.markerPaths, [/Gemfile$/i, /\.gemspec$/i, /Rakefile$/i, /config\/routes\.rb$/i])
       ? "Ruby/Rails project markers detected."
       : "Ruby scanner active; project markers not detected.",
-    "Ruby indexing: T1 structural (modules, classes, methods, requires); runtime semantic edges are not enabled in base yet.",
+    "Ruby indexing: T1.5 semantic-lite; optional Ruby parser enrichment when available.",
   ];
   return { scannerId: "ruby", label: SCANNER_CATALOG.ruby.label, tier: SCANNER_CATALOG.ruby.tier, lines };
 }
@@ -288,9 +338,75 @@ function buildPhpSection(profile: WorkspaceKernelProfile): EcosystemScannerHealt
     markerMatches(profile.markerPaths, [/composer\.json$/i, /artisan$/i, /wp-config\.php$/i, /symfony\.lock$/i])
       ? "PHP/Composer project markers detected."
       : "PHP scanner active; project markers not detected.",
-    "PHP indexing: T1 structural (namespaces, classes, functions, use/require); composer semantic edges are not enabled in base yet.",
+    "PHP indexing: T1.5 semantic-lite; optional PHP tokenizer enrichment when available.",
   ];
   return { scannerId: "php", label: SCANNER_CATALOG.php.label, tier: SCANNER_CATALOG.php.tier, lines };
+}
+
+function buildSwiftSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("swift")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/Package\.swift$/i, /project\.pbxproj$/i])
+      ? "Swift/Apple project markers detected."
+      : "Swift scanner active; project markers not detected.",
+    "Swift indexing: T1 structural; SourceKit semantic edges are not enabled in base yet.",
+  ];
+  return { scannerId: "swift", label: SCANNER_CATALOG.swift.label, tier: SCANNER_CATALOG.swift.tier, lines };
+}
+
+function buildCppSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("cpp")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/CMakeLists\.txt$/i, /Makefile$/i, /compile_commands\.json$/i, /\.vcxproj$/i])
+      ? "C/C++ build markers detected."
+      : "C/C++ scanner active; build markers not detected.",
+    "C/C++ indexing: T1 structural; clang semantic edges are not enabled in base yet.",
+  ];
+  return { scannerId: "cpp", label: SCANNER_CATALOG.cpp.label, tier: SCANNER_CATALOG.cpp.tier, lines };
+}
+
+function buildFlutterSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("flutter")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/pubspec\.yaml$/i])
+      ? "Dart/Flutter pubspec marker detected."
+      : "Dart/Flutter scanner active; pubspec marker not detected.",
+    "Dart/Flutter indexing: T1 structural; Dart analyzer semantic edges are not enabled in base yet.",
+  ];
+  return { scannerId: "flutter", label: SCANNER_CATALOG.flutter.label, tier: SCANNER_CATALOG.flutter.tier, lines };
+}
+
+function buildUnitySection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("unity")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/ProjectSettings\/ProjectVersion\.txt$/i, /\.asmdef$/i])
+      ? "Unity project markers detected."
+      : "Unity scanner active; project markers not detected.",
+    "Unity indexing: T1 structural (asmdef, scenes/prefabs); C# uses .NET scanner; GUID script refs are not resolved.",
+  ];
+  return { scannerId: "unity", label: SCANNER_CATALOG.unity.label, tier: SCANNER_CATALOG.unity.tier, lines };
+}
+
+function buildUnrealSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("unreal")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/\.uproject$/i, /\.uplugin$/i, /\.Build\.cs$/i])
+      ? "Unreal project markers detected."
+      : "Unreal scanner active; project markers not detected.",
+    "Unreal indexing: T1 structural (modules, Build.cs); C++ uses C/C++ scanner; UObject runtime graph is not modeled.",
+  ];
+  return { scannerId: "unreal", label: SCANNER_CATALOG.unreal.label, tier: SCANNER_CATALOG.unreal.tier, lines };
+}
+
+function buildGodotSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
+  if (!profile.activeScannerIds.includes("godot")) return undefined;
+  const lines = [
+    markerMatches(profile.markerPaths, [/project\.godot$/i])
+      ? "Godot project.godot marker detected."
+      : "Godot scanner active; project.godot marker not detected.",
+    "Godot indexing: T1 structural (GDScript, scenes, autoloads); engine runtime behavior is not modeled.",
+  ];
+  return { scannerId: "godot", label: SCANNER_CATALOG.godot.label, tier: SCANNER_CATALOG.godot.tier, lines };
 }
 
 function buildTerraformSection(profile: WorkspaceKernelProfile): EcosystemScannerHealthSection | undefined {
@@ -338,6 +454,12 @@ export function buildEcosystemScannerHealthSections(input: {
     buildRustSection(profile),
     buildRubySection(profile),
     buildPhpSection(profile),
+    buildSwiftSection(profile),
+    buildCppSection(profile),
+    buildFlutterSection(profile),
+    buildUnitySection(profile),
+    buildUnrealSection(profile),
+    buildGodotSection(profile),
     buildTerraformSection(profile),
     buildGenericSection(profile),
   ];
@@ -351,12 +473,51 @@ export function buildEcosystemScannerHealthSections(input: {
   });
 }
 
+export function getEcosystemScannerCatalogEntry(scannerId: string): EcosystemScannerCatalogEntry {
+  return SCANNER_CATALOG[scannerId] ?? SCANNER_CATALOG.generic;
+}
+
+export function renderEcosystemTierLegendMarkdown() {
+  return [
+    "## Ecosystem tier legend",
+    "",
+    ...ECOSYSTEM_TIER_LEGEND.map((line) => `- ${line}`),
+    "",
+  ];
+}
+
+export function summarizeEcosystemSupportForAgents(input: {
+  graph: UnifiedCodeGraph;
+  kernelProfile?: WorkspaceKernelProfile;
+}) {
+  return buildEcosystemSupportMatrix(input).map((row) => ({
+    scannerId: row.scannerId,
+    label: getEcosystemScannerCatalogEntry(row.scannerId).label,
+    tier: row.tier,
+    semanticSupported: row.semanticSupported,
+    limitation: row.limitation,
+  }));
+}
+
 export function buildEcosystemSupportMatrix(input: {
   graph: UnifiedCodeGraph;
   kernelProfile?: WorkspaceKernelProfile;
 }) {
-  const profile = input.kernelProfile;
-  if (!profile) return [];
+  const profile = input.kernelProfile ?? {
+    schemaVersion: "1.0",
+    root: input.graph.workspaceRoot,
+    effectiveRoots: [input.graph.workspaceRoot],
+    primaryType: "generic",
+    secondaryTypes: [],
+    typeSignals: [],
+    sourceRoots: ["."],
+    markerPaths: [],
+    activeScannerIds: input.graph.activeScannerIds.length > 0 ? input.graph.activeScannerIds : ["generic"],
+    ignoreRules: [],
+    sourceExtensionCounts: {},
+    skippedCountsByReason: {},
+    warnings: [],
+  };
 
   const activeScannerIds = profile.activeScannerIds.length > 0 ? profile.activeScannerIds : ["generic"];
   const indexedFileCount = input.graph.nodes.filter((node) =>

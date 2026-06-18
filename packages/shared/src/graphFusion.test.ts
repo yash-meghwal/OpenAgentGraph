@@ -94,6 +94,7 @@ describe("graph fusion", () => {
     });
 
     expect(slice.readTheseFirst.length).toBeGreaterThan(0);
+    expect(slice.ecosystemSupport?.some((row) => row.scannerId === "dotnet" && row.tier === "T0")).toBe(true);
     expect(slice.godNodes.length).toBeGreaterThan(0);
     expect(slice.focusNodes.some((node) => /MainViewModel|PlaybackService/i.test(node.label))).toBe(true);
     expect(slice.linkedRunPaths).toEqual(["Services/PlaybackService.cs"]);

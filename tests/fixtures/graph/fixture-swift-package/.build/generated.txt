@@ -1,0 +1,1 @@
+swift build output should be skipped

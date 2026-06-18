@@ -1,4 +1,9 @@
 {
   "name": "fixture/wordpress-plugin",
-  "type": "wordpress-plugin"
+  "type": "wordpress-plugin",
+  "autoload": {
+    "psr-4": {
+      "FixturePlugin\\": "includes/"
+    }
+  }
 }

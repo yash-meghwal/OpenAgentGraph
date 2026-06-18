@@ -119,6 +119,9 @@ export function buildUnifiedCodeGraph(input: {
       metadata: {
         productNodeId: node.id,
         productNodeKind: node.kind,
+        ...(typeof node.metadata?.scannerRelation === "string"
+          ? { scannerRelation: node.metadata.scannerRelation }
+          : {}),
         ...Object.fromEntries(
           Object.entries(communityMetadata).filter(([, value]) => value !== undefined && value !== null)
         ),
@@ -143,6 +146,16 @@ export function buildUnifiedCodeGraph(input: {
   for (const edge of input.projection.edges) {
     const mappedKind = mapProductEdgeKind(edge.kind);
     if (!mappedKind) continue;
+    const edgeMetadata: Record<string, string | number | boolean | null> = {};
+    if (typeof edge.metadata?.scannerRelation === "string") {
+      edgeMetadata.scannerRelation = edge.metadata.scannerRelation;
+    }
+    if (typeof edge.metadata?.scannerResolution === "string") {
+      edgeMetadata.scannerResolution = edge.metadata.scannerResolution;
+    }
+    if (typeof edge.metadata?.scannerImportResolution === "string") {
+      edgeMetadata.scannerImportResolution = edge.metadata.scannerImportResolution;
+    }
     edges.push({
       id: stableId("edge", edge.id),
       sourceNodeId: stableId("node", edge.sourceNodeId),
@@ -153,6 +166,7 @@ export function buildUnifiedCodeGraph(input: {
       scannerId: typeof edge.metadata?.scannerLanguage === "string"
         ? String(edge.metadata.scannerLanguage)
         : undefined,
+      ...(Object.keys(edgeMetadata).length > 0 ? { metadata: edgeMetadata } : {}),
     });
   }
 

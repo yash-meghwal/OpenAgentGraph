@@ -15,7 +15,7 @@ describe("verifyGraph cli", () => {
       "--json",
     ]);
     expect(payload.passed).toBe(true);
-    expect(payload.fixtureCount).toBeGreaterThanOrEqual(19);
+    expect(payload.fixtureCount).toBeGreaterThanOrEqual(48);
     expect(payload.results.map((result) => result.fixture)).toEqual(expect.arrayContaining([
       "mixed-dotnet-node",
       "wrapper-layout",
@@ -23,7 +23,9 @@ describe("verifyGraph cli", () => {
       "empty-greenfield",
       "nested-gitignore",
       "fixture-python-app",
-      "unsupported-swift",
+      "fixture-cpp-cmake",
+      "fixture-swift-package",
+      "fixture-unsupported-scala",
       "dockerignore-artifacts",
       "fixture-csharp-wpf",
       "fixture-csharp-media-player",
@@ -36,9 +38,16 @@ describe("verifyGraph cli", () => {
       "fixture-rust-workspace",
       "fixture-terraform",
       "fixture-docs-only",
+      "fixture-asset-heavy",
+      "fixture-mixed-mobile-backend",
+      "fixture-mixed-game-native",
+      "fixture-php-symfony-lite",
+      "fixture-ruby-sinatra-lite",
     ]));
     expect(payload.releaseGates.passed).toBe(true);
+    expect(payload.releaseGates.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(0.8);
     expect(payload.releaseGates.querySuccessRate).toBeGreaterThanOrEqual(0.8);
+    expect(payload.releaseGates.pathSuccessRate).toBeGreaterThanOrEqual(0.8);
     expect(payload.releaseGates.misleadingHandoffRate).toBe(0);
   }, 120_000);
 });

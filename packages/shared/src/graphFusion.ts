@@ -14,6 +14,7 @@ import {
   summarizeProductGraphExecutionTestEvidence,
   type ProductGraphProjection,
 } from "./productGraph.js";
+import { summarizeEcosystemSupportForAgents } from "./graphEcosystemHealth.js";
 import { sanitizeOperationalText } from "./safeText.js";
 import type { AgentCodeContextNodeSummary, AgentCodeContextSlice } from "./types.js";
 
@@ -317,11 +318,26 @@ export function buildAgentCodeContextSlice(
     }
   }
 
+  const ecosystemSupport = summarizeEcosystemSupportForAgents({
+    graph,
+    kernelProfile: options.kernelProfile,
+  });
+  const analyzers = graph.analyzers?.map((analyzer) => ({
+    id: analyzer.id,
+    label: safeCodeContextText(analyzer.label, workspaceRoot, 120),
+    status: analyzer.status,
+    fallbackReason: analyzer.fallbackReason
+      ? safeCodeContextText(analyzer.fallbackReason, workspaceRoot, 240)
+      : undefined,
+  }));
+
   return {
     source: "unified_code_graph",
     workspaceRoot: safeCodeContextText(graph.workspaceRoot, workspaceRoot, 500),
     generatedAt: graph.generatedAt,
     primaryLens,
+    ecosystemSupport,
+    analyzers,
     readTheseFirst,
     godNodes: godNodes.map((godNode) => ({
       label: safeCodeContextText(godNode.label, workspaceRoot, 240),

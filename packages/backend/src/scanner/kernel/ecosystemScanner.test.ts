@@ -320,7 +320,232 @@ describe("ecosystem scanner", () => {
     expect(index?.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`)).toEqual(
       expect.arrayContaining(["User:rails_model", "full_name:method"])
     );
-    expect(index?.imports).toContain("../services/user_exporter");
+    expect(index?.imports).toContain("relative:../services/user_exporter");
+  });
+
+  it("keeps multiple ruby methods parented to the same class", () => {
+    const index = parseEcosystemFile({
+      filePath: "app/models/user.rb",
+      fileName: "user.rb",
+      extension: ".rb",
+      body: [
+        "class User",
+        "  def one",
+        "  end",
+        "  def two",
+        "  end",
+        "end",
+      ].join("\n"),
+    });
+    const methods = index?.symbols.filter((symbol) => symbol.kind === "method") ?? [];
+    expect(methods).toHaveLength(2);
+    expect(methods.every((symbol) => symbol.parentType === "User")).toBe(true);
+  });
+
+  it("parses nested ruby module and class constant paths", () => {
+    const index = parseEcosystemFile({
+      filePath: "lib/mygem/runner.rb",
+      fileName: "runner.rb",
+      extension: ".rb",
+      body: [
+        "module A::B",
+        "  class A::Runner",
+        "    def run",
+        "    end",
+        "  end",
+        "end",
+      ].join("\n"),
+    });
+    const moduleSymbol = index?.symbols.find((symbol) => symbol.kind === "module");
+    const classSymbol = index?.symbols.find((symbol) => symbol.kind === "class");
+    const methodSymbol = index?.symbols.find((symbol) => symbol.kind === "method");
+    expect(moduleSymbol).toMatchObject({ name: "B", parentType: "A" });
+    expect(classSymbol).toMatchObject({ name: "Runner", parentType: "A" });
+    expect(methodSymbol).toMatchObject({ name: "run", parentType: "A::Runner" });
+  });
+
+  it("restores ruby module namespace after module A::B closes", () => {
+    const index = parseEcosystemFile({
+      filePath: "lib/outside.rb",
+      fileName: "outside.rb",
+      extension: ".rb",
+      body: [
+        "module A::B",
+        "  class Inner",
+        "  end",
+        "end",
+        "",
+        "class Outside",
+        "end",
+      ].join("\n"),
+    });
+    const outside = index?.symbols.find((symbol) => symbol.name === "Outside" && symbol.kind === "class");
+    expect(outside?.parentType).toBeUndefined();
+  });
+
+  it("keeps ruby methods parented after single-line def declarations", () => {
+    const index = parseEcosystemFile({
+      filePath: "app/models/user.rb",
+      fileName: "user.rb",
+      extension: ".rb",
+      body: [
+        "class User",
+        "  def one; end",
+        "  def two",
+        "  end",
+        "end",
+      ].join("\n"),
+    });
+    const methods = index?.symbols.filter((symbol) => symbol.kind === "method") ?? [];
+    expect(methods).toHaveLength(2);
+    expect(methods.every((symbol) => symbol.parentType === "User")).toBe(true);
+  });
+
+  it("tags ruby and php ecosystem files as semantic-lite t1.5", () => {
+    for (const [filePath, body] of [
+      ["app/models/user.rb", "class User\nend\n"],
+      ["app/Models/User.php", "<?php\nclass User {}\n"],
+    ] as const) {
+      const contribution = indexEcosystemFile({
+        filePath,
+        fileName: filePath.split("/").pop()!,
+        extension: filePath.endsWith(".rb") ? ".rb" : ".php",
+        body,
+        sizeBytes: body.length,
+        scanId: "scan-t15",
+        scannedAt: "2026-06-15T00:00:00.000Z",
+        stableId,
+        compactMetadata: (values) => values as Record<string, string>,
+        sourceRef: (projectPath) => ({ kind: "code_scan", path: projectPath }),
+        maxTitleLength: 180,
+        maxEdgeLabelLength: 180,
+      });
+      expect(contribution.fileMetadata?.scannerIndexingMode).toBe("t1.5");
+      expect(contribution.fileMetadata?.scannerSemanticSupported).toBe(true);
+      expect(contribution.symbolNodes[0]?.tags).toContain("ecosystem-t1.5");
+    }
+  });
+
+  it("parses swift imports, types, extensions, and protocol conformance", () => {
+    const index = parseEcosystemFile({
+      filePath: "Sources/MyLib/Service.swift",
+      fileName: "Service.swift",
+      extension: ".swift",
+      body: [
+        "import Foundation",
+        "public protocol Greeter { func greet() -> String }",
+        "public struct Service: Greeter {",
+        "    public func greet() -> String { \"hello\" }",
+        "}",
+        "extension Service {",
+        "    func label() -> String { greet() }",
+        "}",
+      ].join("\n"),
+    });
+    expect(index?.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`)).toEqual(
+      expect.arrayContaining([
+        "Greeter:protocol",
+        "Service:struct",
+        "greet:function",
+        "Service:extension",
+      ])
+    );
+    expect(index?.imports).toContain("Foundation");
+    expect(index?.imports).toContain("conforms:Greeter");
+    expect(index?.imports).toContain("extends:Service");
+  });
+
+  it("restores cpp namespace scope after namespace A::B closes", () => {
+    const index = parseEcosystemFile({
+      filePath: "src/outside.cpp",
+      fileName: "outside.cpp",
+      extension: ".cpp",
+      body: [
+        "namespace A::B {",
+        "  class Inner {",
+        "  };",
+        "}",
+        "class Outside {",
+        "};",
+      ].join("\n"),
+    });
+    const outside = index?.symbols.find((symbol) => symbol.name === "Outside" && symbol.kind === "class");
+    expect(outside?.parentType).toBeUndefined();
+  });
+
+  it("parses dart imports, widgets, and pubspec metadata", () => {
+    const index = parseEcosystemFile({
+      filePath: "lib/main.dart",
+      fileName: "main.dart",
+      extension: ".dart",
+      body: [
+        "import 'package:flutter/material.dart';",
+        "class DemoApp extends StatelessWidget {",
+        "  Widget build(BuildContext context) => Container();",
+        "}",
+      ].join("\n"),
+    });
+    expect(index?.imports).toContain("package:flutter/material.dart");
+    expect(index?.symbols.find((symbol) => symbol.name === "DemoApp")).toMatchObject({
+      kind: "stateless_widget",
+    });
+    const pubspec = parseEcosystemFile({
+      filePath: "pubspec.yaml",
+      fileName: "pubspec.yaml",
+      extension: ".yaml",
+      body: [
+        "name: demo_app",
+        "dependencies:",
+        "  http: ^1.2.0",
+      ].join("\n"),
+    });
+    expect(pubspec?.configMetadata?.package).toBe("demo_app");
+    expect(pubspec?.imports).toContain("package:http");
+  });
+
+  it("parses cpp includes, functions, and macros", () => {
+    const index = parseEcosystemFile({
+      filePath: "src/main.cpp",
+      fileName: "main.cpp",
+      extension: ".cpp",
+      body: [
+        '#include "service.h"',
+        "#include <vector>",
+        "#define MAX_RETRY 3",
+        "int main() {",
+        "  return run_service();",
+        "}",
+      ].join("\n"),
+    });
+    expect(index?.imports).toEqual(expect.arrayContaining([
+      "local:service.h",
+      "system:vector",
+    ]));
+    expect(index?.symbols.map((symbol) => `${symbol.name}:${symbol.kind}`)).toEqual(
+      expect.arrayContaining(["MAX_RETRY:macro", "main:function"])
+    );
+  });
+
+  it("parses @testable import before the module name", () => {
+    const index = parseEcosystemFile({
+      filePath: "Tests/MyLibTests/ServiceTests.swift",
+      fileName: "ServiceTests.swift",
+      extension: ".swift",
+      body: "@testable import MyLib\n",
+    });
+    expect(index?.imports).toContain("MyLib");
+  });
+
+  it("parses class inheritance separately from protocol conformance", () => {
+    const index = parseEcosystemFile({
+      filePath: "Sources/AppDelegate.swift",
+      fileName: "AppDelegate.swift",
+      extension: ".swift",
+      body: "class AppDelegate: UIResponder, UIApplicationDelegate {\n}\n",
+    });
+    expect(index?.imports).toContain("extends:UIResponder");
+    expect(index?.imports).toContain("conforms:UIApplicationDelegate");
+    expect(index?.imports).not.toContain("conforms:UIResponder");
   });
 
   it("parses php namespaces, classes, methods, and use imports", () => {

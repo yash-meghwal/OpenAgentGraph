@@ -63,6 +63,12 @@ const DEPENDENCY_BEARING_EXTENSIONS = new Set([
   ".rb",
   ".rs",
   ".swift",
+  ".dart",
+  ".gd",
+  ".tscn",
+  ".tres",
+  ".unity",
+  ".prefab",
   ".ts",
   ".tsx",
   ".vue",
@@ -79,7 +85,15 @@ const STRUCTURAL_PATH_PATTERNS = [
   /(^|\/)Cargo\.toml$/i,
   /(^|\/)pyproject\.toml$/i,
   /(^|\/)manage\.py$/i,
+  /(^|\/)Package\.swift$/i,
+  /(^|\/)pubspec\.yaml$/i,
+  /(^|\/)CMakeLists\.txt$/i,
+  /(^|\/)compile_commands\.json$/i,
   /(^|\/)next\.config\.(?:ts|js|mjs|cjs)$/i,
+  /(^|\/)project\.godot$/i,
+  /\.asmdef$/i,
+  /\.uproject$/i,
+  /(^|\/)ProjectSettings\/ProjectVersion\.txt$/i,
 ];
 
 function normalizeGraphPath(value: string) {

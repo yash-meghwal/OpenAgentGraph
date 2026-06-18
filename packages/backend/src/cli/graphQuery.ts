@@ -1,4 +1,7 @@
-import { queryUnifiedCodeGraph } from "@openagentgraph/shared";
+import {
+  queryUnifiedCodeGraph,
+  summarizeEcosystemSupportForAgents,
+} from "@openagentgraph/shared";
 import {
   joinGraphCliPositionals,
   loadWorkspaceUnifiedGraph,
@@ -23,11 +26,19 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     lens: options.lens,
   });
 
+  const ecosystemSupport = summarizeEcosystemSupportForAgents({
+    graph: loaded.graph,
+    kernelProfile: loaded.kernelProfile,
+  });
+
   const payload = {
     status: "graph_query_complete",
     workspaceRoot,
     fromCache: loaded.fromCache,
     lens: options.lens ?? "all",
+    activeScannerIds: loaded.graph.activeScannerIds,
+    ecosystemSupport,
+    analyzers: loaded.graph.analyzers ?? [],
     query: result.query,
     mode: result.mode,
     truncated: result.truncated,
@@ -43,6 +54,9 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
   }
 
   console.log(`Workspace: ${workspaceRoot}`);
+  if (ecosystemSupport.length > 0) {
+    console.log(`Ecosystem support: ${ecosystemSupport.map((row) => `${row.scannerId} (${row.tier})`).join(", ")}`);
+  }
   console.log(`Query: ${result.query}`);
   console.log(`Mode: ${result.mode}${result.truncated ? " (truncated)" : ""}`);
   if (result.seeds.length === 0) {

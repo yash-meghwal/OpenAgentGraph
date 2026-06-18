@@ -98,6 +98,8 @@ export async function buildWorkspaceGraphOperationalContext(input: {
       scopedNodeCount: 0,
       scopedEdgeCount: 0,
       activeScannerIds: codeGraph.activeScannerIds,
+      ecosystemSupport: codeContext.ecosystemSupport,
+      analyzers: codeContext.analyzers,
       diagnostics: codeGraph.diagnostics.slice(0, 12),
       queryEntryPoints,
     };
@@ -118,6 +120,8 @@ export async function buildWorkspaceGraphOperationalContext(input: {
     scopedNodeCount: scopedGraph.nodes.length,
     scopedEdgeCount: scopedGraph.edges.length,
     activeScannerIds: codeGraph.activeScannerIds,
+    ecosystemSupport: codeContext.ecosystemSupport,
+    analyzers: codeContext.analyzers,
     diagnostics: codeGraph.diagnostics.slice(0, 12),
     queryEntryPoints,
   };

@@ -37,6 +37,18 @@ describe("GraphOperationalPanel", () => {
                 },
               ],
             },
+            ecosystemSupport: [
+              {
+                scannerId: "typescript",
+                label: "TypeScript/JavaScript",
+                tier: "T0",
+                semanticSupported: true,
+                limitation: "Compiler-backed semantic edges when project config is available.",
+              },
+            ],
+            analyzers: [
+              { id: "dotnet-roslyn", label: "C# Roslyn semantic analyzer", status: "unavailable", fallbackReason: "Helper missing" },
+            ],
             readTheseFirst: [
               { id: "node:1", kind: "code_file", label: "src/app.ts", path: "src/app.ts" },
             ],
@@ -69,6 +81,11 @@ describe("GraphOperationalPanel", () => {
     expect(markup).toContain("Graph operational panel");
     expect(markup).toContain("Graph lens selector");
     expect(markup).toContain("Fusion checks");
+    expect(markup).toContain("Ecosystem tiers");
+    expect(markup).toContain("TypeScript/JavaScript");
+    expect(markup).toContain("C# Roslyn semantic analyzer");
+    expect(markup).toContain("unavailable");
+    expect(markup).toContain("C# Roslyn semantic analyzer: Helper missing");
     expect(markup).toContain("Read these first");
     expect(markup).toContain("Community hubs");
     expect(markup).toContain("src/app.ts");

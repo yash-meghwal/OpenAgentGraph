@@ -1,0 +1,7 @@
+[
+  {
+    "directory": ".",
+    "file": "src/app.cpp",
+    "command": "g++ -Iinclude -c src/app.cpp"
+  }
+]

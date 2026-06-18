@@ -333,6 +333,7 @@ describe("graph cli", () => {
     expect(result.ok).toBe(true);
     expect(result.checks.some((check) => check.code === "marker_sln_without_csharp")).toBe(false);
     expect(result.handoffFreshness.isStale).toBe(false);
+    expect(result.ecosystemSupport?.some((row: { scannerId: string; tier: string }) => row.scannerId === "dotnet")).toBe(true);
   });
 
   it("recovers kernel profile gates when graph:check loads a cached graph", async () => {
@@ -359,6 +360,18 @@ describe("graph cli", () => {
     const report = fs.readFileSync(path.join(workspaceRoot, "GRAPH_REPORT.md"), "utf8");
     expect(report).toContain("## OAG fusion checks");
     expect(report).toContain("## Agent context APIs");
+    expect(report).toContain("## Ecosystem support matrix");
+    expect(report).toContain("## Ecosystem tier legend");
+  });
+
+  it("includes ecosystem tiers in graph:query output for godot fixture", async () => {
+    const workspaceRoot = fixtureRoot("fixture-godot-lite");
+    const { runGraphExportCli } = await import("./graphExport.js");
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+
+    await runGraphExportCli(["--workspace", workspaceRoot, "--json"]);
+    const result = await runGraphQueryCli(["--workspace", workspaceRoot, "--json", "player"]);
+    expect(result.ecosystemSupport?.some((row: { scannerId: string; tier: string }) => row.scannerId === "godot" && row.tier === "T1")).toBe(true);
   });
 
   it("loads cached graph.json when present", async () => {

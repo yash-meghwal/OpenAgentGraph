@@ -49,18 +49,38 @@ export interface UnifiedCodeGraphEdge {
   provenance: UnifiedCodeGraphProvenance;
   label?: string;
   scannerId?: string;
+  metadata?: Record<string, string | number | boolean | null>;
 }
+
+export type ScannerSupportTier = "T0" | "T1.5" | "T1" | "T2" | "T3";
+
+export type GraphAnalyzerMode =
+  | "disabled"
+  | "unavailable"
+  | "structural"
+  | "semantic-lite"
+  | "semantic";
 
 export interface GraphAnalyzerAvailability {
   id: string;
   label: string;
+  /** Ecosystem scanner id this analyzer enriches, e.g. dotnet, java, php. */
+  ecosystemId?: string;
+  /** Highest tier this analyzer can contribute when enabled. */
+  tierContribution?: ScannerSupportTier;
+  /** Analyzer operating mode; complements legacy status for handoff clarity. */
+  mode?: GraphAnalyzerMode;
   requiredRuntime: string;
+  /** Human-readable setup hints (argv-safe commands only). */
+  setupCommandHints?: string[];
   buildProbeCommand?: string;
   status: "enabled" | "disabled" | "unavailable";
   fallbackReason?: string;
   autoBuildCapable: boolean;
   preparedAt?: string;
   durationMs?: number;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
 }
 
 export interface GraphProvenanceSummary {
@@ -126,8 +146,6 @@ export type ScannerCapability =
   | "tests"
   | "semantic"
   | "handoff_sections";
-
-export type ScannerSupportTier = "T0" | "T1" | "T2" | "T3";
 
 export interface ScannerPluginDefinition {
   id: string;

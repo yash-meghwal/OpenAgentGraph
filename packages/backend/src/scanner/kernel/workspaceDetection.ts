@@ -2,8 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import type { IgnoreRule, ProjectTypeSignal, SkipReason, WorkspaceKernelProfile } from "@openagentgraph/shared";
 import {
-  WORKSPACE_MARKER_FILES,
-  WORKSPACE_MARKER_GLOBS,
+  markerProjectTypeForPath,
   normalizeScannerProjectPath,
   type DetectedProjectType,
 } from "../scannerHygiene.js";
@@ -22,20 +21,6 @@ type MarkerHit = {
   marker: string;
   depth: number;
 };
-
-function markerTypeForFileName(fileName: string): string | undefined {
-  for (const marker of WORKSPACE_MARKER_FILES) {
-    if (marker.marker.toLowerCase() === fileName.toLowerCase()) {
-      return marker.projectType;
-    }
-  }
-  for (const marker of WORKSPACE_MARKER_GLOBS) {
-    if (marker.pattern.test(fileName)) {
-      return marker.projectType;
-    }
-  }
-  return undefined;
-}
 
 function extensionType(extension: string): string | undefined {
   switch (extension) {
@@ -64,6 +49,23 @@ function extensionType(extension: string): string | undefined {
     case ".php":
     case ".phtml":
       return "php";
+    case ".swift":
+      return "swift";
+    case ".dart":
+      return "dart";
+    case ".c":
+    case ".cc":
+    case ".cpp":
+    case ".h":
+    case ".hpp":
+      return "cpp";
+    case ".gd":
+    case ".tscn":
+    case ".tres":
+      return "godot-project";
+    case ".unity":
+    case ".prefab":
+      return "unity-app";
     case ".py":
       return "python";
     case ".tf":
@@ -176,7 +178,7 @@ async function discoverMarkerHits(
       const fileDecision = ignoreEngine.shouldSkip(projectPath, false);
       if (fileDecision) continue;
 
-      const typeId = markerTypeForFileName(entry.name);
+      const typeId = markerProjectTypeForPath(projectPath, entry.name);
       if (!typeId) continue;
       markerHits.push({
         projectPath,
@@ -216,7 +218,8 @@ export async function detectWorkspaceKernelProfile(
 
   const codeExtensionKeys = new Set([
     ".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".tf", ".java", ".kt",
-    ".rb", ".rake", ".php", ".phtml", ".ps1", ".sh",
+    ".rb", ".rake", ".php", ".phtml", ".swift", ".dart", ".c", ".cc", ".cpp", ".h", ".hpp",
+    ".gd", ".tscn", ".tres", ".unity", ".prefab", ".ps1", ".sh",
   ]);
   const docExtensionKeys = new Set([".md", ".rst", ".txt"]);
   const codeCount = [...sourceExtensionCounts.entries()]
@@ -301,6 +304,23 @@ export function kernelProfileToLegacyTypes(profile: WorkspaceKernelProfile): Det
     php: "php",
     "laravel-app": "php",
     "wordpress-plugin": "php",
+    swift: "swift",
+    "swift-package": "swift",
+    "swiftui-app": "swift",
+    "ios-xcode": "swift",
+    cpp: "cpp",
+    "cpp-cmake": "cpp",
+    "c-embedded": "cpp",
+    "cpp-msvc": "cpp",
+    "cpp-meson": "cpp",
+    dart: "dart",
+    "dart-package": "dart",
+    "flutter-app": "dart",
+    "flutter-plugin": "dart",
+    "unity-app": "unity-app",
+    "unreal-project": "unreal-project",
+    "unreal-plugin": "unreal-project",
+    "godot-project": "godot-project",
     python: "python",
     "django-app": "python",
     "terraform-iac": "terraform",

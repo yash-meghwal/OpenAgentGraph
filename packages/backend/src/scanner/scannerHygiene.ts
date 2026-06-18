@@ -13,6 +13,7 @@ import {
 } from "@openagentgraph/shared";
 import fs from "fs/promises";
 import path from "path";
+import { ECOSYSTEM_CONFIG_FILE_NAMES } from "./kernel/ecosystemScanner.js";
 
 export {
   DOTNET_CONFIG_EXTENSIONS,
@@ -29,6 +30,8 @@ export {
 export const SCANNER_HYGIENE_VERSION = "1.3";
 
 export const BASE_SKIPPED_DIRECTORIES = [
+  ".build",
+  ".dart_tool",
   ".cache",
   ".oag",
   ".git",
@@ -51,6 +54,7 @@ export const BASE_SKIPPED_DIRECTORIES = [
   ".vercel",
   ".vs",
   ".vscode-test",
+  "CMakeFiles",
   "DerivedData",
   "Pods",
   "__pycache__",
@@ -78,6 +82,14 @@ export const BASE_SKIPPED_DIRECTORIES = [
   "vendor",
   "venv",
   "webview-dist",
+  "Library",
+  "Temp",
+  "Logs",
+  "Binaries",
+  "Intermediate",
+  "DerivedDataCache",
+  "Saved",
+  ".godot",
 ] as const;
 
 export const SKIPPED_DIRECTORY_SET = new Set<string>(BASE_SKIPPED_DIRECTORIES);
@@ -124,11 +136,18 @@ export const WORKSPACE_MARKER_FILES = [
   { marker: ".terraform.lock.hcl", projectType: "terraform-iac" },
   { marker: "Gemfile", projectType: "rails-app" },
   { marker: "Rakefile", projectType: "ruby-app" },
+  { marker: "Package.swift", projectType: "swift-package" },
+  { marker: "pubspec.yaml", projectType: "dart-package" },
+  { marker: "CMakeLists.txt", projectType: "cpp-cmake" },
+  { marker: "Makefile", projectType: "c-embedded" },
+  { marker: "meson.build", projectType: "cpp-meson" },
+  { marker: "compile_commands.json", projectType: "cpp" },
   { marker: "composer.json", projectType: "php-app" },
   { marker: "artisan", projectType: "laravel-app" },
   { marker: "symfony.lock", projectType: "symfony-app" },
   { marker: "settings.gradle", projectType: "java-gradle" },
   { marker: "settings.gradle.kts", projectType: "kotlin-gradle" },
+  { marker: "project.godot", projectType: "godot-project" },
 ] as const;
 
 export const WORKSPACE_MARKER_GLOBS = [
@@ -138,7 +157,12 @@ export const WORKSPACE_MARKER_GLOBS = [
   { pattern: /\.sln$/i, projectType: "dotnet" },
   { pattern: /\.tf$/i, projectType: "terraform-iac" },
   { pattern: /\.gemspec$/i, projectType: "ruby-gem" },
+  { pattern: /project\.pbxproj$/i, projectType: "ios-xcode" },
+  { pattern: /\.vcxproj$/i, projectType: "cpp-msvc" },
   { pattern: /wp-config\.php$/i, projectType: "wordpress-plugin" },
+  { pattern: /\.asmdef$/i, projectType: "unity-app" },
+  { pattern: /\.uproject$/i, projectType: "unreal-project" },
+  { pattern: /\.uplugin$/i, projectType: "unreal-plugin" },
 ] as const;
 
 export const FILE_LEVEL_ONLY_LANGUAGE_WARNING =
@@ -159,14 +183,26 @@ export const RUST_T1_SCANNER_NOTICE =
 export const TERRAFORM_T1_SCANNER_NOTICE =
   "Terraform: T1 config indexing (resources, modules, variables); full IaC graph resolution not yet enabled.";
 
-export const JAVA_KOTLIN_T1_SCANNER_NOTICE =
-  "Java/Kotlin: T1 structural indexing (packages, classes, interfaces, imports); javac/kotlinc semantic edges not yet enabled.";
+export const JAVA_KOTLIN_T15_SCANNER_NOTICE =
+  "Java/Kotlin: T1.5 semantic-lite indexing (project-aware imports, inheritance, tests, modules); optional JDK enrichment when available.";
 
-export const RUBY_T1_SCANNER_NOTICE =
-  "Ruby: T1 structural indexing (modules, classes, methods, requires); runtime/metaprogramming semantic edges not yet enabled.";
+export const RUBY_T15_SCANNER_NOTICE =
+  "Ruby: T1.5 semantic-lite indexing (Gemfile/gemspec, require/require_relative, inheritance, Rails routes, specs); optional Ruby parser enrichment when available.";
 
-export const PHP_T1_SCANNER_NOTICE =
-  "PHP: T1 structural indexing (namespaces, classes, functions, use/require); composer/runtime semantic edges not yet enabled.";
+export const PHP_T15_SCANNER_NOTICE =
+  "PHP: T1.5 semantic-lite indexing (Composer PSR-4, use/extends/implements, routes, hooks); optional PHP tokenizer enrichment when available.";
+
+export const SWIFT_T1_SCANNER_NOTICE =
+  "Swift: T1 structural indexing (imports, types, extensions, tests); optional SourceKit enrichment when available.";
+
+export const CPP_T1_SCANNER_NOTICE =
+  "C/C++: T1 structural indexing (includes, types, CMake/Make targets, tests); optional clang enrichment when available.";
+
+export const DART_T1_SCANNER_NOTICE =
+  "Dart/Flutter: T1 structural indexing (imports, types, widgets, pubspec dependencies, tests); optional Dart analyzer enrichment when available.";
+
+export const GAME_ENGINE_T1_SCANNER_NOTICE =
+  "Game engines: T1 structural indexing (Unity asmdef/scenes, Unreal modules/Build.cs, Godot scripts/scenes/autoloads); runtime behavior is not modeled.";
 
 export type DetectedProjectType =
   | "dotnet"
@@ -192,6 +228,23 @@ export type DetectedProjectType =
   | "wordpress-plugin"
   | "java-gradle"
   | "kotlin-gradle"
+  | "swift"
+  | "swift-package"
+  | "swiftui-app"
+  | "ios-xcode"
+  | "cpp"
+  | "cpp-cmake"
+  | "c-embedded"
+  | "cpp-msvc"
+  | "cpp-meson"
+  | "dart"
+  | "dart-package"
+  | "flutter-app"
+  | "flutter-plugin"
+  | "unity-app"
+  | "unreal-project"
+  | "unreal-plugin"
+  | "godot-project"
   | "documentation-corpus"
   | "generic";
 
@@ -255,20 +308,12 @@ export function isScriptScannableExtension(extension: string) {
 }
 
 export function isEcosystemConfigFileName(fileName: string) {
-  return fileName === "go.mod"
-    || fileName === "Cargo.toml"
-    || fileName === "pyproject.toml"
-    || fileName === "manage.py"
-    || fileName === "pom.xml"
-    || fileName === "build.gradle"
-    || fileName === "build.gradle.kts"
-    || fileName === "settings.gradle"
-    || fileName === "settings.gradle.kts"
-    || fileName === "Gemfile"
-    || fileName === "Rakefile"
-    || fileName === "composer.json"
+  return ECOSYSTEM_CONFIG_FILE_NAMES.has(fileName)
     || fileName === "config/routes.rb"
-    || /\.gemspec$/i.test(fileName);
+    || /\.gemspec$/i.test(fileName)
+    || /\.asmdef$/i.test(fileName)
+    || /\.uproject$/i.test(fileName)
+    || /\.uplugin$/i.test(fileName);
 }
 
 export function isProductGraphScannableExtension(extension: string) {
@@ -330,7 +375,11 @@ function sortedCountRecord(counts: Map<string, number>) {
   );
 }
 
-function markerProjectTypeForFileName(fileName: string): DetectedProjectType | undefined {
+export function markerProjectTypeForPath(projectPath: string, fileName: string): DetectedProjectType | undefined {
+  const normalized = normalizeScannerProjectPath(projectPath);
+  if (normalized.endsWith("ProjectSettings/ProjectVersion.txt")) {
+    return "unity-app";
+  }
   for (const marker of WORKSPACE_MARKER_FILES) {
     if (marker.marker.toLowerCase() === fileName.toLowerCase()) {
       return marker.projectType;
@@ -385,7 +434,7 @@ async function discoverWorkspaceMarkers(
       }
 
       if (!entry.isFile()) continue;
-      const projectType = markerProjectTypeForFileName(entry.name);
+      const projectType = markerProjectTypeForPath(projectPath, entry.name);
       if (!projectType) continue;
       markerPaths.push(projectPath);
       detectedTypes.add(projectType);
@@ -439,7 +488,59 @@ export function buildWorkspaceScanProfile(input: {
     || (extensionCounts[".kt"] ?? 0) > 0
     || (extensionCounts[".kts"] ?? 0) > 0
   ) {
-    warnings.push(JAVA_KOTLIN_T1_SCANNER_NOTICE);
+    warnings.push(JAVA_KOTLIN_T15_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("php")
+    || detected.includes("php-app")
+    || (extensionCounts[".php"] ?? 0) > 0
+  ) {
+    warnings.push(PHP_T15_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("ruby")
+    || detected.includes("rails-app")
+    || (extensionCounts[".rb"] ?? 0) > 0
+  ) {
+    warnings.push(RUBY_T15_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("swift")
+    || detected.includes("swift-package")
+    || detected.includes("ios-xcode")
+    || (extensionCounts[".swift"] ?? 0) > 0
+  ) {
+    warnings.push(SWIFT_T1_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("cpp")
+    || detected.includes("cpp-cmake")
+    || detected.includes("c-embedded")
+    || (extensionCounts[".cpp"] ?? 0) > 0
+    || (extensionCounts[".c"] ?? 0) > 0
+    || (extensionCounts[".h"] ?? 0) > 0
+  ) {
+    warnings.push(CPP_T1_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("dart")
+    || detected.includes("dart-package")
+    || detected.includes("flutter-app")
+    || detected.includes("flutter-plugin")
+    || (extensionCounts[".dart"] ?? 0) > 0
+  ) {
+    warnings.push(DART_T1_SCANNER_NOTICE);
+  }
+  if (
+    detected.includes("unity-app")
+    || detected.includes("unreal-project")
+    || detected.includes("unreal-plugin")
+    || detected.includes("godot-project")
+    || (extensionCounts[".gd"] ?? 0) > 0
+    || (extensionCounts[".unity"] ?? 0) > 0
+    || (extensionCounts[".prefab"] ?? 0) > 0
+  ) {
+    warnings.push(GAME_ENGINE_T1_SCANNER_NOTICE);
   }
   if (hasDotNet && !hasTypeScript && (extensionCounts[".cs"] ?? 0) === 0) {
     warnings.push("Detected .NET project markers but no .cs source files were indexed. Confirm workspace root and build output skips.");
@@ -496,6 +597,12 @@ export async function detectWorkspaceScanProfile(
     }
     if (extension === ".java" || extension === ".kt" || extension === ".kts") {
       detectedProjectTypes.add("java");
+    }
+    if (extension === ".gd" || extension === ".tscn" || extension === ".tres") {
+      detectedProjectTypes.add("godot-project");
+    }
+    if (extension === ".unity" || extension === ".prefab") {
+      detectedProjectTypes.add("unity-app");
     }
   }
 

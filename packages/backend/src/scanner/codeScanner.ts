@@ -56,9 +56,41 @@ import {
 import { runDotNetRoslynSemanticAnalysis, type DotNetRoslynSemanticResult } from "./kernel/dotnetRoslynSemantic.js";
 import {
   augmentEcosystemWorkspaceGraph,
+  buildEcosystemParsedFileIndex,
   ECOSYSTEM_SCANNER_VERSION,
   indexEcosystemFile,
 } from "./kernel/ecosystemScanner.js";
+import {
+  augmentJavaKotlinSemanticLite,
+  prepareJavaKotlinSemanticLite,
+  type JavaKotlinSemanticLiteResult,
+} from "./kernel/javaKotlinSemanticLite.js";
+import {
+  augmentPhpSemanticLite,
+  preparePhpSemanticLite,
+  type PhpSemanticLiteResult,
+} from "./kernel/phpSemanticLite.js";
+import {
+  augmentRubySemanticLite,
+  prepareRubySemanticLite,
+  type RubySemanticLiteResult,
+} from "./kernel/rubySemanticLite.js";
+import {
+  augmentCppStructuralLite,
+  type CppStructuralLiteResult,
+} from "./kernel/cppStructuralLite.js";
+import {
+  augmentSwiftStructuralLite,
+  type SwiftStructuralLiteResult,
+} from "./kernel/swiftStructuralLite.js";
+import {
+  augmentDartStructuralLite,
+  type DartStructuralLiteResult,
+} from "./kernel/dartStructuralLite.js";
+import {
+  augmentGameEngineStructuralLite,
+  type GameEngineStructuralLiteResult,
+} from "./kernel/gameEngineStructuralLite.js";
 import { IgnoreEngine } from "./kernel/ignoreEngine.js";
 import { detectWorkspaceKernelProfile, kernelProfileDiagnostics } from "./kernel/workspaceDetection.js";
 
@@ -2382,6 +2414,239 @@ function buildCommunityGraph(input: {
   return { communityNodes, edges };
 }
 
+async function mergeJavaKotlinSemanticLiteGraph(input: {
+  workspaceRoot: string;
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): Promise<JavaKotlinSemanticLiteResult | undefined> {
+  if (!input.activeScannerIds.includes("java")) return undefined;
+  const preparation = await prepareJavaKotlinSemanticLite({
+    workspaceRoot: input.workspaceRoot,
+    disabled: input.disabled,
+  });
+  const semantic = augmentJavaKotlinSemanticLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    parsedByPath: buildEcosystemParsedFileIndex(input.ecosystemFiles),
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    analyzer: preparation.analyzer,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+async function mergePhpSemanticLiteGraph(input: {
+  workspaceRoot: string;
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): Promise<PhpSemanticLiteResult | undefined> {
+  if (!input.activeScannerIds.includes("php")) return undefined;
+  const preparation = await preparePhpSemanticLite({
+    workspaceRoot: input.workspaceRoot,
+    disabled: input.disabled,
+  });
+  const semantic = augmentPhpSemanticLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    analyzer: preparation.analyzer,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+function mergeCppStructuralLiteGraph(input: {
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): CppStructuralLiteResult | undefined {
+  if (!input.activeScannerIds.includes("cpp") || input.disabled) return undefined;
+  const semantic = augmentCppStructuralLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+function mergeSwiftStructuralLiteGraph(input: {
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): SwiftStructuralLiteResult | undefined {
+  if (!input.activeScannerIds.includes("swift") || input.disabled) return undefined;
+  const semantic = augmentSwiftStructuralLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+function mergeDartStructuralLiteGraph(input: {
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): DartStructuralLiteResult | undefined {
+  if (!input.activeScannerIds.includes("flutter") || input.disabled) return undefined;
+  const semantic = augmentDartStructuralLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+function mergeGameEngineStructuralLiteGraph(input: {
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): GameEngineStructuralLiteResult | undefined {
+  const hasGameEngineScanner = input.activeScannerIds.some((scannerId) =>
+    scannerId === "unity" || scannerId === "unreal" || scannerId === "godot"
+  );
+  if (!hasGameEngineScanner || input.disabled) return undefined;
+  const semantic = augmentGameEngineStructuralLite({
+    activeScannerIds: input.activeScannerIds,
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
+async function mergeRubySemanticLiteGraph(input: {
+  workspaceRoot: string;
+  activeScannerIds: string[];
+  ecosystemFiles: Array<{ relativePath: string; body: string }>;
+  fileNodeIdsByPath: Map<string, string>;
+  nodesById: Map<string, ProductGraphNode>;
+  edgesById: Map<string, ProductGraphEdge>;
+  scanId: string;
+  scannedAt: string;
+  disabled?: boolean;
+}): Promise<RubySemanticLiteResult | undefined> {
+  if (!input.activeScannerIds.includes("ruby")) return undefined;
+  const preparation = await prepareRubySemanticLite({
+    workspaceRoot: input.workspaceRoot,
+    disabled: input.disabled,
+  });
+  const semantic = augmentRubySemanticLite({
+    scanId: input.scanId,
+    scannedAt: input.scannedAt,
+    files: input.ecosystemFiles,
+    fileNodeIdsByPath: input.fileNodeIdsByPath,
+    stableId: stableProductId,
+    compactMetadata,
+    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    analyzer: preparation.analyzer,
+  });
+  for (const edge of semantic.edges) {
+    input.edgesById.set(edge.id, edge);
+  }
+  for (const externalNode of semantic.externalNodes) {
+    input.nodesById.set(externalNode.id, externalNode);
+  }
+  return semantic.result;
+}
+
 export async function scanWorkspaceCodebase(input: {
   workspaceRoot: string;
   projection: ProductGraphProjection;
@@ -2390,6 +2655,13 @@ export async function scanWorkspaceCodebase(input: {
   semanticScanLimits?: Partial<ScanBreakerStatus["limits"]>;
   semanticAnalysisBudget?: SemanticAnalysisBudgetOptions;
   disableDotNetRoslynSemantic?: boolean;
+  disableJavaKotlinSemanticLite?: boolean;
+  disablePhpSemanticLite?: boolean;
+  disableRubySemanticLite?: boolean;
+  disableSwiftStructuralLite?: boolean;
+  disableCppStructuralLite?: boolean;
+  disableDartStructuralLite?: boolean;
+  disableGameEngineStructuralLite?: boolean;
   onProgress?: (snapshot: ScanProgressSnapshot) => void;
 }): Promise<CodebaseScanPlan> {
   const start = Date.now();
@@ -2492,15 +2764,16 @@ export async function scanWorkspaceCodebase(input: {
       // File bodies are optional for workspace-level ecosystem graph augmentation.
     }
   }
+  const ecosystemFiles = files
+    .filter((file) => ecosystemFileBodies.has(file.relativePath))
+    .map((file) => ({
+      relativePath: file.relativePath,
+      body: ecosystemFileBodies.get(file.relativePath) ?? "",
+    }));
   const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
     scanId,
     scannedAt,
-    files: files
-      .filter((file) => ecosystemFileBodies.has(file.relativePath))
-      .map((file) => ({
-        relativePath: file.relativePath,
-        body: ecosystemFileBodies.get(file.relativePath) ?? "",
-      })),
+    files: ecosystemFiles,
     fileNodeIdsByPath,
     stableId: stableProductId,
     compactMetadata,
@@ -2513,6 +2786,79 @@ export async function scanWorkspaceCodebase(input: {
   for (const externalNode of ecosystemWorkspace.externalNodes) {
     nodesById.set(externalNode.id, externalNode);
   }
+  const javaKotlinSemanticLite = await mergeJavaKotlinSemanticLiteGraph({
+    workspaceRoot,
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableJavaKotlinSemanticLite,
+  });
+  const phpSemanticLite = await mergePhpSemanticLiteGraph({
+    workspaceRoot,
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disablePhpSemanticLite,
+  });
+  const rubySemanticLite = await mergeRubySemanticLiteGraph({
+    workspaceRoot,
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableRubySemanticLite,
+  });
+  const swiftStructuralLite = mergeSwiftStructuralLiteGraph({
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableSwiftStructuralLite,
+  });
+  const cppStructuralLite = mergeCppStructuralLiteGraph({
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableCppStructuralLite,
+  });
+  const dartStructuralLite = mergeDartStructuralLiteGraph({
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableDartStructuralLite,
+  });
+  const gameEngineStructuralLite = mergeGameEngineStructuralLiteGraph({
+    activeScannerIds: kernelProfile.activeScannerIds,
+    ecosystemFiles,
+    fileNodeIdsByPath,
+    nodesById,
+    edgesById,
+    scanId,
+    scannedAt,
+    disabled: input.disableGameEngineStructuralLite,
+  });
 
   const dotnetWorkspace = augmentDotNetWorkspaceGraph({
     workspaceRoot,
@@ -2759,8 +3105,21 @@ export async function scanWorkspaceCodebase(input: {
       ? [`TypeScript semantic analysis: ${semanticFallbackReason}`]
       : []),
     ...(dotnetRoslynSemantic?.diagnostics ?? []),
+    ...(javaKotlinSemanticLite?.diagnostics ?? []),
+    ...(phpSemanticLite?.diagnostics ?? []),
+    ...(rubySemanticLite?.diagnostics ?? []),
+    ...(swiftStructuralLite?.diagnostics ?? []),
+    ...(cppStructuralLite?.diagnostics ?? []),
+    ...(dartStructuralLite?.diagnostics ?? []),
+    ...(gameEngineStructuralLite?.diagnostics ?? []),
   ];
-  const analyzers = dotnetRoslynSemantic?.analyzer ? [dotnetRoslynSemantic.analyzer] : undefined;
+  const analyzers = [
+    dotnetRoslynSemantic?.analyzer,
+    javaKotlinSemanticLite?.analyzer,
+    phpSemanticLite?.analyzer,
+    rubySemanticLite?.analyzer,
+  ].filter((analyzer): analyzer is NonNullable<typeof analyzer> => Boolean(analyzer));
+  const analyzersOrUndefined = analyzers.length > 0 ? analyzers : undefined;
   const progress = buildScanProgressSnapshot({
     scanId,
     scope: "product_codebase",
@@ -2791,7 +3150,16 @@ export async function scanWorkspaceCodebase(input: {
       unresolvedDependencyCount: dependencyGraph.unresolvedDependencyCount,
       semanticAnalysisEnabled: semanticAnalysis.enabled,
       semanticAnalysisSucceeded,
-      semanticEdgeCount: semanticModuleEdgeCount + semanticSymbolEdges.length + (dotnetRoslynSemantic?.edgeCount ?? 0),
+      semanticEdgeCount: semanticModuleEdgeCount
+        + semanticSymbolEdges.length
+        + (dotnetRoslynSemantic?.edgeCount ?? 0)
+        + (javaKotlinSemanticLite?.edgeCount ?? 0)
+        + (phpSemanticLite?.edgeCount ?? 0)
+        + (rubySemanticLite?.edgeCount ?? 0)
+        + (swiftStructuralLite?.edgeCount ?? 0)
+        + (cppStructuralLite?.edgeCount ?? 0)
+        + (dartStructuralLite?.edgeCount ?? 0)
+        + (gameEngineStructuralLite?.edgeCount ?? 0),
       semanticResolutionCount: dependencyGraph.semanticResolutionCount,
       semanticConfigCount: semanticAnalysis.configCount,
       semanticConfiguredFileCount: semanticAnalysis.configuredFileCount,
@@ -2815,7 +3183,7 @@ export async function scanWorkspaceCodebase(input: {
       kernelProfile,
       skippedCountsByReason: stats.ignoreEngine.skippedCountsRecord(stats.skippedCountsByReason),
       skipDiagnostics: stats.skipDiagnostics,
-      analyzers,
+      analyzers: analyzersOrUndefined,
     },
   };
 }

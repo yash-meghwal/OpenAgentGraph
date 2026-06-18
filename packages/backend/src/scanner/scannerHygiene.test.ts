@@ -10,6 +10,9 @@ import {
 import {
   BASE_SKIPPED_DIRECTORIES,
   DOTNET_T0_SCANNER_NOTICE,
+  JAVA_KOTLIN_T15_SCANNER_NOTICE,
+  PHP_T15_SCANNER_NOTICE,
+  RUBY_T15_SCANNER_NOTICE,
   buildWorkspaceScanProfile,
   detectWorkspaceScanProfile,
   extractCSharpTopLevelSymbols,
@@ -104,6 +107,48 @@ describe("scanner hygiene", () => {
     expect(profile.sourceExtensionCounts).toMatchObject({ ".cs": 1, ".ts": 4 });
     expect(profile.skippedDirectoryCounts).toMatchObject({ bin: 1, obj: 2 });
     expect(profile.warnings).toContain(DOTNET_T0_SCANNER_NOTICE);
+  });
+
+  it("reports T1.5 semantic-lite wording for Java/Kotlin workspaces", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    writeFile(path.join(workspaceRoot, "pom.xml"), "<project></project>\n");
+    writeFile(path.join(workspaceRoot, "src", "main", "java", "Main.java"), "public class Main {}\n");
+
+    const profile = await detectWorkspaceScanProfile(workspaceRoot, {
+      sourceExtensionCounts: new Map([[".java", 1]]),
+      skippedDirectoryCounts: new Map(),
+    });
+
+    expect(profile.warnings).toContain(JAVA_KOTLIN_T15_SCANNER_NOTICE);
+    expect(profile.warnings.join("\n")).not.toMatch(/T1 structural indexing.*javac\/kotlinc/i);
+  });
+
+  it("reports T1.5 semantic-lite wording for Ruby workspaces", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    writeFile(path.join(workspaceRoot, "Gemfile"), 'gem "rails"\n');
+    writeFile(path.join(workspaceRoot, "app.rb"), "class App\nend\n");
+
+    const profile = await detectWorkspaceScanProfile(workspaceRoot, {
+      sourceExtensionCounts: new Map([[".rb", 1]]),
+      skippedDirectoryCounts: new Map(),
+    });
+
+    expect(profile.warnings).toContain(RUBY_T15_SCANNER_NOTICE);
+    expect(profile.warnings.join("\n")).not.toMatch(/T1 structural indexing.*runtime\/metaprogramming/i);
+  });
+
+  it("reports T1.5 semantic-lite wording for PHP workspaces", async () => {
+    const workspaceRoot = makeTempWorkspace();
+    writeFile(path.join(workspaceRoot, "composer.json"), JSON.stringify({ name: "fixture/demo" }));
+    writeFile(path.join(workspaceRoot, "src", "Main.php"), "<?php\nclass Main {}\n");
+
+    const profile = await detectWorkspaceScanProfile(workspaceRoot, {
+      sourceExtensionCounts: new Map([[".php", 1]]),
+      skippedDirectoryCounts: new Map(),
+    });
+
+    expect(profile.warnings).toContain(PHP_T15_SCANNER_NOTICE);
+    expect(profile.warnings.join("\n")).not.toMatch(/T1 structural indexing.*composer\/runtime/i);
   });
 
   it("serializes extension counts for handoff parsers that accept colon-form metadata", () => {

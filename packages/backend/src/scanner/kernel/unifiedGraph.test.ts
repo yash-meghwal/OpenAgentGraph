@@ -81,6 +81,42 @@ describe("unified code graph", () => {
     expect(graph.diagnostics).toContain("Primary project type: typescript.");
   });
 
+  it("maps extends and implements product edge kinds into unified inheritance edges", () => {
+    const projection = makeProjection();
+    projection.edges = [
+      {
+        id: "edge:extends",
+        kind: "extends",
+        sourceNodeId: "symbol:src/index.ts:main",
+        targetNodeId: "symbol:src/index.ts:base",
+        trust: "extracted",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        metadata: { scannerRelation: "extends", scannerResolution: "semantic-lite" },
+      },
+      {
+        id: "edge:implements",
+        kind: "implements",
+        sourceNodeId: "symbol:src/index.ts:main",
+        targetNodeId: "file:src/index.ts",
+        trust: "extracted",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        metadata: { scannerRelation: "implements", scannerResolution: "semantic-lite" },
+      },
+    ];
+
+    const graph = buildUnifiedCodeGraph({
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      projection,
+      kernelProfile: makeProfile({ activeScannerIds: ["java"] }),
+    });
+
+    expect(graph.edges.some((edge) => edge.kind === "inherits" && edge.metadata?.scannerRelation === "extends")).toBe(true);
+    expect(graph.edges.some((edge) => edge.kind === "implements" && edge.metadata?.scannerRelation === "implements")).toBe(true);
+  });
+
   it("records optional analyzer metadata when provided", () => {
     const graph = buildUnifiedCodeGraph({
       workspaceRoot: "/workspace",

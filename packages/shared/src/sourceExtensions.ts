@@ -28,21 +28,27 @@ export const ECOSYSTEM_SCANNABLE_EXTENSIONS = [
   ".rake",
   ".php",
   ".phtml",
-  ".tf",
-  ".tfvars",
-  ".md",
-  ".rst",
-] as const;
-
-export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
-
-export const UNSUPPORTED_SOURCE_EXTENSIONS = [
   ".swift",
+  ".dart",
   ".c",
   ".cc",
   ".cpp",
   ".h",
   ".hpp",
+  ".tf",
+  ".tfvars",
+  ".md",
+  ".rst",
+  ".gd",
+  ".tscn",
+  ".tres",
+  ".unity",
+  ".prefab",
+] as const;
+
+export const SCRIPT_SCANNABLE_EXTENSIONS = [".ps1", ".sh", ".bash"] as const;
+
+export const UNSUPPORTED_SOURCE_EXTENSIONS = [
   ".scala",
   ".fs",
   ".vb",

@@ -1,4 +1,4 @@
-import type { AgentCodeContextNodeSummary } from "./types.js";
+import type { AgentAnalyzerSummary, AgentCodeContextNodeSummary, AgentEcosystemSupportSummary } from "./types.js";
 import type { GraphFusionResult } from "./graphFusion.js";
 import type {
   GraphGodNodeSummary,
@@ -48,6 +48,8 @@ export interface WorkspaceGraphOperationalContext {
   scopedNodeCount?: number;
   scopedEdgeCount?: number;
   activeScannerIds?: string[];
+  ecosystemSupport?: AgentEcosystemSupportSummary[];
+  analyzers?: AgentAnalyzerSummary[];
   diagnostics?: string[];
   queryEntryPoints?: WorkspaceGraphQueryEntryPoints;
 }

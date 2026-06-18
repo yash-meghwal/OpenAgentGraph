@@ -1,5 +1,6 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
 import { summarizeUnifiedCommunityNode } from "./graphCommunities.js";
+import { getEcosystemScannerCatalogEntry } from "./graphEcosystemHealth.js";
 
 function buildGraphAdjacency(graph: UnifiedCodeGraph) {
   const adjacency = new Map<string, Set<string>>();
@@ -348,6 +349,29 @@ export function buildGraphHealthSummary(
       label: "Unsupported",
       tone: "warn",
       detail: `${kernelProfile?.skippedCountsByReason?.unsupported} unsupported file(s)`,
+    });
+  }
+
+  for (const scannerId of graph.activeScannerIds) {
+    const catalog = getEcosystemScannerCatalogEntry(scannerId);
+    const tone = catalog.tier === "T0" || catalog.tier === "T1.5"
+      ? "good"
+      : catalog.tier === "T1"
+        ? "warn"
+        : "bad";
+    badges.push({
+      label: catalog.label,
+      tone,
+      detail: `${catalog.tier} · ${catalog.semanticSupported ? "semantic-lite" : "structural"}`,
+    });
+  }
+
+  if (graph.analyzers?.some((analyzer) => analyzer.status === "unavailable")) {
+    const unavailable = graph.analyzers.filter((analyzer) => analyzer.status === "unavailable").length;
+    badges.push({
+      label: "Analyzers",
+      tone: "warn",
+      detail: `${unavailable} optional analyzer(s) unavailable; structural fallback active`,
     });
   }
 

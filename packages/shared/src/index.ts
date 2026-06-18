@@ -6,6 +6,8 @@ export * from "./graphArtifacts";
 export * from "./graphLenses";
 export * from "./graphFusion";
 export * from "./graphAnalyzers";
+export * from "./graphAnalyzerGates";
+export * from "./semanticEdgeNormalization";
 export * from "./graphEcosystemHealth";
 export * from "./graphOperational";
 export * from "./graphReleaseGates";

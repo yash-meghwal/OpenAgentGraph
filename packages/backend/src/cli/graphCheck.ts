@@ -1,5 +1,6 @@
 import {
   evaluateOagFusionChecks,
+  summarizeEcosystemSupportForAgents,
 } from "@openagentgraph/shared";
 import { applyProductGraphCliDataDir, readRequiredCliValue } from "./productGraphDataDir.js";
 import {
@@ -11,7 +12,10 @@ import {
   warnIgnoredGraphCliOptions,
 } from "./graphWorkspace.js";
 import { detectWorkspaceKernelProfile } from "../scanner/kernel/workspaceDetection.js";
-import { renderEcosystemScannerHealthMarkdown } from "@openagentgraph/shared";
+import {
+  renderEcosystemScannerHealthMarkdown,
+  renderEcosystemSupportMatrixMarkdown,
+} from "@openagentgraph/shared";
 
 type GraphCheckMode = "hard" | "warn";
 
@@ -95,6 +99,11 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     previousSymbolCount,
   });
 
+  const ecosystemSupport = summarizeEcosystemSupportForAgents({
+    graph: loaded.graph,
+    kernelProfile,
+  });
+
   const payload = {
     status: fusion.ok ? "graph_check_passed" : "graph_check_failed",
     workspaceRoot,
@@ -106,6 +115,7 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     checks: fusion.checks,
     handoffFreshness,
     activeScannerIds: loaded.graph.activeScannerIds,
+    ecosystemSupport,
     analyzers: loaded.graph.analyzers ?? [],
     symbolCount: loaded.graph.nodes.filter((node) => node.kind === "symbol").length,
   };
@@ -129,6 +139,22 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
       console.log("Ecosystem scanner health:");
       for (const line of ecosystemLines) {
         console.log(line.startsWith("-") ? line : `- ${line}`);
+      }
+    }
+    const matrixLines = renderEcosystemSupportMatrixMarkdown({
+      kernelProfile,
+      graph: loaded.graph,
+    });
+    if (matrixLines.length > 0) {
+      console.log("Ecosystem support matrix:");
+      for (const line of matrixLines) {
+        console.log(line.startsWith("-") ? line : `- ${line}`);
+      }
+    }
+    if (loaded.graph.analyzers?.length) {
+      console.log("Optional analyzers:");
+      for (const analyzer of loaded.graph.analyzers) {
+        console.log(`- ${analyzer.id}: ${analyzer.status}${analyzer.fallbackReason ? ` (${analyzer.fallbackReason})` : ""}`);
       }
     }
     console.log(fusion.ok ? "Result: PASS" : "Result: FAIL");

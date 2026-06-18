@@ -338,11 +338,28 @@ export interface AgentCodeContextNodeSummary {
   path?: string;
 }
 
+export interface AgentEcosystemSupportSummary {
+  scannerId: string;
+  label: string;
+  tier: string;
+  semanticSupported: boolean;
+  limitation: string;
+}
+
+export interface AgentAnalyzerSummary {
+  id: string;
+  label: string;
+  status: string;
+  fallbackReason?: string;
+}
+
 export interface AgentCodeContextSlice {
   source: "unified_code_graph";
   workspaceRoot: string;
   generatedAt: string;
   primaryLens: string;
+  ecosystemSupport?: AgentEcosystemSupportSummary[];
+  analyzers?: AgentAnalyzerSummary[];
   readTheseFirst: AgentCodeContextNodeSummary[];
   godNodes: Array<{
     label: string;

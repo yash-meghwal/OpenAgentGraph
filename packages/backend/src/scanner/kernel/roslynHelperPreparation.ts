@@ -1,7 +1,8 @@
 import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
-import type { GraphAnalyzerAvailability } from "@openagentgraph/shared";
+import { buildGraphAnalyzerAvailability, type GraphAnalyzerAvailability } from "@openagentgraph/shared";
+import { runAnalyzerHelper } from "./analyzerHelperRunner.js";
 
 export function resolveRoslynHelperDllCandidates() {
   return [
@@ -34,15 +35,23 @@ export function resolveRoslynHelperProjectPath() {
 
 export function buildRoslynAnalyzerAvailability(
   input: Partial<GraphAnalyzerAvailability> & Pick<GraphAnalyzerAvailability, "status">
-): GraphAnalyzerAvailability {
-  return {
-    id: DOTNET_ROSLYN_ANALYZER_ID,
-    label: "C# Roslyn semantic analyzer",
-    requiredRuntime: ".NET SDK (dotnet CLI)",
-    buildProbeCommand: "dotnet build scanner-tools/roslyn-helper/RoslynHelper.csproj -c Release",
-    autoBuildCapable: true,
+) {
+  return buildGraphAnalyzerAvailability({
     ...input,
-  };
+    id: input.id ?? DOTNET_ROSLYN_ANALYZER_ID,
+    label: input.label ?? "C# Roslyn semantic analyzer",
+    ecosystemId: input.ecosystemId ?? "dotnet",
+    tierContribution: input.tierContribution ?? "T0",
+    mode: input.mode ?? "semantic",
+    requiredRuntime: input.requiredRuntime ?? ".NET SDK (dotnet CLI)",
+    setupCommandHints: input.setupCommandHints ?? [
+      "dotnet build packages/backend/scanner-tools/roslyn-helper/RoslynHelper.csproj -c Release",
+    ],
+    buildProbeCommand: input.buildProbeCommand ?? "dotnet build scanner-tools/roslyn-helper/RoslynHelper.csproj -c Release",
+    autoBuildCapable: input.autoBuildCapable ?? true,
+    timeoutMs: input.timeoutMs ?? 30_000,
+    maxOutputBytes: input.maxOutputBytes ?? 2_000_000,
+  });
 }
 
 export async function probeDotNetSdkAvailability() {
@@ -86,66 +95,32 @@ export async function buildRoslynHelper(input: { timeoutMs?: number } = {}) {
     };
   }
 
-  return new Promise<{
-    succeeded: boolean;
-    durationMs: number;
-    reason?: string;
-  }>((resolve) => {
-    const child = spawn(
-      "dotnet",
-      ["build", projectPath, "-c", "Release", "--nologo", "-v", "q"],
-      {
-        cwd: path.dirname(projectPath),
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      }
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (result: { succeeded: boolean; durationMs: number; reason?: string }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-
-    const timer = setTimeout(() => {
-      child.kill();
-      finish({
-        succeeded: false,
-        durationMs: Date.now() - startedAt,
-        reason: `Roslyn helper build timed out after ${timeoutMs}ms.`,
-      });
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => {
-      finish({
-        succeeded: false,
-        durationMs: Date.now() - startedAt,
-        reason: error instanceof Error ? error.message : "Roslyn helper build failed to start.",
-      });
-    });
-    child.on("close", (code) => {
-      if (code === 0) {
-        finish({ succeeded: true, durationMs: Date.now() - startedAt });
-        return;
-      }
-      const detail = (stderr || stdout).trim().split("\n").filter(Boolean).slice(-3).join(" ");
-      finish({
-        succeeded: false,
-        durationMs: Date.now() - startedAt,
-        reason: detail || `Roslyn helper build exited with code ${code ?? "unknown"}.`,
-      });
-    });
+  const projectDir = path.dirname(projectPath);
+  const result = await runAnalyzerHelper({
+    run: {
+      command: ["dotnet", "build", projectPath, "-c", "Release", "--nologo", "-v", "q"],
+      workspaceRoot: projectDir,
+      limits: { timeoutMs },
+    },
   });
+
+  if (result.timedOut) {
+    return {
+      succeeded: false as const,
+      durationMs: result.durationMs,
+      reason: result.error ?? `Roslyn helper build timed out after ${timeoutMs}ms.`,
+    };
+  }
+  if (result.ok) {
+    return { succeeded: true as const, durationMs: result.durationMs };
+  }
+
+  const detail = (result.stderr || result.stdout).trim().split("\n").filter(Boolean).slice(-3).join(" ");
+  return {
+    succeeded: false as const,
+    durationMs: result.durationMs,
+    reason: detail || result.error || "Roslyn helper build failed.",
+  };
 }
 
 export async function ensureRoslynHelperPrepared(input: {

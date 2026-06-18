@@ -1,0 +1,5 @@
+Gem::Specification.new do |s|
+  s.name = "mygem-autoload"
+  s.version = "0.1.0"
+  s.files = ["lib/mygem.rb"]
+end

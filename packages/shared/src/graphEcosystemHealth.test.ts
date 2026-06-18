@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { WorkspaceKernelProfile } from "./codeGraph.js";
 import {
   buildEcosystemScannerHealthSections,
+  buildEcosystemSupportMatrix,
   buildTypeScriptSemanticHealthLine,
   flattenEcosystemScannerHealthDiagnostics,
   parseExtensionCounts,
   renderEcosystemScannerHealthMarkdown,
+  renderEcosystemSupportMatrixMarkdown,
+  renderEcosystemTierLegendMarkdown,
   scanMetadataToHealthInput,
   shouldReportTypeScriptSemanticHealth,
+  summarizeEcosystemSupportForAgents,
 } from "./graphEcosystemHealth.js";
+import type { UnifiedCodeGraph } from "./codeGraph.js";
 
 function makeProfile(overrides: Partial<WorkspaceKernelProfile> = {}): WorkspaceKernelProfile {
   return {
@@ -126,6 +131,52 @@ describe("graph ecosystem health", () => {
 
     expect(lines.some((line) => line.endsWith(".."))).toBe(false);
     expect(lines.join("\n")).toContain("Documentation corpus mode:");
+  });
+
+  it("includes game engine and mobile ecosystem health sections", () => {
+    const sections = buildEcosystemScannerHealthSections({
+      kernelProfile: makeProfile({
+        primaryType: "godot-project",
+        activeScannerIds: ["godot", "unity", "unreal", "swift", "cpp", "flutter"],
+        markerPaths: ["project.godot", "ProjectSettings/ProjectVersion.txt", "Demo.uproject", "Package.swift", "CMakeLists.txt", "pubspec.yaml"],
+      }),
+    });
+
+    expect(sections.map((section) => section.scannerId)).toEqual(
+      expect.arrayContaining(["godot", "unity", "unreal", "swift", "cpp", "flutter"])
+    );
+  });
+
+  it("renders support matrix and tier legend for active scanners", () => {
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1.0",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      nodes: [
+        { id: "file:1", kind: "code_file", label: "scripts/player.gd", path: "scripts/player.gd" },
+        { id: "sym:1", kind: "symbol", label: "Player", path: "scripts/player.gd" },
+      ],
+      edges: [],
+      activeScannerIds: ["godot"],
+      diagnostics: [],
+    };
+    const matrix = renderEcosystemSupportMatrixMarkdown({
+      graph,
+      kernelProfile: makeProfile({
+        primaryType: "godot-project",
+        activeScannerIds: ["godot"],
+      }),
+    });
+    expect(matrix.join("\n")).toContain("godot (T1)");
+    expect(renderEcosystemTierLegendMarkdown().join("\n")).toContain("T1.5");
+    expect(summarizeEcosystemSupportForAgents({
+      graph,
+      kernelProfile: makeProfile({ activeScannerIds: ["godot"], primaryType: "godot-project" }),
+    })[0]?.tier).toBe("T1");
+    expect(buildEcosystemSupportMatrix({
+      graph,
+      kernelProfile: makeProfile({ activeScannerIds: ["godot"], primaryType: "godot-project" }),
+    })[0]?.semanticSupported).toBe(false);
   });
 
   it("includes multiple ecosystem blocks for mixed-polyglot profiles", () => {

@@ -1,5 +1,16 @@
 import path from "path";
 import type { ProductGraphEdge, ProductGraphNode, ProductMetadataValue } from "@openagentgraph/shared";
+import { parseCppFile } from "./cppParsing.js";
+import { parseCMakeLists, parseCompileCommands } from "./cppProjectParsing.js";
+import { parseDartFile } from "./dartParsing.js";
+import { parsePubspecYaml } from "./dartProjectParsing.js";
+import { parseGradleSettingsIncludes } from "./gradleProjectParsing.js";
+import { parseGdScript, parseGodotSceneAsset, parseUnityAsset } from "./godotParsing.js";
+import {
+  parseAsmdef,
+  parseGodotProject,
+  parseUnrealProject,
+} from "./gameEngineProjectParsing.js";
 
 export const ECOSYSTEM_SCANNER_VERSION = "1.1";
 
@@ -10,6 +21,11 @@ export const JAVA_SCANNABLE_EXTENSIONS = [".java"] as const;
 export const KOTLIN_SCANNABLE_EXTENSIONS = [".kt", ".kts"] as const;
 export const RUBY_SCANNABLE_EXTENSIONS = [".rb", ".rake"] as const;
 export const PHP_SCANNABLE_EXTENSIONS = [".php", ".phtml"] as const;
+export const SWIFT_SCANNABLE_EXTENSIONS = [".swift"] as const;
+export const DART_SCANNABLE_EXTENSIONS = [".dart"] as const;
+export const CPP_SCANNABLE_EXTENSIONS = [".c", ".cc", ".cpp", ".h", ".hpp"] as const;
+export const GODOT_SCANNABLE_EXTENSIONS = [".gd", ".tscn", ".tres"] as const;
+export const UNITY_ASSET_EXTENSIONS = [".unity", ".prefab"] as const;
 export const TERRAFORM_SCANNABLE_EXTENSIONS = [".tf", ".tfvars"] as const;
 export const DOC_SCANNABLE_EXTENSIONS = [".md", ".rst"] as const;
 
@@ -26,6 +42,13 @@ export const ECOSYSTEM_CONFIG_FILE_NAMES = new Set([
   "Gemfile",
   "Rakefile",
   "composer.json",
+  "Package.swift",
+  "pubspec.yaml",
+  "CMakeLists.txt",
+  "Makefile",
+  "meson.build",
+  "compile_commands.json",
+  "project.godot",
 ]);
 
 const MAX_SYMBOLS_PER_FILE = 120;
@@ -38,6 +61,11 @@ export type EcosystemLanguage =
   | "kotlin"
   | "ruby"
   | "php"
+  | "swift"
+  | "dart"
+  | "cpp"
+  | "godot"
+  | "unity"
   | "terraform"
   | "documentation";
 
@@ -85,6 +113,11 @@ export function ecosystemLanguageForExtension(extension: string): EcosystemLangu
   if ((KOTLIN_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "kotlin";
   if ((RUBY_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "ruby";
   if ((PHP_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "php";
+  if ((SWIFT_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "swift";
+  if ((DART_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "dart";
+  if ((CPP_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "cpp";
+  if ((GODOT_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "godot";
+  if ((UNITY_ASSET_EXTENSIONS as readonly string[]).includes(normalized)) return "unity";
   if ((TERRAFORM_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "terraform";
   if ((DOC_SCANNABLE_EXTENSIONS as readonly string[]).includes(normalized)) return "documentation";
   return undefined;
@@ -288,11 +321,20 @@ function parseJavaFile(body: string, filePath: string): EcosystemFileIndex {
       imports.push(importMatch[1]!);
       continue;
     }
-    const classMatch = line.match(/^(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+|sealed\s+)*class\s+(\w+)/);
+    const classMatch = line.match(
+      /^(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+|sealed\s+)*class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w.,\s]+))?/
+    );
     if (classMatch) {
       currentType = classMatch[1];
       typeBraceDepth = braceDepth;
       pushSymbol(symbols, { name: currentType, kind: "class", line: index + 1 });
+      if (classMatch[2]) imports.push(`extends:${classMatch[2]}`);
+      if (classMatch[3]) {
+        for (const iface of classMatch[3].split(",")) {
+          const trimmed = iface.trim();
+          if (trimmed) imports.push(`implements:${trimmed}`);
+        }
+      }
       continue;
     }
     const interfaceMatch = line.match(/^(?:public\s+)?interface\s+(\w+)/);
@@ -363,6 +405,24 @@ function parseKotlinFile(body: string, filePath: string): EcosystemFileIndex {
       imports.push(importMatch[1]!);
       continue;
     }
+    const kotlinClassMatch = line.match(
+      /^(?:public\s+|private\s+|internal\s+)?(?:data\s+|sealed\s+|abstract\s+|open\s+)?class\s+(\w+)(?:\s*\([^)]*\))?\s*(?::\s*([^{]+))?/
+    );
+    if (kotlinClassMatch) {
+      currentType = kotlinClassMatch[1];
+      pushSymbol(symbols, { name: currentType, kind: "class", line: index + 1 });
+      const parents = kotlinClassMatch[2]?.split(",") ?? [];
+      if (parents.length > 0) {
+        const superType = parents[0]?.trim();
+        if (superType) imports.push(`extends:${superType}`);
+        for (const iface of parents.slice(1)) {
+          const trimmed = iface.trim();
+          if (trimmed) imports.push(`implements:${trimmed}`);
+        }
+      }
+      continue;
+    }
+
     const typePatterns: Array<{ regex: RegExp; kind: string }> = [
       { regex: /^(?:public\s+|private\s+|internal\s+)?(?:data\s+|sealed\s+|abstract\s+|open\s+)?class\s+(\w+)/, kind: "class" },
       { regex: /^(?:public\s+|private\s+|internal\s+)?interface\s+(\w+)/, kind: "interface" },
@@ -413,6 +473,135 @@ function railsSymbolKind(filePath: string, symbolKind: string) {
   return symbolKind;
 }
 
+function isSwiftTestFile(filePath: string) {
+  const baseName = path.basename(filePath);
+  return /(?:^|\/)Tests?\//i.test(filePath)
+    || /Tests\.swift$/i.test(baseName)
+    || /Test\.swift$/i.test(baseName);
+}
+
+function swiftSymbolKind(baseKind: string, conformsClause?: string) {
+  if (baseKind === "struct" && /\bView\b/.test(conformsClause ?? "")) return "swiftui_view";
+  return baseKind;
+}
+
+function parseSwiftTypeClauseImports(keyword: string, typeClause: string | undefined) {
+  if (!typeClause) return [];
+  const types = typeClause
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (keyword === "class") {
+    const imports: string[] = [];
+    if (types[0]) imports.push(`extends:${types[0]}`);
+    for (const protocol of types.slice(1)) {
+      imports.push(`conforms:${protocol}`);
+    }
+    return imports;
+  }
+  return types.map((typeName) => `conforms:${typeName}`);
+}
+
+function parseSwiftFile(body: string, filePath: string): EcosystemFileIndex {
+  const symbols: EcosystemSymbol[] = [];
+  const imports: string[] = [];
+  let currentType: string | undefined;
+  let currentTypeBraceDepth = -1;
+  let braceDepth = 0;
+  const isTestFile = isSwiftTestFile(filePath);
+
+  for (const [index, rawLine] of body.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//")) continue;
+
+    const openBraces = (line.match(/\{/g) ?? []).length;
+    const closeBraces = (line.match(/\}/g) ?? []).length;
+    if (currentType !== undefined && braceDepth <= currentTypeBraceDepth && !line.includes("{")) {
+      currentType = undefined;
+      currentTypeBraceDepth = -1;
+    }
+
+    const importMatch = line.match(
+      /^(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|protocol|let|var|func)\s+)?([\w.]+)/
+    );
+    if (importMatch) {
+      imports.push(importMatch[1]!);
+      continue;
+    }
+
+    const extensionMatch = line.match(/^extension\s+(\w+)(?:\s*:\s*([^{]+))?/);
+    if (extensionMatch) {
+      currentType = extensionMatch[1];
+      currentTypeBraceDepth = braceDepth;
+      pushSymbol(symbols, {
+        name: extensionMatch[1]!,
+        kind: "extension",
+        line: index + 1,
+      });
+      imports.push(`extends:${extensionMatch[1]!}`);
+      for (const clauseImport of parseSwiftTypeClauseImports("extension", extensionMatch[2])) {
+        imports.push(clauseImport);
+      }
+      braceDepth += openBraces - closeBraces;
+      continue;
+    }
+
+    const typeMatch = line.match(
+      /^(?:@\w+\s+)*(?:(?:public|open|internal|fileprivate|private|final)\s+)*(?:class|struct|enum|protocol|actor)\s+(\w+)(?:\s*:\s*([^{]+))?/
+    );
+    if (typeMatch) {
+      const keyword = line.match(/\b(class|struct|enum|protocol|actor)\b/)?.[1] ?? "class";
+      const conformsClause = typeMatch[2];
+      currentType = typeMatch[1];
+      currentTypeBraceDepth = braceDepth;
+      pushSymbol(symbols, {
+        name: currentType,
+        kind: swiftSymbolKind(keyword, conformsClause),
+        line: index + 1,
+      });
+      for (const clauseImport of parseSwiftTypeClauseImports(keyword, conformsClause)) {
+        imports.push(clauseImport);
+      }
+      braceDepth += openBraces - closeBraces;
+      continue;
+    }
+
+    const funcMatch = line.match(
+      /^(?:@\w+\s+)*(?:(?:public|open|internal|fileprivate|private|static)\s+)*func\s+(\w+)/
+    );
+    if (funcMatch) {
+      pushSymbol(symbols, {
+        name: funcMatch[1]!,
+        kind: "function",
+        line: index + 1,
+        parentType: currentType,
+      });
+      braceDepth += openBraces - closeBraces;
+      continue;
+    }
+
+    const initMatch = line.match(
+      /^(?:@\w+\s+)*(?:(?:public|open|internal|fileprivate|private)\s+)*init(?:\(|<)/
+    );
+    if (initMatch) {
+      pushSymbol(symbols, {
+        name: "init",
+        kind: "initializer",
+        line: index + 1,
+        parentType: currentType,
+      });
+    }
+
+    braceDepth += openBraces - closeBraces;
+    if (currentType !== undefined && braceDepth <= currentTypeBraceDepth) {
+      currentType = undefined;
+      currentTypeBraceDepth = -1;
+    }
+  }
+
+  return { language: "swift", filePath, symbols, imports, isTestFile, headings: [] };
+}
+
 function isRubyTestFile(filePath: string) {
   const baseName = path.basename(filePath);
   return /(?:^|\/)(?:spec|test)\//i.test(filePath) || /_spec\.rb$/i.test(baseName) || /_test\.rb$/i.test(baseName);
@@ -421,58 +610,124 @@ function isRubyTestFile(filePath: string) {
 function parseRubyFile(body: string, filePath: string): EcosystemFileIndex {
   const symbols: EcosystemSymbol[] = [];
   const imports: string[] = [];
-  let currentModule: string | undefined;
+  const moduleStack: string[] = [];
+  const moduleFrameStack: number[] = [];
   let currentClass: string | undefined;
-  let moduleDepth = 0;
+  let currentClassQualified: string | undefined;
   let classDepth = 0;
+  let methodDepth = 0;
   const isTestFile = isRubyTestFile(filePath);
+
+  const moduleNamespace = () => moduleStack.join("::");
+  const methodOwner = () => {
+    if (currentClassQualified) return currentClassQualified;
+    return moduleNamespace() || undefined;
+  };
+  const countInlineEnds = (line: string) => (line.match(/\bend\b/g) ?? []).length;
+  const closeModuleFrame = () => {
+    const segmentCount = moduleFrameStack.pop();
+    if (!segmentCount) return;
+    for (let index = 0; index < segmentCount; index += 1) {
+      moduleStack.pop();
+    }
+  };
 
   for (const [index, rawLine] of body.split("\n").entries()) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
 
-    const requireMatch = line.match(/^require(?:_relative)?\s+['"]([^'"]+)['"]/);
+    const relativeRequire = line.match(/^require_relative\s+['"]([^'"]+)['"]/);
+    if (relativeRequire) {
+      imports.push(`relative:${relativeRequire[1]!}`);
+      continue;
+    }
+    const requireMatch = line.match(/^require\s+['"]([^'"]+)['"]/);
     if (requireMatch) {
-      imports.push(requireMatch[1]!);
+      imports.push(`require:${requireMatch[1]!}`);
       continue;
     }
 
-    const moduleMatch = line.match(/^module\s+(\w+)/);
+    const moduleMatch = line.match(/^module\s+([\w:]+)/);
     if (moduleMatch) {
-      currentModule = moduleMatch[1];
-      moduleDepth += 1;
-      pushSymbol(symbols, { name: currentModule, kind: "module", line: index + 1 });
+      const segments = moduleMatch[1]!.split("::");
+      moduleFrameStack.push(segments.length);
+      for (const segment of segments) {
+        moduleStack.push(segment);
+      }
+      pushSymbol(symbols, {
+        name: segments[segments.length - 1]!,
+        kind: "module",
+        line: index + 1,
+        parentType: moduleStack.length > 1 ? moduleStack.slice(0, -1).join("::") : undefined,
+      });
       continue;
     }
 
-    const classMatch = line.match(/^class\s+(\w+)(?:\s*<\s*([\w:]+))?/);
+    const classMatch = line.match(/^class\s+([\w:]+)(?:\s*<\s*([\w:]+))?/);
     if (classMatch) {
-      currentClass = classMatch[1];
+      const classSegments = classMatch[1]!.split("::");
+      currentClass = classSegments[classSegments.length - 1]!;
       classDepth += 1;
+      const classParentFromName = classSegments.length > 1
+        ? classSegments.slice(0, -1).join("::")
+        : undefined;
+      const enclosingModule = moduleNamespace();
+      const parentType = classParentFromName ?? (enclosingModule || undefined);
+      currentClassQualified = classParentFromName
+        ? `${classParentFromName}::${currentClass}`
+        : enclosingModule
+          ? `${enclosingModule}::${currentClass}`
+          : currentClass;
       const kind = railsSymbolKind(filePath, "class");
-      pushSymbol(symbols, { name: currentClass, kind, line: index + 1, parentType: currentModule });
+      pushSymbol(symbols, {
+        name: currentClass,
+        kind,
+        line: index + 1,
+        parentType,
+      });
       const parent = classMatch[2];
       if (parent) imports.push(`inherit:${parent}`);
+      for (const inlineMethod of line.matchAll(/def\s+(?:self\.)?(\w+)/g)) {
+        methodDepth += 1;
+        pushSymbol(symbols, {
+          name: inlineMethod[1]!,
+          kind: "method",
+          line: index + 1,
+          parentType: methodOwner(),
+        });
+      }
+      if (methodDepth > 0) {
+        methodDepth = Math.max(0, methodDepth - countInlineEnds(line));
+      }
       continue;
     }
 
     const defMatch = line.match(/^def\s+(?:self\.)?(\w+)/);
     if (defMatch) {
+      methodDepth += 1;
       pushSymbol(symbols, {
         name: defMatch[1]!,
         kind: "method",
         line: index + 1,
-        parentType: classDepth > 0 ? currentClass : moduleDepth > 0 ? currentModule : undefined,
+        parentType: methodOwner(),
       });
+      if (methodDepth > 0) {
+        methodDepth = Math.max(0, methodDepth - countInlineEnds(line));
+      }
+      continue;
     }
 
     if (line === "end") {
-      if (classDepth > 0) {
+      if (methodDepth > 0) {
+        methodDepth -= 1;
+      } else if (classDepth > 0) {
         classDepth -= 1;
-        if (classDepth === 0) currentClass = undefined;
-      } else if (moduleDepth > 0) {
-        moduleDepth -= 1;
-        if (moduleDepth === 0) currentModule = undefined;
+        if (classDepth === 0) {
+          currentClass = undefined;
+          currentClassQualified = undefined;
+        }
+      } else if (moduleFrameStack.length > 0) {
+        closeModuleFrame();
       }
     }
   }
@@ -534,6 +789,16 @@ function parsePhpFile(body: string, filePath: string): EcosystemFileIndex {
       }
       const extendsMatch = line.match(/extends\s+([\w\\]+)/);
       if (extendsMatch) imports.push(`inherit:${extendsMatch[1]!.trim()}`);
+      for (const inlineMethod of line.matchAll(
+        /(?:(?:public|protected|private|static|final|abstract)\s+)*function\s+(\w+)\s*\(/g
+      )) {
+        pushSymbol(symbols, {
+          name: inlineMethod[1]!,
+          kind: "method",
+          line: index + 1,
+          parentType: currentClass ?? currentNamespace,
+        });
+      }
       matchedType = true;
       break;
     }
@@ -720,7 +985,7 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
     };
   }
   if (fileName === "settings.gradle" || fileName === "settings.gradle.kts") {
-    const includes = [...body.matchAll(/include\s*\(?['"]:?([^'"]+)['"]/g)].map((match) => match[1]!.trim());
+    const includes = parseGradleSettingsIncludes(body);
     if (includes.length > 0) configMetadata.modules = includes.join(", ");
     const rootProjectMatch = body.match(/rootProject\.name\s*=\s*['"]([^'"]+)['"]/);
     if (rootProjectMatch) configMetadata.rootProject = rootProjectMatch[1]!;
@@ -770,6 +1035,95 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
       configMetadata: { framework: "rake" },
     };
   }
+  if (fileName === "pubspec.yaml") {
+    const pubspec = parsePubspecYaml(body);
+    const configMetadata: Record<string, string> = {};
+    if (pubspec.packageName) configMetadata.package = pubspec.packageName;
+    if (pubspec.isFlutter) configMetadata.framework = "flutter";
+    if (pubspec.isPlugin) configMetadata.projectKind = "flutter-plugin";
+    if (pubspec.dependencies.length > 0) {
+      configMetadata.dependencies = pubspec.dependencies.join(", ");
+    }
+    return {
+      language: "dart",
+      filePath,
+      symbols: pubspec.packageName ? [{ name: pubspec.packageName, kind: "package", line: 1 }] : [],
+      imports: [...pubspec.dependencies, ...pubspec.devDependencies]
+        .filter((dependency) => dependency !== "flutter" && dependency !== "flutter_test")
+        .map((dependency) => `package:${dependency}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata,
+    };
+  }
+  if (fileName === "Package.swift") {
+    const nameMatch = body.match(/name:\s*"([^"]+)"/);
+    if (nameMatch) configMetadata.package = nameMatch[1]!;
+    const packageProducts = [...body.matchAll(/\.product\(name:\s*"([^"]+)"/g)].map((match) => match[1]!);
+    if (packageProducts.length > 0) configMetadata.dependencies = packageProducts.join(", ");
+    return {
+      language: "swift",
+      filePath,
+      symbols: nameMatch ? [{ name: nameMatch[1]!, kind: "package", line: 1 }] : [],
+      imports: packageProducts.map((product) => `package:${product}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata,
+    };
+  }
+  if (fileName === "CMakeLists.txt") {
+    const cmake = parseCMakeLists(body);
+    if (cmake.projectName) configMetadata.project = cmake.projectName;
+    if (cmake.targets.length > 0) {
+      configMetadata.targets = cmake.targets.map((target) => target.name).join(", ");
+    }
+    return {
+      language: "cpp",
+      filePath,
+      symbols: cmake.projectName ? [{ name: cmake.projectName, kind: "project", line: 1 }] : [],
+      imports: cmake.links.map((link) => `cmake:${link.source}->${link.target}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildSystem: "cmake" },
+    };
+  }
+  if (fileName === "Makefile") {
+    return {
+      language: "cpp",
+      filePath,
+      symbols: [{ name: "Makefile", kind: "build", line: 1 }],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { buildSystem: "make" },
+    };
+  }
+  if (fileName === "meson.build") {
+    const projectName = body.match(/project\s*\(\s*'([^']+)'/)?.[1];
+    if (projectName) configMetadata.project = projectName;
+    return {
+      language: "cpp",
+      filePath,
+      symbols: projectName ? [{ name: projectName, kind: "project", line: 1 }] : [],
+      imports: [],
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildSystem: "meson" },
+    };
+  }
+  if (fileName === "compile_commands.json") {
+    const entries = parseCompileCommands(body);
+    if (entries.length > 0) configMetadata.compileUnits = entries.map((entry) => entry.file).join(", ");
+    return {
+      language: "cpp",
+      filePath,
+      symbols: entries.map((entry, index) => ({ name: path.basename(entry.file), kind: "compile_unit", line: index + 1 })),
+      imports: entries.map((entry) => `compile:${entry.file}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, buildSystem: "compile_commands" },
+    };
+  }
   if (fileName === "composer.json") {
     const nameMatch = body.match(/"name"\s*:\s*"([^"]+)"/);
     if (nameMatch) configMetadata.package = nameMatch[1]!;
@@ -783,6 +1137,46 @@ function parseConfigFile(fileName: string, body: string, filePath: string): Ecos
       isTestFile: false,
       headings: [],
       configMetadata,
+    };
+  }
+  if (fileName === "project.godot") {
+    const project = parseGodotProject(body);
+    if (project.projectName) configMetadata.project = project.projectName;
+    if (project.mainScene) configMetadata.mainScene = project.mainScene;
+    return {
+      language: "godot",
+      filePath,
+      symbols: project.projectName ? [{ name: project.projectName, kind: "project", line: 1 }] : [],
+      imports: project.autoloads.map((autoload) => `autoload:${autoload.path}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, engine: "godot" },
+    };
+  }
+  if (/\.asmdef$/i.test(fileName)) {
+    const asmdef = parseAsmdef(body);
+    if (asmdef.name) configMetadata.assembly = asmdef.name;
+    return {
+      language: "unity",
+      filePath,
+      symbols: asmdef.name ? [{ name: asmdef.name, kind: "assembly", line: 1 }] : [],
+      imports: asmdef.references.map((reference) => `assembly:${reference}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, engine: "unity" },
+    };
+  }
+  if (/\.uproject$/i.test(fileName) || /\.uplugin$/i.test(fileName)) {
+    const project = parseUnrealProject(body);
+    if (project.projectName) configMetadata.project = project.projectName;
+    return {
+      language: "cpp",
+      filePath,
+      symbols: project.projectName ? [{ name: project.projectName, kind: "unreal_project", line: 1 }] : [],
+      imports: project.modules.map((module) => `module:${module}`),
+      isTestFile: false,
+      headings: [],
+      configMetadata: { ...configMetadata, engine: "unreal" },
     };
   }
   return undefined;
@@ -815,6 +1209,19 @@ export function parseEcosystemFile(input: {
       return parseRubyFile(input.body, input.filePath);
     case "php":
       return parsePhpFile(input.body, input.filePath);
+    case "swift":
+      return parseSwiftFile(input.body, input.filePath);
+    case "dart":
+      return parseDartFile(input.body, input.filePath);
+    case "cpp":
+      return parseCppFile(input.body, input.filePath);
+    case "godot":
+      if (input.extension === ".gd") {
+        return parseGdScript(input.body, input.filePath);
+      }
+      return parseGodotSceneAsset(input.body, input.filePath);
+    case "unity":
+      return parseUnityAsset(input.body, input.filePath);
     case "terraform":
       return parseTerraformFile(input.body, input.filePath);
     case "documentation":
@@ -851,10 +1258,15 @@ export function indexEcosystemFile(input: {
   const symbolNodes: ProductGraphNode[] = [];
   const edges: ProductGraphEdge[] = [];
   const fileNodeId = input.stableId("code-scan:file", input.filePath);
+  const isSemanticLite = fileIndex.language === "java"
+    || fileIndex.language === "kotlin"
+    || fileIndex.language === "ruby"
+    || fileIndex.language === "php";
+  const indexingMode = isSemanticLite ? "t1.5" : "t1";
   const fileMetadata: Record<string, ProductMetadataValue> = {
     scannerEcosystemVersion: ECOSYSTEM_SCANNER_VERSION,
-    scannerIndexingMode: "t1",
-    scannerSemanticSupported: false,
+    scannerIndexingMode: indexingMode,
+    scannerSemanticSupported: isSemanticLite,
     scannerLanguage: fileIndex.language,
   };
 
@@ -880,7 +1292,7 @@ export function indexEcosystemFile(input: {
       kind: "code_symbol",
       title: title.slice(0, input.maxTitleLength),
       status: "planned",
-      tags: ["code", "code-scan", fileIndex.language, "ecosystem-t1"],
+      tags: ["code", "code-scan", fileIndex.language, isSemanticLite ? "ecosystem-t1.5" : "ecosystem-t1"],
       source: input.sourceRef(input.filePath, symbol.line),
       metadata: input.compactMetadata({
         scannerEcosystemVersion: ECOSYSTEM_SCANNER_VERSION,
@@ -891,7 +1303,7 @@ export function indexEcosystemFile(input: {
         scannerSymbolName: symbol.name,
         scannerSymbolParentType: symbol.parentType,
         scannerLanguage: fileIndex.language,
-        scannerIndexingMode: "t1",
+        scannerIndexingMode: indexingMode,
       }),
       createdAt: input.scannedAt,
       updatedAt: input.scannedAt,
@@ -951,7 +1363,7 @@ export function buildJavaKotlinWorkspaceIndex(
   return { typeByQualifiedName };
 }
 
-function normalizeImportPath(importPath: string) {
+export function normalizeImportPath(importPath: string) {
   if (importPath.endsWith(".*")) return undefined;
   const staticImport = importPath.match(/^static\s+(.+)$/);
   const normalized = (staticImport?.[1] ?? importPath).trim();
@@ -1079,29 +1491,6 @@ function ensureEcosystemExternalImportNode(
   return nodeId;
 }
 
-function resolveRubyRequireTarget(
-  importPath: string,
-  filePath: string,
-  fileNodeIdsByPath: Map<string, string>
-) {
-  const normalizedDir = path.posix.dirname(filePath.replace(/\\/g, "/"));
-  const candidates = importPath.startsWith(".")
-    ? [
-        path.posix.normalize(path.posix.join(normalizedDir, importPath)),
-        path.posix.normalize(path.posix.join(normalizedDir, `${importPath}.rb`)),
-      ]
-    : [
-        `${importPath}.rb`,
-        `lib/${importPath}.rb`,
-        `lib/${importPath}/${importPath}.rb`,
-      ];
-  for (const candidate of candidates) {
-    const nodeId = fileNodeIdsByPath.get(candidate);
-    if (nodeId) return { targetNodeId: nodeId, resolution: "file" as const };
-  }
-  return undefined;
-}
-
 function appendEcosystemImportEdge(input: {
   edges: ProductGraphEdge[];
   sourceNodeId: string;
@@ -1195,7 +1584,7 @@ export function augmentEcosystemWorkspaceGraph(input: {
       const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
       if (!parsed || !sourceNodeId) continue;
 
-      for (const importPath of parsed.imports.slice(0, 12)) {
+      for (const importPath of parsed.imports.filter((value) => !value.includes(":")).slice(0, 12)) {
         const resolved = resolveJavaKotlinImportTarget({
           importPath,
           index: javaKotlinIndex,
@@ -1231,323 +1620,11 @@ export function augmentEcosystemWorkspaceGraph(input: {
             scannerLanguage: parsed.language,
             scannerImportPath: importPath,
             scannerImportResolution: resolved.resolution,
+            scannerResolution: "semantic-lite",
           }),
           createdAt: input.scannedAt,
           updatedAt: input.scannedAt,
         });
-      }
-      continue;
-    }
-
-    if (extension === ".rb" || extension === ".rake") {
-      const parsed = parseEcosystemFile({
-        filePath: file.relativePath,
-        fileName: path.basename(file.relativePath),
-        extension,
-        body: file.body,
-      });
-      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
-      if (!parsed || !sourceNodeId) continue;
-
-      const classSymbols = parsed.symbols.filter((symbol) => symbol.kind.includes("class") || symbol.kind.startsWith("rails_"));
-      const classByName = new Map(classSymbols.map((symbol) => [symbol.name, symbol]));
-
-      for (const importPath of parsed.imports) {
-        if (!importPath.startsWith("inherit:")) continue;
-        const parentName = importPath.slice("inherit:".length).split("::").pop() ?? importPath.slice("inherit:".length);
-        const parentSymbol = classByName.get(parentName)
-          ?? [...classSymbols].find((symbol) => symbol.name === parentName);
-        let targetNodeId: string | undefined;
-        for (const candidate of input.files) {
-          if (candidate.relativePath === file.relativePath) continue;
-          const candidateParsed = parseRubyFile(candidate.body, candidate.relativePath);
-          const parentClass = candidateParsed.symbols.find(
-            (symbol) => symbol.name === parentName && (symbol.kind === "class" || symbol.kind.startsWith("rails_"))
-          );
-          if (!parentClass) continue;
-          targetNodeId = input.stableId(
-            "code-scan:symbol",
-            `${candidate.relativePath}|${parentClass.parentType ?? "file"}|${parentClass.kind}|${parentClass.name}`
-          );
-          break;
-        }
-        if (!targetNodeId) continue;
-        edges.push({
-          id: input.stableId("code-scan:edge", `${sourceNodeId}|inherit|${parentName}`),
-          kind: "depends_on",
-          sourceNodeId,
-          targetNodeId,
-          label: `inherits ${parentName}`.slice(0, input.maxEdgeLabelLength),
-          trust: "extracted",
-          metadata: input.compactMetadata({
-            scannerRelation: "inheritance",
-            scannerLanguage: "ruby",
-            scannerParentType: parentName,
-          }),
-          createdAt: input.scannedAt,
-          updatedAt: input.scannedAt,
-        });
-      }
-
-      for (const importPath of parsed.imports) {
-        if (importPath.startsWith("inherit:")) continue;
-        const resolvedFile = resolveRubyRequireTarget(importPath, file.relativePath, input.fileNodeIdsByPath);
-        if (resolvedFile) {
-          appendEcosystemImportEdge({
-            edges,
-            sourceNodeId,
-            importPath,
-            language: "ruby",
-            targetNodeId: resolvedFile.targetNodeId,
-            resolution: resolvedFile.resolution,
-            stableId: input.stableId,
-            compactMetadata: input.compactMetadata,
-            maxEdgeLabelLength: input.maxEdgeLabelLength,
-            scannedAt: input.scannedAt,
-          });
-          continue;
-        }
-        const targetNodeId = ensureEcosystemExternalImportNode(externalNodes, {
-          importPath,
-          language: "ruby",
-          scanId: input.scanId,
-          scannedAt: input.scannedAt,
-          stableId: input.stableId,
-          compactMetadata: input.compactMetadata,
-          maxTitleLength: input.maxTitleLength ?? 180,
-        });
-        appendEcosystemImportEdge({
-          edges,
-          sourceNodeId,
-          importPath,
-          language: "ruby",
-          targetNodeId,
-          resolution: "external",
-          stableId: input.stableId,
-          compactMetadata: input.compactMetadata,
-          maxEdgeLabelLength: input.maxEdgeLabelLength,
-          scannedAt: input.scannedAt,
-        });
-      }
-
-      if (parsed.isTestFile) {
-        const normalized = file.relativePath.replace(/\\/g, "/");
-        const specMatch = normalized.match(/^(?:spec|test)\/(.+)_spec\.rb$/i);
-        const sourceCandidate = specMatch
-          ? `app/${specMatch[1]!.replace(/\/([^/]+)$/, (_match, tail: string) => {
-            if (tail.endsWith("_controller")) return `/controllers/${tail}.rb`;
-            return `/${tail}.rb`;
-          })}`
-          : undefined;
-        const adjusted = specMatch
-          ? normalized.includes("/models/")
-            ? `app/models/${path.basename(normalized).replace(/_spec\.rb$/i, ".rb")}`
-            : sourceCandidate
-          : undefined;
-        const targetNodeId = adjusted ? input.fileNodeIdsByPath.get(adjusted) : undefined;
-        if (targetNodeId) {
-          edges.push({
-            id: input.stableId("code-scan:edge", `${sourceNodeId}|tests|${targetNodeId}`),
-            kind: "depends_on",
-            sourceNodeId,
-            targetNodeId,
-            label: "tests".slice(0, input.maxEdgeLabelLength),
-            trust: "inferred",
-            metadata: input.compactMetadata({
-              scannerRelation: "test_target",
-              scannerLanguage: "ruby",
-              scannerTestFile: file.relativePath,
-            }),
-            createdAt: input.scannedAt,
-            updatedAt: input.scannedAt,
-          });
-        }
-      }
-
-      if (file.relativePath.replace(/\\/g, "/").endsWith("config/routes.rb")) {
-        const routePatterns = [
-          /resources\s+:(\w+)/g,
-          /get\s+['"][^'"]+['"],\s*to:\s*['"](\w+)#(\w+)['"]/g,
-        ];
-        for (const pattern of routePatterns) {
-          pattern.lastIndex = 0;
-          let match: RegExpExecArray | null;
-          while ((match = pattern.exec(file.body)) !== null) {
-            const resource = match[1]!;
-            const controllerName = resource.endsWith("s")
-              ? `${resource.slice(0, -1).replace(/_/g, "/")}_controller`.replace(/\//g, "_")
-              : `${resource}_controller`;
-            const controllerPath = `app/controllers/${controllerName}.rb`;
-            const targetNodeId = input.fileNodeIdsByPath.get(controllerPath)
-              ?? input.fileNodeIdsByPath.get(`app/controllers/${resource}_controller.rb`);
-            if (!targetNodeId) continue;
-            edges.push({
-              id: input.stableId("code-scan:edge", `${sourceNodeId}|route|${targetNodeId}|${resource}`),
-              kind: "depends_on",
-              sourceNodeId,
-              targetNodeId,
-              label: `route ${resource}`.slice(0, input.maxEdgeLabelLength),
-              trust: "inferred",
-              metadata: input.compactMetadata({
-                scannerRelation: "rails_route",
-                scannerLanguage: "ruby",
-                scannerRouteResource: resource,
-              }),
-              createdAt: input.scannedAt,
-              updatedAt: input.scannedAt,
-            });
-          }
-        }
-      }
-      continue;
-    }
-
-    if (extension === ".php" || extension === ".phtml") {
-      const parsed = parseEcosystemFile({
-        filePath: file.relativePath,
-        fileName: path.basename(file.relativePath),
-        extension,
-        body: file.body,
-      });
-      const sourceNodeId = input.fileNodeIdsByPath.get(file.relativePath);
-      if (!parsed || !sourceNodeId) continue;
-
-      for (const importPath of parsed.imports) {
-        if (importPath.startsWith("inherit:") || importPath.startsWith("implements:")) {
-          const typeName = importPath.split(":")[1]!.split("\\").pop() ?? importPath.split(":")[1]!;
-          for (const candidate of input.files) {
-            const candidateParsed = parsePhpFile(candidate.body, candidate.relativePath);
-            const typeSymbol = candidateParsed.symbols.find(
-              (symbol) => symbol.name === typeName && ["class", "interface", "trait"].includes(symbol.kind)
-            );
-            if (!typeSymbol) continue;
-            edges.push({
-              id: input.stableId("code-scan:edge", `${sourceNodeId}|${importPath}|${candidate.relativePath}`),
-              kind: "depends_on",
-              sourceNodeId,
-              targetNodeId: input.stableId(
-                "code-scan:symbol",
-                `${candidate.relativePath}|${typeSymbol.parentType ?? "file"}|${typeSymbol.kind}|${typeSymbol.name}`
-              ),
-              label: importPath.slice(0, input.maxEdgeLabelLength),
-              trust: "extracted",
-              metadata: input.compactMetadata({
-                scannerRelation: importPath.startsWith("inherit:") ? "inheritance" : "implements",
-                scannerLanguage: "php",
-              }),
-              createdAt: input.scannedAt,
-              updatedAt: input.scannedAt,
-            });
-            break;
-          }
-          continue;
-        }
-
-        const usePath = importPath.replace(/\s+as\s+\w+$/, "").trim();
-        const simpleName = usePath.split("\\").pop() ?? usePath;
-        let resolvedUse = false;
-        for (const candidate of input.files) {
-          const candidateParsed = parsePhpFile(candidate.body, candidate.relativePath);
-          const typeSymbol = candidateParsed.symbols.find(
-            (symbol) => symbol.name === simpleName && ["class", "interface", "trait"].includes(symbol.kind)
-          );
-          if (!typeSymbol) continue;
-          appendEcosystemImportEdge({
-            edges,
-            sourceNodeId,
-            importPath: usePath,
-            language: "php",
-            targetNodeId: input.stableId(
-              "code-scan:symbol",
-              `${candidate.relativePath}|${typeSymbol.parentType ?? "file"}|${typeSymbol.kind}|${typeSymbol.name}`
-            ),
-            resolution: "symbol",
-            stableId: input.stableId,
-            compactMetadata: input.compactMetadata,
-            maxEdgeLabelLength: input.maxEdgeLabelLength,
-            scannedAt: input.scannedAt,
-          });
-          resolvedUse = true;
-          break;
-        }
-        if (!resolvedUse) {
-          const targetNodeId = ensureEcosystemExternalImportNode(externalNodes, {
-            importPath: usePath,
-            language: "php",
-            scanId: input.scanId,
-            scannedAt: input.scannedAt,
-            stableId: input.stableId,
-            compactMetadata: input.compactMetadata,
-            maxTitleLength: input.maxTitleLength ?? 180,
-          });
-          appendEcosystemImportEdge({
-            edges,
-            sourceNodeId,
-            importPath: usePath,
-            language: "php",
-            targetNodeId,
-            resolution: "external",
-            stableId: input.stableId,
-            compactMetadata: input.compactMetadata,
-            maxEdgeLabelLength: input.maxEdgeLabelLength,
-            scannedAt: input.scannedAt,
-          });
-        }
-      }
-
-      if (parsed.isTestFile) {
-        const baseName = path.basename(file.relativePath, ".php");
-        const classStem = baseName.replace(/Test$/, "");
-        const controllerCandidate = `app/Http/Controllers/${classStem}.php`;
-        const modelCandidate = `app/Models/${classStem}.php`;
-        const targetNodeId = input.fileNodeIdsByPath.get(controllerCandidate)
-          ?? input.fileNodeIdsByPath.get(modelCandidate);
-        if (targetNodeId) {
-          edges.push({
-            id: input.stableId("code-scan:edge", `${sourceNodeId}|tests|${targetNodeId}`),
-            kind: "depends_on",
-            sourceNodeId,
-            targetNodeId,
-            label: "tests".slice(0, input.maxEdgeLabelLength),
-            trust: "inferred",
-            metadata: input.compactMetadata({
-              scannerRelation: "test_target",
-              scannerLanguage: "php",
-              scannerTestFile: file.relativePath,
-            }),
-            createdAt: input.scannedAt,
-            updatedAt: input.scannedAt,
-          });
-        }
-      }
-
-      if (file.relativePath.replace(/\\/g, "/").includes("routes/")) {
-        const routeMatches = file.body.matchAll(/Route::(?:get|post|put|patch|delete)\([^,]+,\s*\[([^\]]+)\]/g);
-        for (const match of routeMatches) {
-          const controllerMatch = match[1]!.match(/(\w+)::class/);
-          if (!controllerMatch) continue;
-          const controllerName = controllerMatch[1]!;
-          for (const [candidatePath, nodeId] of input.fileNodeIdsByPath) {
-            if (!candidatePath.replace(/\\/g, "/").includes("Controllers/")) continue;
-            if (!candidatePath.includes(`${controllerName}.php`)) continue;
-            edges.push({
-              id: input.stableId("code-scan:edge", `${sourceNodeId}|route|${nodeId}`),
-              kind: "depends_on",
-              sourceNodeId,
-              targetNodeId: nodeId,
-              label: `route ${controllerName}`.slice(0, input.maxEdgeLabelLength),
-              trust: "inferred",
-              metadata: input.compactMetadata({
-                scannerRelation: "laravel_route",
-                scannerLanguage: "php",
-                scannerRouteController: controllerName,
-              }),
-              createdAt: input.scannedAt,
-              updatedAt: input.scannedAt,
-            });
-            break;
-          }
-        }
       }
       continue;
     }
@@ -1628,4 +1705,20 @@ export function augmentEcosystemWorkspaceGraph(input: {
   }
 
   return { edges, externalNodes: [...externalNodes.values()], terraformModules };
+}
+
+export function buildEcosystemParsedFileIndex(files: Array<{ relativePath: string; body: string }>) {
+  const parsedByPath = new Map<string, EcosystemFileIndex>();
+  for (const file of files) {
+    const extension = path.extname(file.relativePath).toLowerCase();
+    if (extension !== ".java" && extension !== ".kt" && extension !== ".kts") continue;
+    const parsed = parseEcosystemFile({
+      filePath: file.relativePath,
+      fileName: path.basename(file.relativePath),
+      extension,
+      body: file.body,
+    });
+    if (parsed) parsedByPath.set(file.relativePath, parsed);
+  }
+  return parsedByPath;
 }

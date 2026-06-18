@@ -1,0 +1,1 @@
+dart tool cache should not be indexed

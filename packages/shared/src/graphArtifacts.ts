@@ -5,6 +5,7 @@ import {
 import {
   renderEcosystemScannerHealthMarkdown,
   renderEcosystemSupportMatrixMarkdown,
+  renderEcosystemTierLegendMarkdown,
 } from "./graphEcosystemHealth.js";
 import {
   buildGraphGodNodeSummaries,
@@ -94,6 +95,20 @@ export function renderUnifiedGraphWiki(
     "## Primary task lens",
     `- ${primaryLensLabel} (\`${primaryLens}\`)`,
     "",
+    "## Ecosystem scanner health",
+    ...renderEcosystemScannerHealthMarkdown({
+      kernelProfile: options.kernelProfile,
+      graph,
+      analyzers: graph.analyzers,
+    }),
+    "",
+    "## Ecosystem support matrix",
+    ...renderEcosystemSupportMatrixMarkdown({
+      kernelProfile: options.kernelProfile,
+      graph,
+    }),
+    "",
+    ...renderEcosystemTierLegendMarkdown(),
     "## Top communities",
     ...formatCommunityHubMarkdown(communitySummaries.slice(0, 8)),
     "",
@@ -221,6 +236,7 @@ export function renderUnifiedGraphHandoffReport(
       graph,
     }),
     "",
+    ...renderEcosystemTierLegendMarkdown(),
     "## Graph health",
     ...health.badges.map((badge) => `- [${badge.tone}] ${badge.label}: ${badge.detail}`),
     "",

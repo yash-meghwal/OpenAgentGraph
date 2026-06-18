@@ -65,10 +65,44 @@ describe("scan kernel", () => {
     expect(indexedPaths).toContain("src/app.py");
   });
 
-  it("records unsupported diagnostics for swift source files", async () => {
-    const result = await runKernelWorkspaceScan(fixtureRoot("unsupported-swift"));
-    expect(result.scanPlan.summary.skippedCountsByReason?.unsupported ?? 0).toBeGreaterThan(0);
-    expect(result.scanPlan.summary.diagnostics.join("\n")).toContain("unsupported=");
+  it("indexes cpp cmake source files with the T1 ecosystem scanner", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-cpp-cmake"));
+    expect(result.kernelProfile.activeScannerIds).toEqual(expect.arrayContaining(["cpp"]));
+    const indexedPaths = result.scanPlan.nodes
+      .filter((node) => node.kind === "code_file")
+      .map((node) => node.title);
+    expect(indexedPaths).toContain("src/main.cpp");
+  });
+
+  it("indexes swift package source files with the T1 ecosystem scanner", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-swift-package"));
+    expect(result.kernelProfile.activeScannerIds).toEqual(expect.arrayContaining(["swift"]));
+    const indexedPaths = result.scanPlan.nodes
+      .filter((node) => node.kind === "code_file")
+      .map((node) => node.title);
+    expect(indexedPaths).toContain("Sources/MyLib/Service.swift");
+  });
+
+  it("indexes dart package source files with the T1 ecosystem scanner", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-dart-package"));
+    expect(result.kernelProfile.activeScannerIds).toEqual(expect.arrayContaining(["flutter"]));
+    const indexedPaths = result.scanPlan.nodes
+      .filter((node) => node.kind === "code_file")
+      .map((node) => node.title);
+    expect(indexedPaths).toContain("lib/calculator.dart");
+    expect(indexedPaths).not.toContain(".dart_tool/generated.txt");
+  });
+
+  it("indexes godot scripts and scenes with game engine structural-lite edges", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-godot-lite"));
+    expect(result.kernelProfile.activeScannerIds).toEqual(expect.arrayContaining(["godot"]));
+    const indexedPaths = result.scanPlan.nodes
+      .filter((node) => node.kind === "code_file")
+      .map((node) => node.title);
+    expect(indexedPaths).toContain("scripts/player.gd");
+    expect(indexedPaths).toContain("scenes/main.tscn");
+    expect(indexedPaths.some((title) => title.includes(".godot/"))).toBe(false);
+    expect(result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "autoload")).toBe(true);
   });
 
   it("respects gitignore dist output and records skip diagnostics", async () => {

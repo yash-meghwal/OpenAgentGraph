@@ -1,8 +1,10 @@
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import { buildEcosystemSupportMatrix } from "./graphEcosystemHealth.js";
+import { evaluateAnalyzerReleaseGates, evaluateSemanticLiteEdgeKindPreservation } from "./graphAnalyzerGates.js";
 import { getReadTheseFirstNodes, renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 import { evaluateCommunityReleaseGates } from "./graphCommunities.js";
 import { evaluateOagFusionChecks } from "./graphFusion.js";
-import { queryUnifiedCodeGraph } from "./graphQueryEngine.js";
+import { findGraphPath, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
 
 export const GRAPH_RELEASE_FIXTURE_IDS = [
   "fixture-csharp-wpf",
@@ -11,17 +13,40 @@ export const GRAPH_RELEASE_FIXTURE_IDS = [
   "fixture-python-django",
   "fixture-java-maven",
   "fixture-java-gradle-multimodule",
+  "fixture-java-gradle-multimodule-deep",
+  "fixture-java-maven-parent-child",
   "fixture-kotlin-gradle",
+  "fixture-kotlin-spring",
+  "fixture-android-lite",
   "fixture-go-module",
   "fixture-rust-workspace",
   "fixture-terraform",
   "fixture-ruby-rails",
   "fixture-ruby-gem",
+  "fixture-ruby-gem-autoload",
   "fixture-php-laravel",
   "fixture-php-wordpress-plugin",
+  "fixture-php-composer-psr4",
+  "fixture-php-symfony-lite",
+  "fixture-ruby-sinatra-lite",
+  "fixture-swift-package",
+  "fixture-swiftui-app-lite",
+  "fixture-ios-xcode-lite",
+  "fixture-cpp-cmake",
+  "fixture-c-embedded-make",
+  "fixture-cpp-compile-commands",
+  "fixture-flutter-app",
+  "fixture-dart-package",
+  "fixture-flutter-plugin-lite",
+  "fixture-unity-lite",
+  "fixture-unreal-lite",
+  "fixture-godot-lite",
   "fixture-mixed-polyglot",
   "fixture-docs-only",
   "fixture-empty",
+  "fixture-asset-heavy",
+  "fixture-mixed-mobile-backend",
+  "fixture-mixed-game-native",
 ] as const;
 
 export type GraphReleaseFixtureId = (typeof GRAPH_RELEASE_FIXTURE_IDS)[number];
@@ -90,6 +115,30 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     resultPattern: /formatGreeting/i,
   },
   {
+    fixture: "fixture-java-maven-parent-child",
+    query: "CheckoutController CheckoutService repository",
+    seedPattern: /CheckoutController/i,
+    resultPattern: /CheckoutService|CheckoutRepository/i,
+  },
+  {
+    fixture: "fixture-java-gradle-multimodule-deep",
+    query: "WebController ApiService CoreRepository",
+    seedPattern: /WebController/i,
+    resultPattern: /ApiService|CoreRepository/i,
+  },
+  {
+    fixture: "fixture-kotlin-spring",
+    query: "OrderController OrderService repository",
+    seedPattern: /OrderController/i,
+    resultPattern: /OrderService|OrderRepository/i,
+  },
+  {
+    fixture: "fixture-android-lite",
+    query: "MainActivity renderHome",
+    seedPattern: /MainActivity/i,
+    resultPattern: /renderHome/i,
+  },
+  {
     fixture: "fixture-ruby-rails",
     query: "UsersController User model",
     seedPattern: /UsersController/i,
@@ -112,9 +161,68 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     seedPattern: /Handler/i,
   },
   {
+    fixture: "fixture-php-composer-psr4",
+    query: "UserService User domain",
+    seedPattern: /UserService/i,
+    resultPattern: /User/i,
+  },
+  {
     fixture: "fixture-go-module",
     query: "Runner service",
     seedPattern: /Runner/i,
+  },
+  {
+    fixture: "fixture-swift-package",
+    query: "Service Greeter greet",
+    seedPattern: /Service/i,
+    resultPattern: /Greeter|greet/i,
+  },
+  {
+    fixture: "fixture-swiftui-app-lite",
+    query: "ContentView SwiftUI",
+    seedPattern: /ContentView/i,
+  },
+  {
+    fixture: "fixture-cpp-cmake",
+    query: "main service run_service",
+    seedPattern: /main/i,
+    resultPattern: /service|run_service/i,
+  },
+  {
+    fixture: "fixture-c-embedded-make",
+    query: "main driver_init",
+    seedPattern: /main/i,
+    resultPattern: /driver/i,
+  },
+  {
+    fixture: "fixture-flutter-app",
+    query: "main HomeScreen ApiService",
+    seedPattern: /main|HomeScreen/i,
+    resultPattern: /ApiService|HomeScreen/i,
+  },
+  {
+    fixture: "fixture-dart-package",
+    query: "Calculator add",
+    seedPattern: /Calculator/i,
+    resultPattern: /add/i,
+  },
+  {
+    fixture: "fixture-unity-lite",
+    query: "PlayerController Main scene",
+    seedPattern: /PlayerController/i,
+    resultPattern: /Main|Game/i,
+  },
+  {
+    fixture: "fixture-unreal-lite",
+    query: "DemoGameMode module",
+    seedPattern: /DemoGameMode/i,
+    resultPattern: /Demo|Core/i,
+  },
+  {
+    fixture: "fixture-godot-lite",
+    query: "player main scene autoload",
+    seedPattern: /player|Player/i,
+    resultPattern: /main|GameManager/i,
   },
   {
     fixture: "fixture-rust-workspace",
@@ -136,6 +244,222 @@ export const GRAPH_QUERY_BENCHMARKS: GraphQueryBenchmarkCase[] = [
     query: "architecture guide",
     seedPattern: /architecture|guide/i,
   },
+  {
+    fixture: "fixture-ruby-gem-autoload",
+    query: "Runner version mygem",
+    seedPattern: /Runner|version|Mygem/i,
+  },
+  {
+    fixture: "fixture-cpp-compile-commands",
+    query: "app run_app compile",
+    seedPattern: /app|run_app/i,
+  },
+  {
+    fixture: "fixture-flutter-plugin-lite",
+    query: "MyPlugin platform version",
+    seedPattern: /MyPlugin|plugin/i,
+  },
+  {
+    fixture: "fixture-ios-xcode-lite",
+    query: "AppDelegate UIKit application",
+    seedPattern: /AppDelegate|UIKit/i,
+  },
+  {
+    fixture: "fixture-php-symfony-lite",
+    query: "HomeController GreetingService",
+    seedPattern: /HomeController|GreetingService/i,
+  },
+  {
+    fixture: "fixture-ruby-sinatra-lite",
+    query: "sinatra health app",
+    seedPattern: /sinatra|app/i,
+  },
+  {
+    fixture: "fixture-empty",
+    query: "workspace greenfield",
+    seedPattern: /workspace/i,
+  },
+  {
+    fixture: "fixture-asset-heavy",
+    query: "design asset readme",
+    seedPattern: /README|workspace|asset/i,
+  },
+  {
+    fixture: "fixture-mixed-mobile-backend",
+    query: "ApiService MainActivity sync",
+    seedPattern: /ApiService|MainActivity|sync/i,
+  },
+  {
+    fixture: "fixture-mixed-game-native",
+    query: "player engine native bridge",
+    seedPattern: /player|engine|native|bridge/i,
+  },
+];
+
+export interface GraphPathBenchmarkCase {
+  fixture: GraphReleaseFixtureId;
+  from: string;
+  to: string;
+  fromPattern: RegExp;
+  toPattern: RegExp;
+  pathNodePattern?: RegExp;
+}
+
+export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
+  {
+    fixture: "fixture-csharp-wpf",
+    from: "MainViewModel",
+    to: "PlaybackService",
+    fromPattern: /MainViewModel/i,
+    toPattern: /PlaybackService/i,
+  },
+  {
+    fixture: "fixture-csharp-media-player",
+    from: "MainViewModel",
+    to: "PlaybackService",
+    fromPattern: /MainViewModel/i,
+    toPattern: /PlaybackService/i,
+  },
+  {
+    fixture: "fixture-java-maven",
+    from: "CheckoutService",
+    to: "Order",
+    fromPattern: /CheckoutService/i,
+    toPattern: /Order/i,
+  },
+  {
+    fixture: "fixture-java-gradle-multimodule",
+    from: "ApiService",
+    to: "CoreService",
+    fromPattern: /ApiService/i,
+    toPattern: /CoreService/i,
+  },
+  {
+    fixture: "fixture-java-maven-parent-child",
+    from: "CheckoutController",
+    to: "CheckoutService",
+    fromPattern: /CheckoutController/i,
+    toPattern: /CheckoutService/i,
+  },
+  {
+    fixture: "fixture-kotlin-spring",
+    from: "OrderController",
+    to: "OrderService",
+    fromPattern: /OrderController/i,
+    toPattern: /OrderService/i,
+  },
+  {
+    fixture: "fixture-ruby-rails",
+    from: "UsersController",
+    to: "User",
+    fromPattern: /UsersController/i,
+    toPattern: /User/i,
+  },
+  {
+    fixture: "fixture-ruby-gem-autoload",
+    from: "Runner",
+    to: "version",
+    fromPattern: /Runner/i,
+    toPattern: /version/i,
+  },
+  {
+    fixture: "fixture-php-laravel",
+    from: "UserController",
+    to: "User",
+    fromPattern: /UserController/i,
+    toPattern: /User/i,
+  },
+  {
+    fixture: "fixture-php-composer-psr4",
+    from: "UserService",
+    to: "User",
+    fromPattern: /UserService/i,
+    toPattern: /User/i,
+  },
+  {
+    fixture: "fixture-php-symfony-lite",
+    from: "HomeController",
+    to: "GreetingService",
+    fromPattern: /HomeController/i,
+    toPattern: /GreetingService/i,
+  },
+  {
+    fixture: "fixture-swift-package",
+    from: "Service",
+    to: "Greeter",
+    fromPattern: /Service/i,
+    toPattern: /Greeter|greet/i,
+  },
+  {
+    fixture: "fixture-cpp-cmake",
+    from: "main",
+    to: "run_service",
+    fromPattern: /main/i,
+    toPattern: /run_service|service/i,
+  },
+  {
+    fixture: "fixture-cpp-compile-commands",
+    from: "app.cpp",
+    to: "run_app",
+    fromPattern: /app/i,
+    toPattern: /run_app/i,
+  },
+  {
+    fixture: "fixture-flutter-app",
+    from: "HomeScreen",
+    to: "ApiService",
+    fromPattern: /HomeScreen/i,
+    toPattern: /ApiService/i,
+  },
+  {
+    fixture: "fixture-flutter-plugin-lite",
+    from: "MyPlugin",
+    to: "main",
+    fromPattern: /MyPlugin/i,
+    toPattern: /main/i,
+  },
+  {
+    fixture: "fixture-ios-xcode-lite",
+    from: "AppDelegate",
+    to: "UIApplicationDelegate",
+    fromPattern: /AppDelegate/i,
+    toPattern: /UIApplicationDelegate/i,
+  },
+  {
+    fixture: "fixture-unity-lite",
+    from: "PlayerController",
+    to: "Main",
+    fromPattern: /PlayerController/i,
+    toPattern: /Main/i,
+  },
+  {
+    fixture: "fixture-godot-lite",
+    from: "player.gd",
+    to: "main.tscn",
+    fromPattern: /player|Player/i,
+    toPattern: /main|Main/i,
+  },
+  {
+    fixture: "fixture-mixed-polyglot",
+    from: "AppService",
+    to: "Build.ps1",
+    fromPattern: /AppService/i,
+    toPattern: /Build|polyglot/i,
+  },
+  {
+    fixture: "fixture-mixed-mobile-backend",
+    from: "ApiService",
+    to: "MainActivity",
+    fromPattern: /ApiService/i,
+    toPattern: /MainActivity/i,
+  },
+  {
+    fixture: "fixture-mixed-game-native",
+    from: "player.gd",
+    to: "engine.cpp",
+    fromPattern: /player|Player/i,
+    toPattern: /engine/i,
+  },
 ];
 
 export interface GraphHandoffHygieneResult {
@@ -153,6 +477,24 @@ export interface GraphQueryBenchmarkResult {
   detail: string;
 }
 
+export interface GraphPathBenchmarkResult {
+  fixture: string;
+  from: string;
+  to: string;
+  passed: boolean;
+  fromLabel?: string;
+  toLabel?: string;
+  pathLabels: string[];
+  detail: string;
+}
+
+export interface EcosystemSupportMatrixGateResult {
+  ok: boolean;
+  missingInMatrix: string[];
+  missingInHandoff: string[];
+  errors: string[];
+}
+
 export interface GraphCommunityGateResult {
   ok: boolean;
   communityCount: number;
@@ -166,8 +508,12 @@ export interface GraphReleaseGateResult {
   ok: boolean;
   handoffHygiene: GraphHandoffHygieneResult;
   communityGates: GraphCommunityGateResult;
+  ecosystemMatrixGate: EcosystemSupportMatrixGateResult;
   queryBenchmarks: GraphQueryBenchmarkResult[];
+  pathBenchmarks: GraphPathBenchmarkResult[];
   querySuccessRate: number;
+  pathSuccessRate: number;
+  agentBenchmarkSuccessRate: number;
   fusionOk: boolean;
   fusionHardFailCount: number;
   totalScanMs: number;
@@ -194,6 +540,39 @@ export function evaluateHandoffReadFirstHygiene(graph: UnifiedCodeGraph): GraphH
   };
 }
 
+export function evaluateEcosystemSupportMatrixGate(input: {
+  graph: UnifiedCodeGraph;
+  kernelProfile?: WorkspaceKernelProfile;
+  handoffMarkdown: string;
+}): EcosystemSupportMatrixGateResult {
+  const activeScannerIds = input.kernelProfile?.activeScannerIds ?? input.graph.activeScannerIds;
+  const matrixRows = buildEcosystemSupportMatrix({
+    graph: input.graph,
+    kernelProfile: input.kernelProfile,
+  });
+  const matrixScannerIds = new Set(matrixRows.map((row) => row.scannerId));
+  const missingInMatrix = activeScannerIds.filter((scannerId) => !matrixScannerIds.has(scannerId));
+  const missingInHandoff = activeScannerIds.filter(
+    (scannerId) => !input.handoffMarkdown.includes(`**${scannerId} (`)
+  );
+  const errors: string[] = [];
+  if (!input.handoffMarkdown.includes("## Ecosystem support matrix")) {
+    errors.push("Handoff report is missing ecosystem support matrix section.");
+  }
+  if (missingInMatrix.length > 0) {
+    errors.push(`Ecosystem support matrix missing active scanners: ${missingInMatrix.join(", ")}.`);
+  }
+  if (missingInHandoff.length > 0) {
+    errors.push(`Handoff matrix section missing active scanners: ${missingInHandoff.join(", ")}.`);
+  }
+  return {
+    ok: errors.length === 0,
+    missingInMatrix,
+    missingInHandoff,
+    errors,
+  };
+}
+
 export function evaluateGraphQueryBenchmark(
   graph: UnifiedCodeGraph,
   benchmark: GraphQueryBenchmarkCase
@@ -216,6 +595,35 @@ export function evaluateGraphQueryBenchmark(
     detail: passed
       ? "Query resolved to expected graph neighborhood."
       : `Expected seeds matching ${benchmark.seedPattern} and useful neighborhood nodes.`,
+  };
+}
+
+export function evaluateGraphPathBenchmark(
+  graph: UnifiedCodeGraph,
+  benchmark: GraphPathBenchmarkCase
+): GraphPathBenchmarkResult {
+  const result = findGraphPath(graph, benchmark.from, benchmark.to);
+  const pathLabels = result.nodes.map((node) => node.label);
+  const fromLabel = result.fromNode?.label;
+  const toLabel = result.toNode?.label;
+  const fromMatch = fromLabel ? benchmark.fromPattern.test(fromLabel) : false;
+  const toMatch = toLabel ? benchmark.toPattern.test(toLabel) : false;
+  const pathMatch = benchmark.pathNodePattern
+    ? pathLabels.some((label) => benchmark.pathNodePattern?.test(label))
+    : result.found && pathLabels.length >= 2;
+  const passed = result.found && fromMatch && toMatch && pathMatch;
+
+  return {
+    fixture: benchmark.fixture,
+    from: benchmark.from,
+    to: benchmark.to,
+    passed,
+    fromLabel,
+    toLabel,
+    pathLabels,
+    detail: passed
+      ? "Path resolved to expected graph endpoints."
+      : `Expected path from ${benchmark.fromPattern} to ${benchmark.toPattern} with useful hops.`,
   };
 }
 
@@ -268,11 +676,43 @@ export function evaluateGraphReleaseGates(input: {
     errors.push("Handoff markdown includes generated junk paths.");
   }
 
+  const analyzerGates = evaluateAnalyzerReleaseGates({
+    graph: input.graph,
+    handoffMarkdown: handoff,
+  });
+  if (!analyzerGates.ok) {
+    errors.push(...analyzerGates.errors);
+  }
+
+  const semanticLiteEdgeKinds = evaluateSemanticLiteEdgeKindPreservation(input.graph);
+  if (!semanticLiteEdgeKinds.ok) {
+    errors.push(...semanticLiteEdgeKinds.errors);
+  }
+
+  const ecosystemMatrixGate = evaluateEcosystemSupportMatrixGate({
+    graph: input.graph,
+    kernelProfile: input.kernelProfile,
+    handoffMarkdown: handoff,
+  });
+  if (!ecosystemMatrixGate.ok) {
+    errors.push(...ecosystemMatrixGate.errors);
+  }
+
   const queryBenchmarks = GRAPH_QUERY_BENCHMARKS
     .filter((benchmark) => benchmark.fixture === input.fixture)
     .map((benchmark) => evaluateGraphQueryBenchmark(input.graph, benchmark));
+  const pathBenchmarks = GRAPH_PATH_BENCHMARKS
+    .filter((benchmark) => benchmark.fixture === input.fixture)
+    .map((benchmark) => evaluateGraphPathBenchmark(input.graph, benchmark));
   const querySuccessRate = queryBenchmarks.length > 0
     ? queryBenchmarks.filter((benchmark) => benchmark.passed).length / queryBenchmarks.length
+    : 1;
+  const pathSuccessRate = pathBenchmarks.length > 0
+    ? pathBenchmarks.filter((benchmark) => benchmark.passed).length / pathBenchmarks.length
+    : 1;
+  const agentBenchmarks = [...queryBenchmarks, ...pathBenchmarks];
+  const agentBenchmarkSuccessRate = agentBenchmarks.length > 0
+    ? agentBenchmarks.filter((benchmark) => benchmark.passed).length / agentBenchmarks.length
     : 1;
 
   if (input.totalScanMs > GRAPH_RELEASE_MAX_SCAN_MS) {
@@ -280,7 +720,18 @@ export function evaluateGraphReleaseGates(input: {
   }
 
   const activeScannerIds = input.kernelProfile?.activeScannerIds ?? input.graph.activeScannerIds;
-  const t1Scanners = new Set(["python", "go", "rust", "terraform", "java", "ruby", "php"]);
+  const t1Scanners = new Set([
+    "python",
+    "go",
+    "rust",
+    "terraform",
+    "swift",
+    "cpp",
+    "flutter",
+    "unity",
+    "unreal",
+    "godot",
+  ]);
   for (const scannerId of activeScannerIds) {
     if (!t1Scanners.has(scannerId)) continue;
     const handoffWarnings = [
@@ -293,12 +744,29 @@ export function evaluateGraphReleaseGates(input: {
     }
   }
 
+  const t15Scanners = new Set(["java", "php", "ruby"]);
+  for (const scannerId of activeScannerIds) {
+    if (!t15Scanners.has(scannerId)) continue;
+    const handoffWarnings = [
+      ...(input.kernelProfile?.warnings ?? []),
+      ...input.graph.diagnostics,
+      handoff,
+    ].join("\n");
+    if (!/T1\.5|semantic-lite/i.test(handoffWarnings)) {
+      errors.push(`T1.5 scanner '${scannerId}' is active but handoff/export lacks an honest semantic-lite tier warning.`);
+    }
+  }
+
   return {
     ok: errors.length === 0,
     handoffHygiene,
     communityGates,
+    ecosystemMatrixGate,
     queryBenchmarks,
+    pathBenchmarks,
     querySuccessRate,
+    pathSuccessRate,
+    agentBenchmarkSuccessRate,
     fusionOk: fusion.ok,
     fusionHardFailCount: fusion.hardFailCount,
     totalScanMs: input.totalScanMs,
@@ -316,6 +784,8 @@ export function evaluateReleaseBenchmarkSuite(input: {
 }): {
   ok: boolean;
   querySuccessRate: number;
+  pathSuccessRate: number;
+  agentBenchmarkSuccessRate: number;
   misleadingHandoffRate: number;
   releaseResults: Array<GraphReleaseGateResult & { fixture: string }>;
   errors: string[];
@@ -335,9 +805,20 @@ export function evaluateReleaseBenchmarkSuite(input: {
     }),
   }));
 
-  const benchmarked = releaseResults.flatMap((result) => result.queryBenchmarks);
-  const querySuccessRate = benchmarked.length > 0
-    ? benchmarked.filter((benchmark) => benchmark.passed).length / benchmarked.length
+  const queryBenchmarked = releaseResults.flatMap((result) => result.queryBenchmarks);
+  const pathBenchmarked = releaseResults.flatMap((result) => result.pathBenchmarks);
+  const agentBenchmarked = releaseResults.flatMap((result) => [
+    ...result.queryBenchmarks,
+    ...result.pathBenchmarks,
+  ]);
+  const querySuccessRate = queryBenchmarked.length > 0
+    ? queryBenchmarked.filter((benchmark) => benchmark.passed).length / queryBenchmarked.length
+    : 1;
+  const pathSuccessRate = pathBenchmarked.length > 0
+    ? pathBenchmarked.filter((benchmark) => benchmark.passed).length / pathBenchmarked.length
+    : 1;
+  const agentBenchmarkSuccessRate = agentBenchmarked.length > 0
+    ? agentBenchmarked.filter((benchmark) => benchmark.passed).length / agentBenchmarked.length
     : 1;
   const misleadingHandoffRate = releaseResults.length > 0
     ? releaseResults.reduce((sum, result) => sum + result.handoffHygiene.misleadingHandoffRate, 0)
@@ -345,12 +826,24 @@ export function evaluateReleaseBenchmarkSuite(input: {
     : 0;
 
   const errors: string[] = [];
+  const resultFixtureIds = new Set(input.results.map((result) => result.fixture));
+  for (const fixtureId of GRAPH_RELEASE_FIXTURE_IDS) {
+    if (!resultFixtureIds.has(fixtureId)) {
+      errors.push(`Release fixture '${fixtureId}' is missing from benchmark suite input.`);
+    }
+    const hasBenchmark =
+      GRAPH_QUERY_BENCHMARKS.some((benchmark) => benchmark.fixture === fixtureId)
+      || GRAPH_PATH_BENCHMARKS.some((benchmark) => benchmark.fixture === fixtureId);
+    if (!hasBenchmark) {
+      errors.push(`Release fixture '${fixtureId}' is missing query/path benchmarks.`);
+    }
+  }
   for (const result of releaseResults) {
     errors.push(...result.errors.map((error) => `${result.fixture}: ${error}`));
   }
-  if (querySuccessRate < GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE) {
+  if (agentBenchmarkSuccessRate < GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE) {
     errors.push(
-      `Agent query success rate ${Math.round(querySuccessRate * 100)}% is below ${Math.round(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE * 100)}%.`
+      `Agent benchmark success rate ${Math.round(agentBenchmarkSuccessRate * 100)}% is below ${Math.round(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE * 100)}% (query=${Math.round(querySuccessRate * 100)}%, path=${Math.round(pathSuccessRate * 100)}%).`
     );
   }
   if (misleadingHandoffRate > 0) {
@@ -360,6 +853,8 @@ export function evaluateReleaseBenchmarkSuite(input: {
   return {
     ok: errors.length === 0,
     querySuccessRate,
+    pathSuccessRate,
+    agentBenchmarkSuccessRate,
     misleadingHandoffRate,
     releaseResults,
     errors,

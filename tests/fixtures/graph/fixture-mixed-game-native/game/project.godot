@@ -1,0 +1,9 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+config/name="Mixed Native Demo"
+run/main_scene="res://scenes/main.tscn"
+
+[autoload]
+EngineBridge="*res://scripts/engine_bridge.gd"

@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { UnifiedCodeGraph } from "./codeGraph.js";
 import {
+  evaluateEcosystemSupportMatrixGate,
+  evaluateGraphPathBenchmark,
   evaluateGraphQueryBenchmark,
   evaluateHandoffReadFirstHygiene,
   evaluateReleaseBenchmarkSuite,
+  GRAPH_PATH_BENCHMARKS,
   GRAPH_QUERY_BENCHMARKS,
+  GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
 } from "./graphReleaseGates.js";
+import { renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 
 function makeGraph(): UnifiedCodeGraph {
   return {
@@ -62,6 +67,61 @@ describe("graph release gates", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("passes csharp path benchmarks", () => {
+    const benchmark = GRAPH_PATH_BENCHMARKS.find((entry) => entry.fixture === "fixture-csharp-wpf");
+    expect(benchmark).toBeTruthy();
+    const result = evaluateGraphPathBenchmark(makeGraph(), benchmark!);
+    expect(result.passed).toBe(true);
+  });
+
+  it("requires active scanners in the ecosystem support matrix", () => {
+    const graph = makeGraph();
+    const handoff = renderUnifiedGraphHandoffReport(graph, {
+      kernelProfile: {
+        schemaVersion: "1.0",
+        root: "/workspace",
+        effectiveRoots: ["/workspace"],
+        primaryType: "dotnet",
+        secondaryTypes: [],
+        typeSignals: [],
+        sourceRoots: ["."],
+        markerPaths: ["App.sln"],
+        activeScannerIds: ["dotnet"],
+        ignoreRules: [],
+        sourceExtensionCounts: { ".cs": 2 },
+        skippedCountsByReason: {},
+        warnings: [],
+      },
+    });
+    const gate = evaluateEcosystemSupportMatrixGate({ graph, handoffMarkdown: handoff });
+    expect(gate.ok).toBe(true);
+    expect(gate.missingInHandoff).toEqual([]);
+  });
+
+  it("defines query or path benchmarks for every release fixture", () => {
+    for (const fixtureId of GRAPH_RELEASE_FIXTURE_IDS) {
+      const hasBenchmark =
+        GRAPH_QUERY_BENCHMARKS.some((benchmark) => benchmark.fixture === fixtureId)
+        || GRAPH_PATH_BENCHMARKS.some((benchmark) => benchmark.fixture === fixtureId);
+      expect(hasBenchmark, fixtureId).toBe(true);
+    }
+  });
+
+  it("fails when release fixtures are missing from benchmark suite input", () => {
+    const suite = evaluateReleaseBenchmarkSuite({
+      results: [
+        {
+          fixture: "fixture-csharp-wpf",
+          graph: makeGraph(),
+          scanMs: 1,
+        },
+      ],
+    });
+
+    expect(suite.ok).toBe(false);
+    expect(suite.errors.some((error) => error.includes("missing from benchmark suite input"))).toBe(true);
+  });
+
   it("aggregates release benchmark suite success rate", () => {
     const suite = evaluateReleaseBenchmarkSuite({
       results: [
@@ -73,36 +133,24 @@ describe("graph release gates", () => {
       ],
     });
 
-    expect(suite.querySuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
+    expect(suite.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
     expect(suite.misleadingHandoffRate).toBe(0);
-    expect(suite.ok).toBe(true);
+    expect(suite.ok).toBe(false);
+    expect(suite.errors.some((error) => error.includes("missing from benchmark suite input"))).toBe(true);
   });
 
-  it("uses the suite-wide query threshold instead of requiring every benchmark to pass", () => {
-    const passingLabels = [
-      "MainViewModel",
-      "PlaybackService",
-      "page",
-      "User",
-      "CheckoutService",
-      "Runner",
-      "CoreService",
-      "aws_s3_bucket",
-      "AppService",
-      "architecture guide",
-    ];
+  it("uses the suite-wide benchmark threshold instead of requiring every benchmark to pass", () => {
     const fixtureGraphs = [
-      { fixture: "fixture-csharp-wpf", labels: ["No expected query seed here"] },
-      { fixture: "fixture-csharp-media-player", labels: passingLabels },
-      { fixture: "fixture-next-app", labels: passingLabels },
-      { fixture: "fixture-python-django", labels: passingLabels },
-      { fixture: "fixture-java-maven", labels: passingLabels },
-      { fixture: "fixture-go-module", labels: passingLabels },
-      { fixture: "fixture-rust-workspace", labels: passingLabels },
-      { fixture: "fixture-terraform", labels: passingLabels },
-      { fixture: "fixture-mixed-polyglot", labels: passingLabels },
-      { fixture: "fixture-docs-only", labels: passingLabels },
-      { fixture: "fixture-empty", labels: [] },
+      { fixture: "fixture-next-app", labels: ["No expected query seed here"] },
+      { fixture: "fixture-python-django", labels: ["User model"] },
+      { fixture: "fixture-go-module", labels: ["Runner service"] },
+      { fixture: "fixture-rust-workspace", labels: ["CoreService api"] },
+      { fixture: "fixture-terraform", labels: ["aws_s3_bucket main"] },
+      { fixture: "fixture-docs-only", labels: ["architecture guide"] },
+      { fixture: "fixture-empty", labels: ["workspace"] },
+      { fixture: "fixture-ruby-gem", labels: ["Mygem Runner module"] },
+      { fixture: "fixture-dart-package", labels: ["Calculator add"] },
+      { fixture: "fixture-unreal-lite", labels: ["DemoGameMode module"] },
     ];
 
     const suite = evaluateReleaseBenchmarkSuite({
@@ -113,8 +161,8 @@ describe("graph release gates", () => {
       })),
     });
 
-    expect(suite.querySuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
-    expect(suite.querySuccessRate).toBeLessThan(1);
-    expect(suite.ok).toBe(true);
+    expect(suite.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
+    expect(suite.agentBenchmarkSuccessRate).toBeLessThan(1);
+    expect(suite.errors.some((error) => error.includes("missing from benchmark suite input"))).toBe(true);
   });
 });

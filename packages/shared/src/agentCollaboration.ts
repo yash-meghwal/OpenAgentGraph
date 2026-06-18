@@ -306,6 +306,7 @@ export function buildAgentContextPack(
     ...(fusion ? { fusionChecks: fusion.checks } : {}),
     instructions: [
       "Read GRAPH_REPORT.md first when it exists, then use this context pack for live run state.",
+      "Check codeContext.ecosystemSupport for active scanner tiers (T0/T1.5/T1/T3) before trusting symbol or edge depth.",
       "Use frontier nodes for orientation; do not treat external agent progress as runner completion.",
       "Use codeContext for bounded code neighborhoods; verify source files directly before editing.",
       "Submit bounded progress, evidence, or plan proposals instead of writing source bodies into OAG.",

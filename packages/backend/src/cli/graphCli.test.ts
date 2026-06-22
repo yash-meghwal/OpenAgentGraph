@@ -164,9 +164,19 @@ describe("graph cli", () => {
     ]);
 
     expect(result.found).toBe(true);
-    expect(result.nodes.map((node) => node.label).join(" ")).toMatch(/MainViewModel/i);
     expect(result.nodes.some((node) => node.label === "workspace-root")).toBe(false);
     expect(result.toNode?.label).toMatch(/PlaybackService \(class\)/i);
+
+    const labels = result.nodes.map((node) => node.label).join(" ");
+    const hasRoslynSemanticPath = /MainViewModel/i.test(labels);
+    if (hasRoslynSemanticPath) {
+      expect(labels).toMatch(/MainViewModel/i);
+    } else {
+      const { ensureRoslynHelperPrepared } = await import("../scanner/kernel/roslynHelperPreparation.js");
+      const roslyn = await ensureRoslynHelperPrepared({ autoBuild: false });
+      expect(roslyn.availability.status).toBe("unavailable");
+      expect(labels).toMatch(/MainView\.xaml/i);
+    }
   });
 
   it("respects --max-hops on graph:path", async () => {
@@ -350,6 +360,30 @@ describe("graph cli", () => {
     expect(result.fromCache).toBe(true);
     expect(result.ok).toBe(false);
     expect(result.checks.some((check) => check.code === "marker_sln_without_csharp" && check.severity === "fail")).toBe(true);
+  });
+
+  it("redacts workspace roots in exported share-safe artifacts", async () => {
+    const workspaceRoot = fixtureRoot("fixture-csharp-wpf");
+    const { runGraphExportCli } = await import("./graphExport.js");
+
+    await runGraphExportCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--report",
+      "--wiki",
+      "--redact-root",
+    ]);
+
+    const report = fs.readFileSync(path.join(workspaceRoot, "GRAPH_REPORT.md"), "utf8");
+    const wiki = fs.readFileSync(path.join(workspaceRoot, ".oag", "wiki", "index.md"), "utf8");
+    const graphJson = JSON.parse(fs.readFileSync(path.join(workspaceRoot, ".oag", "graph.json"), "utf8"));
+
+    expect(report).toContain("Workspace: `<workspace>`");
+    expect(wiki).toContain("Workspace: `<workspace>`");
+    expect(report).not.toContain(workspaceRoot);
+    expect(graphJson.workspaceRoot).toBe(workspaceRoot);
+    expect(graphJson.export?.refreshCommands?.[0]).toContain('"<workspace>"');
   });
 
   it("includes OAG fusion checks in exported GRAPH_REPORT.md", async () => {

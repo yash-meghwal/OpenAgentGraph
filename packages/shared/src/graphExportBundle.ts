@@ -28,6 +28,19 @@ import { buildGraphPathSeedResolverBrowserScript } from "./graphPathSeedResoluti
 import { computeGraphPathEdgeCost } from "./graphQueryEngine.js";
 import { GRAPH_PATH_FILE_QUERY_EXTENSION_LIST } from "./sourceExtensions.js";
 
+export const EXPORT_REDACTED_WORKSPACE_ROOT = "<workspace>";
+
+export interface GraphExportPresentationOptions {
+  redactRoot?: boolean;
+}
+
+export function formatExportWorkspaceRoot(
+  workspaceRoot: string,
+  options: GraphExportPresentationOptions = {}
+) {
+  return options.redactRoot ? EXPORT_REDACTED_WORKSPACE_ROOT : workspaceRoot;
+}
+
 const FORBIDDEN_EXPORT_METADATA_KEYS = new Set([
   "body",
   "sourceBody",
@@ -152,8 +165,13 @@ export function buildGraphProvenanceSummary(graph: UnifiedCodeGraph): GraphProve
   };
 }
 
-export function buildGraphRefreshCommands(workspaceRoot: string, primaryLens: GraphTaskLensId) {
-  const quotedWorkspace = `"${workspaceRoot}"`;
+export function buildGraphRefreshCommands(
+  workspaceRoot: string,
+  primaryLens: GraphTaskLensId,
+  options: GraphExportPresentationOptions = {}
+) {
+  const displayRoot = formatExportWorkspaceRoot(workspaceRoot, options);
+  const quotedWorkspace = `"${displayRoot}"`;
   return [
     `npm run graph:export -- --workspace ${quotedWorkspace} --offline-only`,
     `npm run graph:update -- --workspace ${quotedWorkspace}`,
@@ -309,10 +327,11 @@ export function buildGraphExportRisks(
 export function buildGraphExportDocument(
   graph: UnifiedCodeGraph,
   kernelProfile?: WorkspaceKernelProfile,
-  options: { exportedAt?: string } = {}
+  options: { exportedAt?: string; redactRoot?: boolean } = {}
 ): UnifiedCodeGraph {
   const sanitized = sanitizeGraphForExport(graph);
   const primaryLens = recommendPrimaryGraphLens(sanitized, kernelProfile);
+  const presentation = { redactRoot: options.redactRoot };
   const exportMetadata: GraphExportMetadata = {
     graphVersion: CODE_GRAPH_SCHEMA_VERSION,
     exportedAt: options.exportedAt ?? new Date().toISOString(),
@@ -322,7 +341,7 @@ export function buildGraphExportDocument(
     provenance: buildGraphProvenanceSummary(sanitized),
     analyzers: sanitized.analyzers,
     primaryLens,
-    refreshCommands: buildGraphRefreshCommands(sanitized.workspaceRoot, primaryLens),
+    refreshCommands: buildGraphRefreshCommands(sanitized.workspaceRoot, primaryLens, presentation),
     risks: buildGraphExportRisks(sanitized, kernelProfile),
   };
   return {
@@ -354,7 +373,8 @@ function toExplorerEdge(edge: UnifiedCodeGraphEdge): GraphExplorerEdge {
 
 export function buildGraphExplorerPayload(
   graph: UnifiedCodeGraph,
-  kernelProfile?: WorkspaceKernelProfile
+  kernelProfile?: WorkspaceKernelProfile,
+  options: GraphExportPresentationOptions = {}
 ): GraphExplorerPayload {
   const sanitized = sanitizeGraphForExport(graph);
   const primaryLens = recommendPrimaryGraphLens(sanitized, kernelProfile);
@@ -393,7 +413,7 @@ export function buildGraphExplorerPayload(
     .filter((edge) => nodeIds.has(edge.sourceNodeId) && nodeIds.has(edge.targetNodeId));
 
   return {
-    workspaceRoot: sanitized.workspaceRoot,
+    workspaceRoot: formatExportWorkspaceRoot(sanitized.workspaceRoot, options),
     generatedAt: sanitized.generatedAt,
     schemaVersion: sanitized.schemaVersion,
     primaryLens,
@@ -404,7 +424,7 @@ export function buildGraphExplorerPayload(
     edges,
     risks: buildGraphExportRisks(sanitized, kernelProfile),
     ecosystemSupportMatrix: buildEcosystemSupportMatrix({ graph: sanitized, kernelProfile }),
-    refreshCommands: buildGraphRefreshCommands(sanitized.workspaceRoot, primaryLens),
+    refreshCommands: buildGraphRefreshCommands(sanitized.workspaceRoot, primaryLens, options),
     diagnostics: sanitized.diagnostics,
   };
 }
@@ -761,9 +781,11 @@ ${pathSeedResolver}
 
 export function renderGraphExplorerHtml(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile } = {}
+  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
 ) {
-  const payload = buildGraphExplorerPayload(graph, options.kernelProfile);
+  const payload = buildGraphExplorerPayload(graph, options.kernelProfile, {
+    redactRoot: options.redactRoot,
+  });
   const health = buildGraphHealthSummary(graph, options.kernelProfile);
   const primaryLensLabel = GRAPH_TASK_LENS_DEFINITIONS.find((definition) => definition.id === payload.primaryLens)?.label
     ?? payload.primaryLens;

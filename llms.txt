@@ -1,0 +1,79 @@
+# OpenAgentGraph (OAG)
+
+> OpenAgentGraph turns any codebase into a deterministic, agent-ready graph with paths, handoffs, benchmarks, and no provider key.
+
+## What OAG is
+
+- Deterministic codebase intelligence: file/symbol graph, communities, docs links, provenance, support tiers.
+- Local-first static exports: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, `GRAPH_REPORT.md`.
+- Agent context without source-body persistence or provider keys.
+
+## What OAG is not
+
+- Not a token compressor, hosted cloud service, provider-key runner, or multi-agent scheduler.
+- Not OpenAgentGraphPro. Base OAG does not require Pro folders or hosted coordination.
+
+## Safe first commands
+
+```bash
+npm ci
+npm run graph:export -- --workspace . --offline-only --redact-root
+npm run graph:context -- --workspace . --goal "orient me" --json
+npm run graph:query -- --workspace . "how does auth work?"
+npm run graph:check -- --workspace . --mode hard
+```
+
+## Read these files first
+
+1. `GRAPH_REPORT.md` (generated per workspace; gitignored)
+2. `llms.txt` (this file)
+3. `LLMS.md` (agent workflow)
+4. `.oag/graph.json` and `.oag/wiki/index.md` after export
+
+## Privacy and trust rules
+
+- OAG never needs an AI provider key for scans, exports, graph navigation, or gates.
+- Tool and CLI outputs do not include source file bodies.
+- Do not commit generated `.oag/*` or `GRAPH_REPORT.md`.
+- Support tiers are honest: T0 semantic, T1 structural, T2/T3 file-level — inspect source when tiers warn.
+- Prefer static graph artifacts before broad repository scanning.
+
+## Static artifacts
+
+| Artifact | Use |
+| --- | --- |
+| `.oag/graph.json` | Machine-readable graph cache |
+| `.oag/graph.html` | Human exploration |
+| `.oag/wiki/index.md` | Compact wiki index |
+| `GRAPH_REPORT.md` | Fast handoff orientation |
+
+## CLI commands
+
+| Command | When |
+| --- | --- |
+| `graph:export` | Create or refresh static artifacts |
+| `graph:context` | Bounded agent context pack for a goal |
+| `graph:query` | Neighborhood search from a question |
+| `graph:path` | Ranked route between two targets |
+| `graph:explain` | Node/file neighborhood summary |
+| `graph:check` | Hard/warn quality gates |
+| `graph:update` | Incremental `.oag/graph.json` refresh |
+| `graph:retrieve` | Deeper lookup by `oag:*` retrieval id |
+| `graph:scorecard` | Reproducible public benchmark proof |
+
+## MCP tools
+
+Run `npm run oag:mcp` for stdio MCP with: `oag_export`, `oag_query`, `oag_path`, `oag_explain`, `oag_check`, `oag_context`, `oag_retrieve`.
+
+## Do not
+
+- Read or copy from OpenAgentGraphPro or scratch export folders.
+- Claim semantic support beyond what `graph:check` and fixtures prove.
+- Auto-edit `AGENTS.md`, `README.md`, or `LLMS.md` from generated proposals.
+
+## More docs
+
+- `docs/AGENT-ACCESS-LAYER.md`
+- `docs/MCP.md`
+- `docs/GRAPH-CONTEXT.md`
+- `docs/BENCHMARKS.md`

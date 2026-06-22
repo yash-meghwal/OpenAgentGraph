@@ -147,6 +147,63 @@ describe("graph ecosystem health", () => {
     );
   });
 
+  it("reports per-scanner support matrix counts instead of repeating workspace totals", () => {
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1.0",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      nodes: [
+        { id: "file:cs", kind: "code_file", label: "App.cs", path: "App.cs", scannerId: "csharp", metadata: { scannerLanguage: "csharp" } },
+        { id: "sym:cs", kind: "symbol", label: "App", path: "App.cs", scannerId: "csharp", metadata: { scannerLanguage: "csharp" } },
+        { id: "file:ts", kind: "code_file", label: "app.ts", path: "app.ts", scannerId: "typescript", metadata: { scannerLanguage: "typescript" } },
+        { id: "sym:ts", kind: "symbol", label: "main", path: "app.ts", scannerId: "typescript", metadata: { scannerLanguage: "typescript" } },
+      ],
+      edges: [
+        {
+          id: "edge:cs",
+          sourceNodeId: "sym:cs",
+          targetNodeId: "file:cs",
+          kind: "belongs_to",
+          provenance: "extracted",
+          scannerId: "csharp",
+        },
+        {
+          id: "edge:ts",
+          sourceNodeId: "sym:ts",
+          targetNodeId: "file:ts",
+          kind: "belongs_to",
+          provenance: "extracted",
+          scannerId: "typescript",
+        },
+      ],
+      activeScannerIds: ["dotnet", "typescript"],
+      diagnostics: [],
+    };
+    const matrix = buildEcosystemSupportMatrix({
+      graph,
+      kernelProfile: makeProfile({
+        primaryType: "mixed-monorepo",
+        activeScannerIds: ["dotnet", "typescript"],
+      }),
+    });
+    const dotnetRow = matrix.find((row) => row.scannerId === "dotnet");
+    const typescriptRow = matrix.find((row) => row.scannerId === "typescript");
+    expect(dotnetRow?.indexedFileCount).toBe(1);
+    expect(dotnetRow?.symbolCount).toBe(1);
+    expect(typescriptRow?.indexedFileCount).toBe(1);
+    expect(typescriptRow?.symbolCount).toBe(1);
+    const markdown = renderEcosystemSupportMatrixMarkdown({
+      graph,
+      kernelProfile: makeProfile({
+        primaryType: "mixed-monorepo",
+        activeScannerIds: ["dotnet", "typescript"],
+      }),
+    }).join("\n");
+    expect(markdown).toContain("Workspace totals (all scanners): files=2");
+    expect(markdown).toContain("dotnet (T0)");
+    expect(markdown).not.toMatch(/dotnet \(T0\).*files=2.*symbols=2.*edges=2[\s\S]*typescript \(T0\).*files=2.*symbols=2.*edges=2/);
+  });
+
   it("renders support matrix and tier legend for active scanners", () => {
     const graph: UnifiedCodeGraph = {
       schemaVersion: "1.0",

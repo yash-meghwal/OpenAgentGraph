@@ -2,6 +2,8 @@
 
 Read this first when Codex, Gemini, or another coding agent opens this repository.
 
+Start with [`llms.txt`](llms.txt) for the compact agent orientation contract, then this file for workflow detail.
+
 If `GRAPH_REPORT.md` exists in the repo root, read it before broad codebase exploration. It is the deterministic OpenAgentGraph handoff report for fast first-open orientation.
 `GRAPH_REPORT.md` is generated per workspace and ignored by git; use `npm run handoff:write` to refresh it locally when needed.
 

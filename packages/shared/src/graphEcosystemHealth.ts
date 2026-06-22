@@ -56,6 +56,46 @@ export const ECOSYSTEM_TIER_LEGEND = [
   "T3: honest file-level coverage for unrecognized or mixed layouts.",
 ] as const;
 
+const SCANNER_NODE_LANGUAGE_ALIASES: Record<string, readonly string[]> = {
+  dotnet: ["csharp"],
+  typescript: ["typescript", "javascript"],
+  python: ["python"],
+  go: ["go"],
+  rust: ["rust"],
+  terraform: ["terraform"],
+  java: ["java", "kotlin"],
+  ruby: ["ruby"],
+  php: ["php"],
+  swift: ["swift"],
+  cpp: ["cpp", "c"],
+  flutter: ["dart"],
+  unity: ["csharp", "unity"],
+  unreal: ["cpp", "unreal"],
+  godot: ["gdscript", "godot"],
+  generic: ["generic", "documentation", "powershell", "shell"],
+};
+
+function normalizeScannerLanguage(value: string | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function scannerNodeLanguages(scannerId: string) {
+  const aliases = SCANNER_NODE_LANGUAGE_ALIASES[scannerId] ?? [scannerId];
+  return new Set(aliases.map(normalizeScannerLanguage));
+}
+
+function nodeMatchesScannerLanguage(
+  node: UnifiedCodeGraph["nodes"][number],
+  languages: Set<string>
+) {
+  const scannerLanguage = normalizeScannerLanguage(
+    typeof node.metadata?.scannerLanguage === "string"
+      ? node.metadata.scannerLanguage
+      : node.scannerId
+  );
+  return languages.has(scannerLanguage);
+}
+
 const SCANNER_CATALOG: Record<string, EcosystemScannerCatalogEntry> = {
   typescript: {
     label: "TypeScript/JavaScript",
@@ -156,6 +196,40 @@ const SCANNER_CATALOG: Record<string, EcosystemScannerCatalogEntry> = {
 };
 
 const GENERATED_SKIP_REASONS = new Set(["global", "gitignore", "dockerignore", "oagignore", "breaker"]);
+
+function countScannerGraphStats(graph: UnifiedCodeGraph, scannerId: string) {
+  const languages = scannerNodeLanguages(scannerId);
+  const trackedNodes = graph.nodes.filter((node) =>
+    ["code_file", "config_file", "doc_file", "symbol"].includes(node.kind)
+    && nodeMatchesScannerLanguage(node, languages)
+  );
+  const indexedFileCount = trackedNodes.filter((node) =>
+    ["code_file", "config_file", "doc_file"].includes(node.kind)
+  ).length;
+  const symbolCount = trackedNodes.filter((node) => node.kind === "symbol").length;
+  const nodeIds = new Set(trackedNodes.map((node) => node.id));
+  const relationshipCount = graph.edges.filter((edge) =>
+    nodeIds.has(edge.sourceNodeId)
+    || nodeIds.has(edge.targetNodeId)
+    || (edge.scannerId && languages.has(normalizeScannerLanguage(edge.scannerId)))
+  ).length;
+  return { indexedFileCount, symbolCount, relationshipCount };
+}
+
+function countWorkspaceGraphTotals(
+  graph: UnifiedCodeGraph,
+  kernelProfile?: WorkspaceKernelProfile
+) {
+  const indexedFileCount = graph.nodes.filter((node) =>
+    ["code_file", "config_file", "doc_file"].includes(node.kind)
+  ).length;
+  const symbolCount = graph.nodes.filter((node) => node.kind === "symbol").length;
+  const relationshipCount = graph.edges.length;
+  const skippedGeneratedCount = Object.entries(kernelProfile?.skippedCountsByReason ?? {})
+    .filter(([reason]) => GENERATED_SKIP_REASONS.has(reason))
+    .reduce((sum, [, count]) => sum + (typeof count === "number" ? count : 0), 0);
+  return { indexedFileCount, symbolCount, relationshipCount, skippedGeneratedCount };
+}
 
 function markerMatches(markers: string[], patterns: RegExp[]) {
   return markers.some((marker) => patterns.some((pattern) => pattern.test(marker)));
@@ -520,28 +594,22 @@ export function buildEcosystemSupportMatrix(input: {
   };
 
   const activeScannerIds = profile.activeScannerIds.length > 0 ? profile.activeScannerIds : ["generic"];
-  const indexedFileCount = input.graph.nodes.filter((node) =>
-    ["code_file", "config_file", "doc_file"].includes(node.kind)
-  ).length;
-  const symbolCount = input.graph.nodes.filter((node) => node.kind === "symbol").length;
-  const relationshipCount = input.graph.edges.length;
-  const skippedGeneratedCount = Object.entries(profile.skippedCountsByReason ?? {})
-    .filter(([reason]) => GENERATED_SKIP_REASONS.has(reason))
-    .reduce((sum, [, count]) => sum + (typeof count === "number" ? count : 0), 0);
+  const workspaceTotals = countWorkspaceGraphTotals(input.graph, profile);
 
   return activeScannerIds.map((scannerId) => {
     const catalog = SCANNER_CATALOG[scannerId] ?? SCANNER_CATALOG.generic;
     const projectType = profile.primaryType;
+    const scannerStats = countScannerGraphStats(input.graph, scannerId);
     return {
       ecosystemId: scannerId,
       projectType,
       scannerId,
       tier: catalog.tier,
       semanticSupported: catalog.semanticSupported,
-      indexedFileCount,
-      symbolCount,
-      relationshipCount,
-      skippedGeneratedCount,
+      indexedFileCount: scannerStats.indexedFileCount,
+      symbolCount: scannerStats.symbolCount,
+      relationshipCount: scannerStats.relationshipCount,
+      skippedGeneratedCount: workspaceTotals.skippedGeneratedCount,
       limitation: catalog.limitation,
     };
   });
@@ -553,9 +621,19 @@ export function renderEcosystemSupportMatrixMarkdown(input: {
 }) {
   const rows = buildEcosystemSupportMatrix(input);
   if (rows.length === 0) return ["- No ecosystem support matrix recorded."];
-  return rows.map((row) =>
-    `- **${row.scannerId} (${row.tier})** · project=${row.projectType} · files=${row.indexedFileCount} · symbols=${row.symbolCount} · edges=${row.relationshipCount} · skipped=${row.skippedGeneratedCount} · semantic=${row.semanticSupported ? "yes" : "no"} · ${row.limitation}`
-  );
+  const workspaceTotals = countWorkspaceGraphTotals(input.graph, input.kernelProfile);
+  const lines: string[] = [];
+  if (rows.length > 1) {
+    lines.push(
+      `- Workspace totals (all scanners): files=${workspaceTotals.indexedFileCount} · symbols=${workspaceTotals.symbolCount} · edges=${workspaceTotals.relationshipCount} · skipped=${workspaceTotals.skippedGeneratedCount}`
+    );
+  }
+  for (const row of rows) {
+    lines.push(
+      `- **${row.scannerId} (${row.tier})** · project=${row.projectType} · files=${row.indexedFileCount} · symbols=${row.symbolCount} · edges=${row.relationshipCount} · semantic=${row.semanticSupported ? "yes" : "no"} · ${row.limitation}`
+    );
+  }
+  return lines;
 }
 
 export function flattenEcosystemScannerHealthDiagnostics(input: {

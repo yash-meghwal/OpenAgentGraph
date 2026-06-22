@@ -31,6 +31,8 @@ packages/backend/scanner-tools/**/obj/
 /PLAN*.md
 /MULTI-AGENT-HUB-DISCUSSION.md
 /OAGimprovement/
+/OpenAgentGraph-release-readiness-review.md
+/OAG-LEARN-PROPOSAL.md
 
 # Generated graph export artifacts from local fixture dogfood/export runs
 tests/fixtures/graph/**/.oag/

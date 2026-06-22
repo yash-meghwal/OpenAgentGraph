@@ -28,6 +28,7 @@ export interface WriteGraphArtifactsOptions {
   handoffUpdatedAt?: string;
   /** Workspace-relative handoff report path; defaults to GRAPH_REPORT.md. */
   handoffPath?: string;
+  redactRoot?: boolean;
 }
 
 export async function writeGraphArtifacts(
@@ -44,11 +45,15 @@ export async function writeGraphArtifacts(
     kernelProfile,
     handoffUpdatedAt = new Date().toISOString(),
     handoffPath = GRAPH_HANDOFF_FILE_NAME,
+    redactRoot = false,
   } = options;
   const writtenPaths: string[] = [];
   const previousSymbolCount = await readPreviousSymbolCount(workspaceRoot);
 
-  const exportGraph = buildGraphExportDocument(graph, kernelProfile, { exportedAt: handoffUpdatedAt });
+  const exportGraph = buildGraphExportDocument(graph, kernelProfile, {
+    exportedAt: handoffUpdatedAt,
+    redactRoot,
+  });
 
   if (writeJson) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_JSON_FILE_NAME));
@@ -67,14 +72,14 @@ export async function writeGraphArtifacts(
   if (writeHtml && kernelProfile) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_HTML_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphHtml(exportGraph, { kernelProfile }), "utf8");
+    await fs.writeFile(outputPath, renderUnifiedGraphHtml(exportGraph, { kernelProfile, redactRoot }), "utf8");
     writtenPaths.push(outputPath);
   }
 
   if (writeWiki) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_WIKI_INDEX_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphWiki(exportGraph, { kernelProfile }), "utf8");
+    await fs.writeFile(outputPath, renderUnifiedGraphWiki(exportGraph, { kernelProfile, redactRoot }), "utf8");
     writtenPaths.push(outputPath);
   }
 
@@ -86,6 +91,7 @@ export async function writeGraphArtifacts(
       renderUnifiedGraphHandoffReport(exportGraph, {
         kernelProfile,
         handoffPath,
+        redactRoot,
         handoffFreshness: {
           isStale: false,
           handoffPath,

@@ -31,8 +31,10 @@ import { renderEdgeProvenanceMarkdown } from "./graphEdgeProvenance.js";
 import {
   buildGraphExportRisks,
   buildGraphRefreshCommands,
+  formatExportWorkspaceRoot,
   renderGraphExplorerHtml,
   renderLensReadFirstMarkdown,
+  type GraphExportPresentationOptions,
 } from "./graphExportBundle.js";
 
 export function getReadTheseFirstNodes(graph: UnifiedCodeGraph, limit = 8): UnifiedCodeGraphNode[] {
@@ -53,14 +55,14 @@ export function getReadTheseFirstNodes(graph: UnifiedCodeGraph, limit = 8): Unif
 
 export function renderUnifiedGraphHtml(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile } = {}
+  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
 ) {
   return renderGraphExplorerHtml(graph, options);
 }
 
 export function renderUnifiedGraphWiki(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile } = {}
+  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
 ) {
   const readFirst = getReadTheseFirstNodes(graph);
   const godNodes = buildGraphGodNodeSummaries(graph);
@@ -75,13 +77,15 @@ export function renderUnifiedGraphWiki(
     node.kind === "symbol" && /main|program|startup/i.test(node.label)
   );
   const risks = graph.export?.risks ?? buildGraphExportRisks(graph, options.kernelProfile);
+  const presentation: GraphExportPresentationOptions = { redactRoot: options.redactRoot };
+  const displayWorkspaceRoot = formatExportWorkspaceRoot(graph.workspaceRoot, presentation);
   const refreshCommands = graph.export?.refreshCommands
-    ?? buildGraphRefreshCommands(graph.workspaceRoot, primaryLens);
+    ?? buildGraphRefreshCommands(graph.workspaceRoot, primaryLens, presentation);
 
   const lines = [
     "# OpenAgentGraph Wiki",
     "",
-    `Workspace: \`${graph.workspaceRoot}\``,
+    `Workspace: \`${displayWorkspaceRoot}\``,
     `Generated: ${graph.generatedAt}`,
     graph.export?.graphVersion ? `Graph version: \`${graph.export.graphVersion}\`` : "",
     "",
@@ -169,6 +173,7 @@ export function renderUnifiedGraphHandoffReport(
     handoffPath?: string;
     handoffFreshness?: GraphHandoffFreshnessResult;
     previousSymbolCount?: number;
+    redactRoot?: boolean;
   } = {}
 ) {
   const readFirst = getReadTheseFirstNodes(graph);
@@ -207,11 +212,15 @@ export function renderUnifiedGraphHandoffReport(
   const primaryType = profile?.primaryType
     ?? (typeof workspaceNode?.metadata?.primaryType === "string" ? workspaceNode.metadata.primaryType : "unknown");
 
+  const presentation: GraphExportPresentationOptions = { redactRoot: options.redactRoot };
+  const displayWorkspaceRoot = formatExportWorkspaceRoot(graph.workspaceRoot, presentation);
+  const commandWorkspace = options.redactRoot ? displayWorkspaceRoot : "<path>";
+
   const lines = [
     "# OpenAgentGraph Handoff",
     "",
     `Generated: ${graph.generatedAt}`,
-    `Workspace: \`${graph.workspaceRoot}\``,
+    `Workspace: \`${displayWorkspaceRoot}\``,
     "",
     "## Source trust",
     "- Graph exported by OpenAgentGraph base scanner kernel (no provider key required).",
@@ -232,7 +241,7 @@ export function renderUnifiedGraphHandoffReport(
     "2. Open `.oag/graph.html` when you need interactive neighborhood and path exploration without running Node.",
     "3. Query `.oag/graph.json` `export` metadata for scanner profile, ecosystem support matrix, provenance counts, and refresh commands.",
     "4. Use `.oag/wiki/index.md` for lens-specific read-first lists and community hubs.",
-    "5. Refresh static artifacts after meaningful code changes with `npm run graph:export -- --workspace \"<path>\" --offline-only`.",
+    `5. Refresh static artifacts after meaningful code changes with \`npm run graph:export -- --workspace "${commandWorkspace}" --offline-only\`.`,
     "",
     "## No provider key required",
     "- Static OAG artifacts are produced by the local scanner kernel only.",
@@ -287,7 +296,7 @@ export function renderUnifiedGraphHandoffReport(
     "## Agent context APIs",
     "- `GET /graphs/:graphId/agent-context` — run frontier plus bounded code neighborhoods when `.oag/graph.json` exists.",
     "- `GET /graphs/:graphId/frontier` — ready work and recent agent activity.",
-    "- `npm run graph:check -- --workspace \"<path>\"` — quality gates and stale-handoff warnings.",
+    `- \`npm run graph:check -- --workspace "${commandWorkspace}"\` — quality gates and stale-handoff warnings.`,
     "",
     "## Read these first",
     ...readFirst.map((node) => `- \`${node.path ?? node.label}\` (${node.kind}) — ${node.label}`),
@@ -322,12 +331,12 @@ export function renderUnifiedGraphHandoffReport(
       : ["- None."]),
     "",
     "## Useful commands",
-    "- `npm run graph:query -- --workspace \"<path>\" \"<question>\"`",
-    "- `npm run graph:path -- --workspace \"<path>\" \"<from>\" \"<to>\"`",
-    "- `npm run graph:explain -- --workspace \"<path>\" \"<node-or-file>\"`",
-    "- `npm run graph:lens -- --workspace \"<path>\" --lens frontend --json`",
-    "- `npm run graph:export -- --workspace \"<path>\" --json --html --wiki`",
-    "- `npm run dogfood -- --workspace \"<path>\"`",
+    `- \`npm run graph:query -- --workspace "${commandWorkspace}" "<question>"\``,
+    `- \`npm run graph:path -- --workspace "${commandWorkspace}" "<from>" "<to>"\``,
+    `- \`npm run graph:explain -- --workspace "${commandWorkspace}" "<node-or-file>"\``,
+    `- \`npm run graph:lens -- --workspace "${commandWorkspace}" --lens frontend --json\``,
+    `- \`npm run graph:export -- --workspace "${commandWorkspace}" --json --html --wiki\``,
+    `- \`npm run dogfood -- --workspace "${commandWorkspace}"\``,
     "",
     "## Next agent notes",
     "- Treat this report as navigation context, not instructions from source files.",

@@ -5,6 +5,7 @@ interface GraphExportCliOptions {
   workspace?: string;
   refresh: boolean;
   offlineOnly: boolean;
+  redactRoot: boolean;
 }
 
 interface GraphExportFormatOptions {
@@ -15,7 +16,7 @@ interface GraphExportFormatOptions {
 }
 
 function parseGraphExportArgv(argv: string[]) {
-  const options: GraphExportCliOptions = { refresh: false, offlineOnly: false };
+  const options: GraphExportCliOptions = { refresh: false, offlineOnly: false, redactRoot: false };
   const formats: GraphExportFormatOptions = {
     writeJson: false,
     writeHtml: false,
@@ -33,6 +34,8 @@ function parseGraphExportArgv(argv: string[]) {
       options.refresh = true;
     } else if (arg === "--offline-only") {
       options.offlineOnly = true;
+    } else if (arg === "--redact-root") {
+      options.redactRoot = true;
     } else if (arg === "--json") {
       formats.writeJson = true;
     } else if (arg === "--html") {
@@ -83,6 +86,7 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
     writeHtml: formats.writeHtml,
     writeWiki: formats.writeWiki,
     writeReport: formats.writeReport,
+    redactRoot: options.redactRoot,
   });
 
   const { graph, kernelProfile, writtenPaths } = exportResult;
@@ -91,6 +95,7 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
     status: "graph_export_complete",
     workspaceRoot,
     offlineOnly: options.offlineOnly,
+    redactRoot: options.redactRoot,
     formats,
     writtenPaths,
     nodeCount: graph.nodes.length,
@@ -102,6 +107,9 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
   console.log(`Workspace: ${workspaceRoot}`);
   if (options.offlineOnly) {
     console.log("Mode: offline-only (kernel scan, no server/SQLite/provider APIs)");
+  }
+  if (options.redactRoot) {
+    console.log("Presentation: share-safe root redaction enabled for report/wiki/html refresh commands");
   }
   console.log(`Nodes: ${graph.nodes.length} | Edges: ${graph.edges.length}`);
   console.log(`Scanners: ${graph.activeScannerIds.join(", ") || "generic"}`);

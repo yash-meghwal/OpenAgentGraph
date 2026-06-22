@@ -1,6 +1,46 @@
 # OpenAgentGraph
 
-OpenAgentGraph is an event-sourced execution graph and universal static code graph for supervised autonomous software work. Replay, reports, alerts, lineage, operational views, code maps, agent handoffs, and offline workspace exports are derived from append-only graph events or deterministic scans rather than mutable graph-state tables.
+OpenAgentGraph turns any codebase into a deterministic, agent-ready graph with paths, handoffs, benchmarks, and no provider key.
+
+OpenAgentGraph is also an event-sourced execution graph and universal static code graph for supervised autonomous software work. Replay, reports, alerts, lineage, operational views, code maps, agent handoffs, and offline workspace exports are derived from append-only graph events or deterministic scans rather than mutable graph-state tables.
+
+## 60-second local demo
+
+```bash
+npm ci
+npm run graph:export -- --workspace . --offline-only --redact-root
+# open .oag/graph.html and read GRAPH_REPORT.md
+```
+
+Agent context in one command:
+
+```bash
+npm run graph:context -- --workspace . --goal "orient me" --json
+```
+
+## Proof scorecard
+
+Regenerate live values with `npm run graph:scorecard` or `npm run verify:graph`.
+
+| Proof metric | Reproduce |
+| --- | --- |
+| Release benchmark fixtures | `npm run verify:graph` |
+| Release gate status | `npm run verify:graph` |
+| Query/path success rates | `npm run verify:graph` |
+| Misleading handoff rate | `npm run verify:graph` |
+| Provenance coverage | `npm run graph:scorecard` |
+| External benchmark categories | `npm run graph:benchmark:external -- --catalog --report` |
+| Update benchmark status | `npm run graph:benchmark:update` |
+
+See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for the full public scorecard.
+
+## What OAG is / is not
+
+**Is:** deterministic codebase intelligence, bounded agent context, static exports, local-first trust, and provenance-backed graph navigation.
+
+**Is not:** a token compressor, hosted cloud service, provider-key runner, or Pro multi-agent scheduler. Base OAG does not require OpenAgentGraphPro.
+
+Agents should read [`llms.txt`](llms.txt) before the full README. MCP clients can use `npm run oag:mcp`.
 
 ## What OpenAgentGraph Includes
 
@@ -26,7 +66,20 @@ OpenAgentGraph never needs an AI provider key for deterministic scans, static ex
 ## Quick Start
 
 Agents should read `GRAPH_REPORT.md` first when it exists, then `LLMS.md` for the shortest local navigation and dogfooding guide. For fuller onboarding, read `docs/OPENAGENTGRAPH-FOR-LLMS.md` and `docs/OPENAGENTGRAPH-FUNCTIONS.md`. Agents that support repo skills can read `skills/openagentgraph/SKILL.md`; Codex users can install it by placing the whole `skills/openagentgraph` folder at `%USERPROFILE%\.codex\skills\openagentgraph`.
-`GRAPH_REPORT.md` is a local generated handoff and is ignored by git; regenerate it with `npm run handoff:write` for the workspace you are actually using.
+`GRAPH_REPORT.md` is a local generated handoff and is ignored by git. On a fresh clone it does not exist yet; generate it with:
+
+```bash
+npm run graph:export -- --workspace . --offline-only
+```
+
+That writes local `.oag/*` and `GRAPH_REPORT.md` without an AI provider key, SQLite, or the .NET SDK. For another workspace, use `npm run graph:export -- --workspace "<absolute path>" --offline-only`, or `npm run dogfood -- --workspace "<absolute path>"` for a fuller external-workspace dogfood pass.
+
+### Prerequisites
+
+- Required: Node.js `>=20.19.0` and npm.
+- Optional for full C# semantic edges and CI-equivalent `verify:graph` Roslyn checks: .NET 8 SDK (`dotnet` on PATH). Without it, graph scans and `verify:graph` continue with structural .NET indexing.
+- Optional for local e2e smoke: Playwright Chromium (`npx playwright install chromium`, or `npx playwright install --with-deps chromium` on Linux).
+- AI provider keys are not required for deterministic scans, exports, handoffs, graph navigation, or release gates.
 
 1. Copy `.env.example` to `.env` and fill in the values you actually want to use.
 2. If you are running the frontend separately, copy `packages/frontend/.env.example` to `packages/frontend/.env`.
@@ -42,11 +95,17 @@ Local startup commands:
 - Write deterministic handoff: `npm run handoff:write`
 - Dogfood an external workspace (no provider key): `npm run dogfood -- --workspace "<absolute path>"`
 - Export a static workspace graph (no server, SQLite, or provider): `npm run graph:export -- --workspace "<absolute path>" --offline-only`
+- Export share-safe report/wiki/html without absolute paths: add `--redact-root` to `graph:export` (`.oag/graph.json` keeps the real root for local cache reload)
 - Query a workspace graph: `npm run graph:query -- --workspace "<absolute path>" "how does auth work?"`
 - Find a ranked path: `npm run graph:path -- --workspace "<absolute path>" "MainViewModel" "PlaybackService" --mode balanced --explain-ranking`
 - Explain a node or file: `npm run graph:explain -- --workspace "<absolute path>" "CheckoutService"`
 - Check graph quality gates: `npm run graph:check -- --workspace "<absolute path>" --mode hard`
 - Incrementally update `.oag/graph.json`: `npm run graph:update -- --workspace "<absolute path>"`
+- Bounded agent context pack: `npm run graph:context -- --workspace "<absolute path>" --goal "<task>" --json`
+- Retrieve by OAG id: `npm run graph:retrieve -- --workspace "<absolute path>" --id "oag:node:<id>" --json`
+- Public benchmark scorecard: `npm run graph:scorecard`
+- Agent wrapper (context + instructions): `npm run oag:wrap -- --workspace "<absolute path>" --goal "<task>" --print`
+- MCP server (stdio): `npm run oag:mcp`
 - Handoff DB override when needed: `npm run handoff:print -- --data-dir packages/backend/data`
 - Gate DB override when needed: `npm run gate:check -- --mode hard --allow-empty --data-dir packages/backend/data`
 - Agent context pack: `GET /graphs/:graphId/agent-context`
@@ -287,10 +346,12 @@ Run the fast local release checks before shipping changes:
 npm run verify
 ```
 
-Run the full CI-equivalent path, including the Playwright smoke, before release tagging:
+Run the full CI-equivalent path, including graph fixtures and the Playwright smoke, before release tagging:
 ```bash
 npm run verify:ci
 ```
+
+`verify:graph` skips the Roslyn helper build when the .NET SDK is unavailable and continues with structural graph verification. CI still runs the strict `build:roslyn-helper` step when .NET is installed. `verify:ci` also requires Playwright Chromium for the e2e smoke unless you run the narrower `npm run verify` path instead.
 
 ## Current Practical Limits
 

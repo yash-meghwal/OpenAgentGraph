@@ -156,6 +156,20 @@ describe("graph export bundle", () => {
     expect(violations).toContain("secret-looking API key value");
   });
 
+  it("redacts workspace roots in share-safe export presentation", () => {
+    const graph = makeGraph();
+    const exported = buildGraphExportDocument(graph, makeProfile(), { redactRoot: true });
+    const handoff = renderUnifiedGraphHandoffReport(exported, { kernelProfile: makeProfile(), redactRoot: true });
+    const html = renderGraphExplorerHtml(graph, { kernelProfile: makeProfile(), redactRoot: true });
+
+    expect(exported.workspaceRoot).toBe("/workspace");
+    expect(exported.export?.refreshCommands?.[0]).toContain('"<workspace>"');
+    expect(handoff).toContain("Workspace: `<workspace>`");
+    expect(handoff).not.toContain("/workspace");
+    expect(html).toContain("Workspace: &lt;workspace&gt;");
+    expect(extractExplorerPayloadFromHtml(html).workspaceRoot).toBe("<workspace>");
+  });
+
   it("passes static export release gates for a complete export bundle", () => {
     const exported = buildGraphExportDocument(makeGraph(), makeProfile());
     const handoff = renderUnifiedGraphHandoffReport(exported, { kernelProfile: makeProfile() });

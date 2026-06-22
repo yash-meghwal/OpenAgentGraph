@@ -5,11 +5,15 @@ Read this first when Codex, Gemini, or another coding agent opens this repositor
 Start with [`llms.txt`](llms.txt) for the compact agent orientation contract, then this file for workflow detail.
 
 If `GRAPH_REPORT.md` exists in the repo root, read it before broad codebase exploration. It is the deterministic OpenAgentGraph handoff report for fast first-open orientation.
-`GRAPH_REPORT.md` is generated per workspace and ignored by git; use `npm run handoff:write` to refresh it locally when needed.
+`GRAPH_REPORT.md` is generated per workspace and ignored by git. On a fresh clone, generate static artifacts with `npm run graph:export -- --workspace . --offline-only --redact-root`; use `npm run handoff:write` only when you specifically need the Product Graph DB-backed handoff.
 
 ## Canonical Agent Docs
 
 - `GRAPH_REPORT.md`: compact generated orientation for the current workspace.
+- `llms.txt`: compact model-facing orientation contract.
+- `docs/AGENT-ACCESS-LAYER.md`: 1.4 CLI/MCP/context access overview.
+- `docs/GRAPH-CONTEXT.md`: bounded `graph:context` pack contract.
+- `docs/MCP.md`: stdio MCP server setup and tool list.
 - `docs/OPENAGENTGRAPH-FOR-LLMS.md`: first-time agent workflow and adoption checklist.
 - `docs/OPENAGENTGRAPH-FUNCTIONS.md`: functions, endpoints, commands, roles, and provider boundaries.
 - `skills/openagentgraph/SKILL.md`: repo-distributed Codex skill for agents that support skills.
@@ -72,11 +76,18 @@ No model provider or API key is required. This scans the target workspace, store
 npm run dogfood -- --workspace "C:\path with spaces\your-project"
 ```
 
-Read `GRAPH_REPORT.md` first. Trust indexed areas, but inspect source directly when the report warns that C#/.NET coverage is file-level only or partial.
+Read `GRAPH_REPORT.md` first. Trust indexed areas, but inspect source directly when support tiers or analyzer warnings say a language is structural-only, semantic-lite, unavailable, or partial.
 
 ## Generate The Compact Handoff
 
 No model provider or API key is required for the handoff report.
+
+For the current workspace without needing the backend server or Product Graph DB:
+
+```powershell
+npm run graph:export -- --workspace . --offline-only --redact-root
+npm run graph:context -- --workspace . --goal "orient me" --json
+```
 
 From the Dashboard Product Graph view, use:
 - **Generate Handoff** to preview the deterministic Markdown.

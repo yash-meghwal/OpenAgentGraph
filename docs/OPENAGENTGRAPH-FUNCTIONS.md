@@ -23,8 +23,12 @@ This reference lists what OpenAgentGraph can do today and which surfaces expose 
 | Project Graph scan | Dashboard Project Graph, `GET /project-graph`, scan job APIs | No |
 | Product Graph projection | `GET /product-graph` | No |
 | Product codebase scan | `POST /product-graph/codebase/scan`, scan job APIs | No |
+| Static workspace export | `npm run graph:export -- --workspace "<path>" --offline-only` | No |
+| Bounded agent context pack | `npm run graph:context -- --workspace "<path>" --goal "<task>" --json` | No |
+| Graph query/path/explain/retrieve | `graph:query`, `graph:path`, `graph:explain`, `graph:retrieve` | No |
+| MCP graph tools | `npm run oag:mcp` | No |
 | Code Map task lenses | Product Graph dashboard | No |
-| Semantic TypeScript edges | Product codebase scan | No |
+| Semantic and semantic-lite graph edges | Product codebase scan, static export, graph CLIs | No |
 | Handoff preview | `GET /product-graph/handoff`, Dashboard Generate Handoff | No |
 | Handoff write | `POST /product-graph/handoff/write`, `npm run handoff:write` | No |
 | External workspace dogfood | `npm run dogfood -- --workspace "<absolute path>"` | No |
@@ -54,12 +58,12 @@ It can show:
 - external/unresolved dependencies
 - scan progress and breaker diagnostics
 - workspace profile markers and extension coverage
-- honest file-level-only warnings for C#/.NET in base v1.2
+- honest support-tier warnings for structural, semantic-lite, and optional analyzer coverage
 - task scope lenses
 - compact handoff sections
 
 Use it when the task asks "what source matters for this change?"
-Trust indexed areas listed in `GRAPH_REPORT.md`, but inspect source directly when the report warns about file-level-only or partial language coverage.
+Trust indexed areas listed in `GRAPH_REPORT.md`, but inspect source directly when the report warns about structural-only, semantic-lite, unavailable, or partial language coverage.
 
 ## Project Graph Functions
 
@@ -118,6 +122,15 @@ npm run test --workspaces --if-present
 npm run vscode:build
 npm run handoff:print
 npm run handoff:write
+npm run graph:export -- --workspace "C:\path with spaces\your-project" --offline-only --redact-root
+npm run graph:context -- --workspace "C:\path with spaces\your-project" --goal "orient me" --json
+npm run graph:query -- --workspace "C:\path with spaces\your-project" "how does auth work?"
+npm run graph:path -- --workspace "C:\path with spaces\your-project" "MainViewModel" "PlaybackService" --mode balanced --explain-ranking
+npm run graph:explain -- --workspace "C:\path with spaces\your-project" "CheckoutService"
+npm run graph:retrieve -- --workspace "C:\path with spaces\your-project" --id "oag:node:<id>" --json
+npm run graph:check -- --workspace "C:\path with spaces\your-project" --mode hard
+npm run oag:wrap -- --workspace "C:\path with spaces\your-project" --goal "review auth" --print
+npm run oag:mcp
 npm run dogfood -- --workspace "C:\path with spaces\your-project"
 npm run gate:check -- --mode hard --allow-empty
 git diff --check
@@ -193,10 +206,12 @@ Semantic TypeScript scan:
 
 Treat breaker hits as diagnostics. Do not silently ignore them and do not raise limits without an operator decision.
 
-Base v1.2 scanner coverage:
+Base v1.4 scanner coverage:
 
 - TypeScript/JavaScript: file, symbol, dependency, and semantic edges when project config is available.
-- C#/.NET (`.cs`, `.csproj`, `.sln`, `.xaml`, `.props`, `.targets`): file and top-level symbol indexing only; semantic edges are not supported in base.
+- C#/.NET (`.cs`, `.csproj`, `.sln`, `.xaml`, `.props`, `.targets`): structural graph plus optional Roslyn semantic edges when the .NET SDK/helper is available; structural fallback remains useful when Roslyn is unavailable.
+- Java/Kotlin, PHP, and Ruby: semantic-lite graph coverage for project topology, imports, inheritance, tests, and common framework relationships.
+- Python, Go, Rust, Terraform, Swift, C/C++, Dart/Flutter, Unity, Unreal, Godot, docs, and scripts: structural graph coverage with honest tier/limitation reporting.
 - Generated folders such as `bin`, `obj`, `dist`, `build`, `target`, `vendor`, `graphify-out`, and common cache outputs are skipped by default.
 
 ## Auth And Roles

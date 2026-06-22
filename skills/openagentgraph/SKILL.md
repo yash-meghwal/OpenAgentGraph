@@ -16,11 +16,15 @@ For Codex local skill discovery, install the whole folder at `%USERPROFILE%\.cod
 ## First Steps
 
 1. Read `GRAPH_REPORT.md` if it exists.
-2. Read `LLMS.md`.
-3. Read `docs/OPENAGENTGRAPH-FOR-LLMS.md` for the agent workflow when more context is needed.
-4. Read `docs/OPENAGENTGRAPH-FUNCTIONS.md` when you need exact commands, endpoints, roles, or feature boundaries.
-5. Use the external coordination surfaces (`/agent-context`, `/frontier`) when another agent or script needs to stay in sync with a run.
-6. Use OAG as navigation context, then verify source files before editing.
+2. If `GRAPH_REPORT.md` is missing or stale, generate static artifacts first:
+   `npm run graph:export -- --workspace . --offline-only --redact-root`.
+3. For a bounded task pack, run:
+   `npm run graph:context -- --workspace . --goal "<task>" --json`.
+4. Read `llms.txt`, then `LLMS.md`.
+5. Read `docs/AGENT-ACCESS-LAYER.md`, `docs/GRAPH-CONTEXT.md`, and `docs/MCP.md` when using CLI/MCP access.
+6. Read `docs/OPENAGENTGRAPH-FOR-LLMS.md` for the fuller agent workflow.
+7. Read `docs/OPENAGENTGRAPH-FUNCTIONS.md` when you need exact commands, endpoints, roles, or feature boundaries.
+8. Use OAG as navigation context, then verify source files before editing.
 
 ## What OAG Is
 
@@ -28,6 +32,8 @@ OpenAgentGraph is an event-sourced graph system for supervised autonomous softwa
 
 The practical surfaces are:
 
+- Static graph export: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, and `GRAPH_REPORT.md`.
+- Agent Access Layer: `graph:context`, `graph:retrieve`, `graph:query`, `graph:path`, `graph:explain`, `graph:check`, `oag:wrap`, and MCP tools.
 - Product Graph: code intelligence, product intent, evidence gaps, Code Map, semantic edges, task lenses.
 - Project Graph: broad workspace structure, files, folders, imports, tests, skipped generated folders.
 - Run Graph: planning, execution, approvals, evidence, replay, diagnostics.
@@ -64,6 +70,11 @@ Invoke-RestMethod http://127.0.0.1:3001/ready
 
 No AI provider is needed for:
 
+- Static workspace exports (`graph:export --offline-only`)
+- Bounded agent context packs (`graph:context`)
+- Retrieval by `oag:*` id (`graph:retrieve`)
+- Graph query/path/explain/check/scorecard CLIs
+- MCP graph tools
 - Project Graph scans
 - Product Graph codebase scans
 - External agent context (`/agent-context`) and frontier (`/frontier`) reads
@@ -85,6 +96,15 @@ Supported provider modes:
 - Custom OpenAI-compatible: model and base URL required, key optional.
 
 ## Scan And Handoff
+
+For agents opening any repository, prefer the static export first:
+
+```powershell
+npm run graph:export -- --workspace . --offline-only --redact-root
+npm run graph:context -- --workspace . --goal "orient me" --json
+```
+
+That writes `.oag/*` plus `GRAPH_REPORT.md` without a backend server, SQLite product graph DB, AI provider key, or source-body persistence.
 
 Start a Product Graph scan:
 

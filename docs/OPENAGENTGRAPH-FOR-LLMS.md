@@ -5,10 +5,12 @@ This guide is for Codex, Gemini, Claude, local agents, and human operators who a
 ## First-Open Order
 
 1. Read `GRAPH_REPORT.md` if it exists.
-2. Read `LLMS.md` for local startup and graph navigation shortcuts.
-3. Use Product Graph task lenses before broad source exploration.
-4. Confirm important facts in the source files before editing.
-5. Refresh `GRAPH_REPORT.md` after a meaningful scan or graph update.
+2. Read `llms.txt`, then `LLMS.md`.
+3. If the graph artifacts are missing or stale, run `npm run graph:export -- --workspace . --offline-only --redact-root`.
+4. Run `npm run graph:context -- --workspace . --goal "<task>" --json` for a bounded task pack.
+5. Use `graph:query`, `graph:path`, `graph:explain`, and `graph:retrieve` before broad manual exploration.
+6. Confirm important facts in the source files before editing.
+7. Refresh `GRAPH_REPORT.md` after a meaningful scan or graph update.
 
 OpenAgentGraph is navigation context. It is not a replacement for reading code.
 
@@ -20,14 +22,20 @@ OpenAgentGraph has three main graph surfaces:
 - Project Graph: broad workspace structure, folders, files, imports, tests, and skipped generated folders.
 - Run Graph: agent runs, execution steps, approvals, evidence, replay, and diagnostics.
 - External agent coordination: context packs, frontier summaries, external-agent activity, evidence submissions, and inert plan proposals.
+- Agent Access Layer: static exports, bounded context packs, retrieval IDs, MCP tools, and copyable wrapper instructions.
 
-Use the Product Graph for focused code intelligence. Use the Project Graph for rough structure. Use `GRAPH_REPORT.md` for fast first-open orientation.
+Use static exports and `graph:context` for the first pass in any repository. Use the Product Graph for focused app/runtime code intelligence. Use the Project Graph for rough structure. Use `GRAPH_REPORT.md` for fast first-open orientation.
 
 ## No-Key Features
 
 These do not need any model provider:
 
 - Dashboard loading
+- Static workspace export (`graph:export --offline-only`)
+- Bounded context packs (`graph:context`)
+- Retrieval by `oag:*` id (`graph:retrieve`)
+- Query/path/explain/check/scorecard CLIs
+- MCP graph tools
 - Project Graph scan
 - Product Graph codebase scan
 - Code Map file, symbol, dependency, semantic, and community views
@@ -59,6 +67,19 @@ Use the lens that matches the task before reading widely:
 Runtime is real source. Do not call it noise. Inspect it for backend, provider, execution, and lifecycle work.
 
 ## Common Agent Workflows
+
+### Orient from a folder only
+
+1. Run:
+
+```powershell
+npm run graph:export -- --workspace . --offline-only --redact-root
+npm run graph:context -- --workspace . --goal "orient me" --json
+```
+
+2. Read `GRAPH_REPORT.md`, `.oag/wiki/index.md`, and `.oag/graph.html`.
+3. Use retrieval IDs from the context pack with `npm run graph:retrieve -- --workspace . --id "oag:node:<id>" --json`.
+4. Inspect source files before editing.
 
 ### Coordinate with external agents
 
@@ -94,10 +115,11 @@ Invoke-WebRequest `
 ### Write a fresh handoff
 
 ```powershell
+npm run graph:export -- --workspace . --offline-only --redact-root
 npm run handoff:write
 ```
 
-Or use Dashboard -> Product Graph -> Write `GRAPH_REPORT.md`.
+Use `graph:export` for a static kernel-only handoff. Use Dashboard -> Product Graph -> Write `GRAPH_REPORT.md` or `npm run handoff:write` when you specifically need the Product Graph DB-backed handoff.
 
 ### Check quality gates
 
@@ -135,13 +157,12 @@ For a new agent or teammate:
 
 - Read `GRAPH_REPORT.md`.
 - Read `LLMS.md`.
+- Read `docs/AGENT-ACCESS-LAYER.md`, `docs/GRAPH-CONTEXT.md`, and `docs/MCP.md` for the 1.4 agent access surfaces.
 - Read `docs/OPENAGENTGRAPH-FUNCTIONS.md`.
 - Read `docs/BUILDING-AGENTS-ON-OAG.md` only when building an external worker or script that will coordinate with OAG.
 - If the agent supports repo skills, load `skills/openagentgraph/SKILL.md`.
 - For Codex local skill discovery, install the whole `skills/openagentgraph` folder at `%USERPROFILE%\.codex\skills\openagentgraph`, then start a fresh session and use `openagentgraph`.
 - If the agent does not support skills, read `skills/openagentgraph/SKILL.md` as a plain workflow.
-- Run `npm run dev`.
-- Confirm `http://127.0.0.1:3001/ready`.
-- Open `http://localhost:5173`.
-- Run a Product Graph scan.
-- Generate or write `GRAPH_REPORT.md`.
+- Run `npm run graph:export -- --workspace . --offline-only --redact-root`.
+- Run `npm run graph:context -- --workspace . --goal "orient me" --json`.
+- Start the app with `npm run dev` only when you need the dashboard or live Run/Product Graph APIs.

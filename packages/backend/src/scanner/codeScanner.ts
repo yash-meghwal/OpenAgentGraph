@@ -1517,7 +1517,11 @@ async function buildScannedEcosystemFile(
     maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
     maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
   });
-  const role = isEcosystemConfigFileName(fileName) ? "config" : extension === ".md" || extension === ".rst" ? "doc" : "source";
+  const role = extension === ".md" || extension === ".rst" || fileName.toLowerCase() === "llms.txt"
+    ? "doc"
+    : isEcosystemConfigFileName(fileName)
+      ? "config"
+      : "source";
   const fileNode: ProductGraphNode = {
     id: fileNodeId,
     kind: "code_file",

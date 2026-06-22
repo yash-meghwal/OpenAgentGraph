@@ -62,6 +62,7 @@ export interface GraphExplorerEdge {
   source?: string;
   confidence?: number;
   label?: string;
+  scannerRelation?: string;
   pathCosts?: {
     balanced: number;
     semantic: number;
@@ -364,6 +365,9 @@ function toExplorerEdge(edge: UnifiedCodeGraphEdge): GraphExplorerEdge {
     source: edge.source,
     confidence: edge.confidence,
     label: edge.label,
+    scannerRelation: typeof edge.metadata?.scannerRelation === "string"
+      ? edge.metadata.scannerRelation
+      : undefined,
     pathCosts: {
       balanced: Number.isFinite(balanced) ? balanced : 9999,
       semantic: Number.isFinite(semantic) ? semantic : 9999,
@@ -613,8 +617,24 @@ function buildExplorerClientScript() {
 
 ${pathSeedResolver}
 
-  function nodePenalty(node, mode) {
+  function classifyPathIntent(fromNode, toNode) {
+    const codeKinds = new Set(["symbol", "code_file", "test", "route", "command"]);
+    const docKinds = new Set(["doc_file", "doc_section"]);
+    const fromCode = codeKinds.has(fromNode.kind);
+    const toCode = codeKinds.has(toNode.kind);
+    const fromDoc = docKinds.has(fromNode.kind);
+    const toDoc = docKinds.has(toNode.kind);
+    if (fromCode && toCode) return "code_to_code";
+    if (fromDoc && toDoc) return "doc_to_doc";
+    if ((fromDoc && toCode) || (fromCode && toDoc)) return "doc_to_code";
+    return "mixed_or_unknown";
+  }
+
+  function nodePenalty(node, mode, pathIntent) {
     if (mode === "semantic" && ["workspace", "project", "community", "package", "directory"].includes(node.kind)) {
+      return 50000;
+    }
+    if (pathIntent === "code_to_code" && mode !== "structural" && (node.kind === "doc_section" || node.kind === "doc_file")) {
       return 50000;
     }
     let penalty = NODE_PENALTY[node.kind] ?? 40;
@@ -624,11 +644,17 @@ ${pathSeedResolver}
     return penalty;
   }
 
-  function edgeCost(edge, mode) {
+  function edgeCost(edge, mode, pathIntent) {
+    const relation = edge.scannerRelation || "";
+    if (pathIntent === "code_to_code" && mode !== "structural") {
+      if (edge.kind === "documents" || ["doc_link", "doc_wikilink", "doc_code_ref"].includes(relation)) {
+        return 9999;
+      }
+    }
     return edge.pathCosts?.[mode] ?? 9999;
   }
 
-  function buildWeightedAdjacency(mode) {
+  function buildWeightedAdjacency(mode, pathIntent) {
     const adjacency = new Map();
     const add = (sourceId, targetId, edge, cost) => {
       const current = adjacency.get(sourceId) || [];
@@ -636,7 +662,7 @@ ${pathSeedResolver}
       adjacency.set(sourceId, current);
     };
     for (const edge of data.edges) {
-      const cost = edgeCost(edge, mode);
+      const cost = edgeCost(edge, mode, pathIntent);
       if (cost >= 9000) continue;
       add(edge.sourceNodeId, edge.targetNodeId, edge, cost);
       add(edge.targetNodeId, edge.sourceNodeId, edge, cost);
@@ -645,7 +671,8 @@ ${pathSeedResolver}
   }
 
   function findWeightedPath(fromNode, toNode, mode) {
-    const adjacency = buildWeightedAdjacency(mode);
+    const pathIntent = classifyPathIntent(fromNode, toNode);
+    const adjacency = buildWeightedAdjacency(mode, pathIntent);
     const dist = new Map([[fromNode.id, 0]]);
     const previous = new Map([[fromNode.id, null]]);
     const visited = new Set();
@@ -660,10 +687,10 @@ ${pathSeedResolver}
       for (const entry of adjacency.get(currentId) || []) {
         const neighbor = nodesById.get(entry.neighborId);
         if (!neighbor) continue;
-        const nextDist = currentDist + entry.cost + nodePenalty(neighbor, mode);
+        const nextDist = currentDist + entry.cost + nodePenalty(neighbor, mode, pathIntent);
         if (nextDist >= (dist.get(entry.neighborId) ?? Infinity)) continue;
         dist.set(entry.neighborId, nextDist);
-        previous.set(entry.neighborId, { nodeId: currentId, edge: entry.edge, edgeCost: entry.cost, nodePenalty: nodePenalty(neighbor, mode) });
+        previous.set(entry.neighborId, { nodeId: currentId, edge: entry.edge, edgeCost: entry.cost, nodePenalty: nodePenalty(neighbor, mode, pathIntent) });
         if (!visited.has(entry.neighborId)) queue.push(entry.neighborId);
       }
     }
@@ -709,7 +736,7 @@ ${pathSeedResolver}
     }).filter(Boolean).join("");
     const hopCount = Math.max(0, result.nodes.length - 1);
     pathPanel.innerHTML = \`
-      <p><strong>Mode:</strong> \${escapeHtml(mode)}\${result.totalCost !== null ? \` · total cost \${Math.round(result.totalCost)}\` : ""}</p>
+      <p><strong>Mode:</strong> \${escapeHtml(mode)} · <strong>Intent:</strong> \${escapeHtml(classifyPathIntent(fromNode, toNode))}\${result.totalCost !== null ? \` · total cost \${Math.round(result.totalCost)}\` : ""}</p>
       <p>Path (\${hopCount} hop\${hopCount === 1 ? "" : "s"}):</p>
       <ol>\${result.nodes.map((node) => \`<li>[\${escapeHtml(node.kind)}] \${escapeHtml(node.label)}\${node.path ? \` — \${escapeHtml(node.path)}\` : ""}</li>\`).join("")}</ol>
       \${stepLines ? \`<p><strong>Hop details</strong></p><ul>\${stepLines}</ul>\` : ""}

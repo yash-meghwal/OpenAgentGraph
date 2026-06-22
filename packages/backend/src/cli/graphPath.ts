@@ -58,12 +58,16 @@ export async function runGraphPathCli(argv = process.argv.slice(2)) {
     return payload;
   }
   if (result.explanation) {
+    console.log(`Path intent: ${result.explanation.pathIntent}`);
     console.log(
       `Seed resolution: ${result.explanation.seedResolution.from.label ?? result.from}`
         + ` (${result.explanation.seedResolution.from.matchReason}) -> `
         + `${result.explanation.seedResolution.to.label ?? result.to}`
         + ` (${result.explanation.seedResolution.to.matchReason})`
     );
+    for (const note of result.explanation.docPenaltyNotes) {
+      console.log(`Doc ranking: ${note}`);
+    }
   }
   for (const node of result.nodes) {
     const nodePath = node.path ? ` (${node.path})` : "";

@@ -121,6 +121,35 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
       reproducible: "npm run verify:graph",
     },
     {
+      metric: "Path detour gate (no doc_section on code-to-code)",
+      value: releaseSuite.releaseResults.every((result) =>
+        result.pathBenchmarks.every((benchmark) =>
+          benchmark.passed || !/forbidden node kind 'doc_section'/i.test(benchmark.detail)
+        )
+      ) ? "PASS" : "FAIL",
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Read-first quality gate",
+      value: releaseSuite.releaseResults.every((result) => result.readFirstQuality.ok) ? "PASS" : "FAIL",
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Hub start quality gate",
+      value: releaseSuite.releaseResults.every((result) => result.hubStartQuality.ok) ? "PASS" : "FAIL",
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Docs link hygiene gate",
+      value: releaseSuite.releaseResults.every((result) => result.docLinkHygiene.ok) ? "PASS" : "FAIL",
+      reproducible: "npm run graph:docs:check",
+    },
+    {
+      metric: "npm CLI packaging",
+      value: "see @openagentgraph/cli pack/smoke tests",
+      reproducible: "npm run build --workspace=packages/cli && npm test --workspace=packages/cli",
+    },
+    {
       metric: "Misleading handoff rate",
       value: `${Math.round(releaseSuite.misleadingHandoffRate * 100)}%`,
       reproducible: "npm run verify:graph",

@@ -2,6 +2,7 @@ import path from "path";
 import type { ProductGraphEdge, ProductGraphNode, ProductMetadataValue } from "@openagentgraph/shared";
 
 export const DOCUMENTATION_SCANNER_VERSION = "1.0";
+export const DOCUMENTATION_SPECIAL_FILE_NAMES = new Set(["llms.txt"]);
 
 export interface DocSectionDraft {
   heading: string;
@@ -109,6 +110,13 @@ function parseMarkdownLinkTarget(rawTarget: string) {
   const target = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
   const anchor = hashIndex >= 0 ? trimmed.slice(hashIndex + 1) : undefined;
   return { target, anchor };
+}
+
+export function isDocumentationScannerFilePath(filePath: string) {
+  const normalized = filePath.replace(/\\/g, "/");
+  const extension = path.extname(normalized).toLowerCase();
+  const fileName = path.posix.basename(normalized).toLowerCase();
+  return extension === ".md" || extension === ".rst" || DOCUMENTATION_SPECIAL_FILE_NAMES.has(fileName);
 }
 
 function parseWikilinkTarget(inner: string) {
@@ -229,25 +237,33 @@ export function parseDocumentationFile(body: string, filePath: string): Document
 
 function normalizeDocLinkTarget(sourceFilePath: string, target: string) {
   const normalizedSourceDir = path.posix.dirname(sourceFilePath.replace(/\\/g, "/"));
+  const sourceDir = normalizedSourceDir === "." ? "" : normalizedSourceDir;
   const cleaned = target.replace(/\\/g, "/").trim();
   if (!cleaned || cleaned.startsWith("/")) return cleaned.replace(/^\//, "");
   if (cleaned.startsWith("./")) {
-    return path.posix.normalize(path.posix.join(normalizedSourceDir, cleaned.slice(2)));
+    return path.posix.normalize(path.posix.join(sourceDir, cleaned.slice(2)));
   }
-  if (!cleaned.includes("/") && !/\.[a-z0-9]+$/i.test(cleaned)) {
-    return `${cleaned}.md`;
-  }
-  return path.posix.normalize(path.posix.join(normalizedSourceDir, cleaned));
+  return path.posix.normalize(path.posix.join(sourceDir, cleaned));
 }
 
 function resolveDocFileCandidates(sourceFilePath: string, target: string) {
   const normalized = normalizeDocLinkTarget(sourceFilePath, target);
+  const normalizedSourceDir = path.posix.dirname(sourceFilePath.replace(/\\/g, "/"));
+  const sourceDir = normalizedSourceDir === "." ? "" : normalizedSourceDir;
+  const cleaned = target.replace(/\\/g, "/").trim();
+  const isBareExtensionlessTarget = Boolean(cleaned)
+    && !cleaned.startsWith("/")
+    && !cleaned.startsWith("./")
+    && !cleaned.includes("/")
+    && !/\.[a-z0-9]+$/i.test(cleaned);
   const candidates = new Set<string>([normalized]);
   if (!/\.[a-z0-9]+$/i.test(normalized)) {
     candidates.add(`${normalized}.md`);
     candidates.add(path.posix.join(normalized, "README.md"));
   }
-  if (!normalized.includes("/")) {
+  if (isBareExtensionlessTarget) {
+    candidates.add(path.posix.join(sourceDir, "docs", cleaned));
+    candidates.add(path.posix.join(sourceDir, "docs", `${cleaned}.md`));
     candidates.add(path.posix.join("docs", normalized));
     candidates.add(path.posix.join("docs", `${normalized}.md`));
   }
@@ -548,8 +564,7 @@ export function augmentDocumentationWorkspaceGraph(input: {
   const diagnostics: string[] = [];
 
   for (const file of input.files) {
-    const extension = path.extname(file.relativePath).toLowerCase();
-    if (extension !== ".md" && extension !== ".rst") continue;
+    if (!isDocumentationScannerFilePath(file.relativePath)) continue;
     const sourceFileNodeId = input.fileNodeIdsByPath.get(file.relativePath);
     if (!sourceFileNodeId) continue;
     const parsed = parseDocumentationFile(file.body, file.relativePath);
@@ -571,7 +586,7 @@ export function augmentDocumentationWorkspaceGraph(input: {
           localSectionSlugs: sectionSlugToNodeId,
         });
         if (!targetNodeId) {
-          diagnostics.push(`Broken doc anchor in ${file.relativePath}: ${link.raw}`);
+          diagnostics.push(`Broken doc anchor in ${file.relativePath}:${link.line}: ${link.raw}`);
           continue;
         }
         appendDocLinkEdge({
@@ -590,7 +605,32 @@ export function augmentDocumentationWorkspaceGraph(input: {
       }
       const resolved = resolveDocFileNodeId(file.relativePath, link.target, input.fileNodeIdsByPath);
       if (!resolved) {
-        diagnostics.push(`Broken doc link in ${file.relativePath}: ${link.raw}`);
+        const symbolTargetNodeId = link.kind === "wikilink"
+          ? input.symbolNodeIdsBySimpleName.get(link.target)?.[0]
+          : undefined;
+        if (symbolTargetNodeId) {
+          edges.push({
+            id: input.stableId("code-scan:edge", `${sourceNodeId}|workspace-doc_wikilink_symbol|${link.target}`),
+            kind: "uses",
+            sourceNodeId,
+            targetNodeId: symbolTargetNodeId,
+            label: link.target.slice(0, input.maxEdgeLabelLength),
+            trust: "inferred",
+            metadata: input.compactMetadata({
+              scannerRelation: "doc_code_ref",
+              scannerLanguage: "documentation",
+              scannerDocCodeReference: link.target,
+              scannerDocCodeRefKind: "symbol",
+              scannerDocCodeRefResolution: "symbol",
+              scannerDocLinkSyntax: "wikilink",
+              edgeDerivationSource: "docs",
+            }),
+            createdAt: input.scannedAt,
+            updatedAt: input.scannedAt,
+          });
+          continue;
+        }
+        diagnostics.push(`Broken doc link in ${file.relativePath}:${link.line}: ${link.raw}`);
         continue;
       }
       const anchoredSectionId = link.anchor

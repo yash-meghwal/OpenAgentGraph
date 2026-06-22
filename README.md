@@ -12,6 +12,14 @@ npm run graph:export -- --workspace . --offline-only --redact-root
 # open .oag/graph.html and read GRAPH_REPORT.md
 ```
 
+After installing the published CLI, the same static-export path is:
+
+```bash
+npm install -g @openagentgraph/cli
+oag graph:export --workspace . --offline-only --redact-root
+oag graph:context --workspace . --goal "orient me" --json
+```
+
 Agent context in one command:
 
 ```bash
@@ -27,6 +35,9 @@ Regenerate live values with `npm run graph:scorecard` or `npm run verify:graph`.
 | Release benchmark fixtures | `npm run verify:graph` |
 | Release gate status | `npm run verify:graph` |
 | Query/path success rates | `npm run verify:graph` |
+| Read-first and hub-start quality | `npm run verify:graph` |
+| Code-to-code path detour gate | `npm run verify:graph` |
+| Documentation link hygiene | `npm run verify:graph` |
 | Misleading handoff rate | `npm run verify:graph` |
 | Provenance coverage | `npm run graph:scorecard` |
 | External benchmark categories | `npm run graph:benchmark:external -- --catalog --report` |
@@ -47,6 +58,7 @@ Agents should read [`llms.txt`](llms.txt) before the full README. MCP clients ca
 - Event-sourced Run Graph: plans, execution events, evidence, approvals, replay, diagnostics, and external-agent coordination.
 - Product Graph / Code Map: deterministic file, symbol, dependency, documentation, community, and provenance graph for a workspace.
 - Static workspace graph CLI: query, path, explain, export, check, update, and benchmark commands that work without an AI provider key.
+- Published `oag` CLI: npm-installable facade for export/query/path/explain/check/docs/context workflows.
 - Offline export bundle: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, and `GRAPH_REPORT.md` for agents working from a folder alone.
 - Agent context surfaces: bounded `/agent-context` and `/frontier` reads plus operator-gated progress, evidence, and inert plan proposal APIs.
 - Release gates: graph fixture checks, path/query benchmarks, update benchmarks, static export hygiene, provenance coverage, and external benchmark catalog prep.
@@ -100,6 +112,7 @@ Local startup commands:
 - Find a ranked path: `npm run graph:path -- --workspace "<absolute path>" "MainViewModel" "PlaybackService" --mode balanced --explain-ranking`
 - Explain a node or file: `npm run graph:explain -- --workspace "<absolute path>" "CheckoutService"`
 - Check graph quality gates: `npm run graph:check -- --workspace "<absolute path>" --mode hard`
+- Check broken documentation links: `npm run graph:docs:check -- --workspace "<absolute path>"`
 - Incrementally update `.oag/graph.json`: `npm run graph:update -- --workspace "<absolute path>"`
 - Bounded agent context pack: `npm run graph:context -- --workspace "<absolute path>" --goal "<task>" --json`
 - Retrieve by OAG id: `npm run graph:retrieve -- --workspace "<absolute path>" --id "oag:node:<id>" --json`
@@ -113,6 +126,7 @@ Local startup commands:
 
 Static graph and benchmark commands:
 - `npm run verify:graph`: run graph fixtures, release gates, update benchmarks, and the local external benchmark catalog.
+- `npm run graph:docs:check -- --workspace "<absolute path>"`: report broken Markdown links and anchors with source line numbers for a target workspace. The OAG repo itself includes intentionally broken-link fixtures, so use `npm run verify:graph` for release proof on this repository.
 - `npm run graph:lens -- --workspace "<absolute path>" --lens backend-runtime`: preview a task-scoped read-first lens.
 - `npm run graph:benchmark:update`: measure incremental-update scenarios.
 - `npm run graph:benchmark:external -- --catalog --report`: run the local public-category benchmark catalog without cloning remote repositories.
@@ -351,7 +365,7 @@ Run the full CI-equivalent path, including graph fixtures and the Playwright smo
 npm run verify:ci
 ```
 
-`verify:graph` skips the Roslyn helper build when the .NET SDK is unavailable and continues with structural graph verification. CI still runs the strict `build:roslyn-helper` step when .NET is installed. `verify:ci` also requires Playwright Chromium for the e2e smoke unless you run the narrower `npm run verify` path instead.
+`verify:graph` skips the Roslyn helper build when the .NET SDK is unavailable and continues with structural graph verification. It also enforces read-first quality, hub-start quality, code-to-code path detour avoidance, documentation-link hygiene, update benchmarks, and external benchmark catalog prep. CI still runs the strict `build:roslyn-helper` step when .NET is installed. `verify:ci` also requires Playwright Chromium for the e2e smoke unless you run the narrower `npm run verify` path instead.
 
 ## Current Practical Limits
 

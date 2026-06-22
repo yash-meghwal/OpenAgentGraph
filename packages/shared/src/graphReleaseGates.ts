@@ -5,7 +5,8 @@ import { evaluateAnalyzerReleaseGates, evaluateSemanticLiteEdgeKindPreservation 
 import { getReadTheseFirstNodes, renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 import { evaluateStaticExportReleaseGates } from "./graphExportBundle.js";
 import { evaluateCommunityReleaseGates, GRAPH_COMMUNITY_LARGE_REPO_FILE_THRESHOLD } from "./graphCommunities.js";
-import { evaluateCommunityHubReleaseGates } from "./graphCommunityHubs.js";
+import { buildGraphCommunityHubSummaries, evaluateCommunityHubReleaseGates } from "./graphCommunityHubs.js";
+import { evaluateDocLinkHygieneGate } from "./graphDocLinks.js";
 import { evaluateScriptReleaseGates } from "./graphScriptGates.js";
 import { evaluateOagFusionChecks } from "./graphFusion.js";
 import { findGraphPath, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
@@ -314,6 +315,10 @@ export interface GraphPathBenchmarkCase {
   fromPattern: RegExp;
   toPattern: RegExp;
   pathNodePattern?: RegExp;
+  mode?: "semantic" | "balanced" | "structural";
+  forbiddenNodeKinds?: Array<import("./codeGraph.js").UnifiedCodeGraphNode["kind"]>;
+  requiredEdgeKinds?: Array<import("./codeGraph.js").UnifiedCodeGraphEdge["kind"]>;
+  preferredNodePatterns?: RegExp[];
 }
 
 export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
@@ -332,6 +337,17 @@ export const GRAPH_PATH_BENCHMARKS: GraphPathBenchmarkCase[] = [
     fromPattern: /MainViewModel/i,
     toPattern: /PlaybackService/i,
     pathNodePattern: /MainViewModel|PlaybackService/i,
+  },
+  {
+    fixture: "fixture-csharp-media-player",
+    from: "MainViewModel",
+    to: "MpvPlayerAdapter",
+    fromPattern: /MainViewModel/i,
+    toPattern: /MpvPlayerAdapter/i,
+    pathNodePattern: /MainViewModel|MpvPlayerAdapter|PlaybackService/i,
+    mode: "balanced",
+    forbiddenNodeKinds: ["doc_section", "doc_file"],
+    preferredNodePatterns: [/MpvPlayerAdapter/i, /MainViewModel/i],
   },
   {
     fixture: "fixture-java-maven",
@@ -518,9 +534,31 @@ export interface GraphCommunityGateResult {
   errors: string[];
 }
 
+export interface GraphReadFirstQualityGateResult {
+  ok: boolean;
+  topLabels: string[];
+  errors: string[];
+}
+
+export interface GraphHubStartQualityGateResult {
+  ok: boolean;
+  hubLabels: string[];
+  startWithByHub: Record<string, string[]>;
+  errors: string[];
+}
+
+export interface GraphDocLinkHygieneGateResult {
+  ok: boolean;
+  brokenCount: number;
+  errors: string[];
+}
+
 export interface GraphReleaseGateResult {
   ok: boolean;
   handoffHygiene: GraphHandoffHygieneResult;
+  readFirstQuality: GraphReadFirstQualityGateResult;
+  hubStartQuality: GraphHubStartQualityGateResult;
+  docLinkHygiene: GraphDocLinkHygieneGateResult;
   communityGates: GraphCommunityGateResult;
   ecosystemMatrixGate: EcosystemSupportMatrixGateResult;
   queryBenchmarks: GraphQueryBenchmarkResult[];
@@ -537,6 +575,76 @@ export interface GraphReleaseGateResult {
 function pathLooksLikeJunk(value: string) {
   const normalized = value.replace(/\\/g, "/");
   return READ_FIRST_JUNK_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+export function evaluateReadFirstQualityGate(
+  graph: UnifiedCodeGraph,
+  fixture: string
+): GraphReadFirstQualityGateResult {
+  const readFirst = getReadTheseFirstNodes(graph, 8);
+  const topLabels = readFirst.map((node) => node.label);
+  const errors: string[] = [];
+
+  if (fixture === "fixture-csharp-media-player") {
+    const primary = readFirst[0];
+    if (!primary || !/MainViewModel/i.test(primary.label)) {
+      errors.push(`Read-first should start with MainViewModel, got ${primary?.label ?? "none"}.`);
+    }
+    const testIndex = readFirst.findIndex((node) => /tests?[/\\]/i.test(node.path ?? node.label));
+    const viewModelIndex = readFirst.findIndex((node) => /MainViewModel/i.test(node.label));
+    if (testIndex >= 0 && viewModelIndex >= 0 && testIndex < viewModelIndex) {
+      errors.push("Test files should not outrank MainViewModel in general read-first output.");
+    }
+    const fieldIndex = readFirst.findIndex((node) => /\._/.test(node.label) || /\(field\)/i.test(node.label));
+    if (fieldIndex >= 0 && viewModelIndex >= 0 && fieldIndex < viewModelIndex) {
+      errors.push("Field symbols should not outrank MainViewModel class in read-first output.");
+    }
+  }
+
+  return { ok: errors.length === 0, topLabels, errors };
+}
+
+export function evaluateHubStartQualityGate(
+  graph: UnifiedCodeGraph,
+  fixture: string
+): GraphHubStartQualityGateResult {
+  const hubs = buildGraphCommunityHubSummaries(graph, { mergeThinForPresentation: true });
+  const startWithByHub: Record<string, string[]> = {};
+  const errors: string[] = [];
+
+  for (const hub of hubs) {
+    if (hub.startWithNodes?.length) {
+      startWithByHub[hub.label] = hub.startWithNodes;
+    }
+  }
+
+  if (fixture === "fixture-csharp-media-player") {
+    const appHub = hubs.find((hub) => /SampleMediaPlayer\.App/i.test(hub.label));
+    const coreHub = hubs.find((hub) => /SampleMediaPlayer\.Core/i.test(hub.label));
+    const appStart = appHub?.startWithNodes ?? appHub?.readFirstNodes ?? [];
+    const coreStart = coreHub?.startWithNodes ?? coreHub?.readFirstNodes ?? [];
+
+    if (appStart.length > 0 && !appStart.some((entry) => /MainViewModel|AppController/i.test(entry))) {
+      errors.push(`App hub start-with should include MainViewModel or AppController, got ${appStart.join(", ")}.`);
+    }
+    if (coreStart.length > 0) {
+      const zebraIndex = coreStart.findIndex((entry) => /ZebraTelemetry/i.test(entry));
+      const adapterIndex = coreStart.findIndex((entry) => /MpvPlayerAdapter|PlaybackService/i.test(entry));
+      if (zebraIndex >= 0 && adapterIndex >= 0 && zebraIndex < adapterIndex) {
+        errors.push("Core hub start-with should prefer adapter/service entrypoints over alphabetical ZebraTelemetryService.");
+      }
+      if (coreStart.some((entry) => /Tests/i.test(entry))) {
+        errors.push("Core hub start-with should not list test files in the default start bucket.");
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    hubLabels: hubs.map((hub) => hub.label),
+    startWithByHub,
+    errors,
+  };
 }
 
 export function evaluateHandoffReadFirstHygiene(graph: UnifiedCodeGraph): GraphHandoffHygieneResult {
@@ -616,8 +724,12 @@ export function evaluateGraphPathBenchmark(
   graph: UnifiedCodeGraph,
   benchmark: GraphPathBenchmarkCase
 ): GraphPathBenchmarkResult {
-  const result = findGraphPath(graph, benchmark.from, benchmark.to, { mode: "balanced" });
+  const result = findGraphPath(graph, benchmark.from, benchmark.to, {
+    mode: benchmark.mode ?? "balanced",
+    explainRanking: Boolean(benchmark.forbiddenNodeKinds?.length),
+  });
   const pathLabels = result.nodes.map((node) => node.label);
+  const pathKinds = result.nodes.map((node) => node.kind);
   const fromLabel = result.fromNode?.label;
   const toLabel = result.toNode?.label;
   const fromMatch = fromLabel ? benchmark.fromPattern.test(fromLabel) : false;
@@ -625,7 +737,29 @@ export function evaluateGraphPathBenchmark(
   const pathMatch = benchmark.pathNodePattern
     ? pathLabels.some((label) => benchmark.pathNodePattern?.test(label))
     : result.found && pathLabels.length >= 2;
-  const passed = result.found && fromMatch && toMatch && pathMatch;
+  const forbiddenKind = benchmark.forbiddenNodeKinds?.find((kind) => pathKinds.includes(kind));
+  const requiredEdgeMissing = benchmark.requiredEdgeKinds?.some(
+    (kind) => !result.edges.some((edge) => edge.kind === kind)
+  ) ?? false;
+  const preferredMatch = benchmark.preferredNodePatterns
+    ? benchmark.preferredNodePatterns.every((pattern) => pathLabels.some((label) => pattern.test(label)))
+    : true;
+  const passed = result.found
+    && fromMatch
+    && toMatch
+    && pathMatch
+    && !forbiddenKind
+    && !requiredEdgeMissing
+    && preferredMatch;
+
+  let detail = passed
+    ? "Path resolved to expected graph endpoints."
+    : `Expected path from ${benchmark.fromPattern} to ${benchmark.toPattern} with useful hops.`;
+  if (forbiddenKind) {
+    detail = `Path included forbidden node kind '${forbiddenKind}'.`;
+  } else if (!preferredMatch) {
+    detail = "Path did not include preferred node patterns.";
+  }
 
   return {
     fixture: benchmark.fixture,
@@ -635,9 +769,7 @@ export function evaluateGraphPathBenchmark(
     fromLabel,
     toLabel,
     pathLabels,
-    detail: passed
-      ? "Path resolved to expected graph endpoints."
-      : `Expected path from ${benchmark.fromPattern} to ${benchmark.toPattern} with useful hops.`,
+    detail,
   };
 }
 
@@ -650,9 +782,25 @@ export function evaluateGraphReleaseGates(input: {
 }): GraphReleaseGateResult {
   const errors: string[] = [];
   const handoffHygiene = evaluateHandoffReadFirstHygiene(input.graph);
+  const readFirstQuality = evaluateReadFirstQualityGate(input.graph, input.fixture);
+  const hubStartQuality = evaluateHubStartQualityGate(input.graph, input.fixture);
+  const docLinkHygiene = evaluateDocLinkHygieneGate({
+    graph: input.graph,
+    fixture: input.fixture,
+    expectBrokenLinks: input.fixture === "fixture-docs-broken-links",
+  });
   const communityGates = evaluateCommunityReleaseGates(input.graph);
   if (!handoffHygiene.ok) {
     errors.push(`Read-first contains generated junk: ${handoffHygiene.junkPaths.join(", ")}`);
+  }
+  if (!readFirstQuality.ok) {
+    errors.push(...readFirstQuality.errors);
+  }
+  if (!hubStartQuality.ok) {
+    errors.push(...hubStartQuality.errors);
+  }
+  if (!docLinkHygiene.ok) {
+    errors.push(...docLinkHygiene.errors);
   }
   if (!communityGates.ok) {
     errors.push(...communityGates.errors);
@@ -812,6 +960,9 @@ export function evaluateGraphReleaseGates(input: {
   return {
     ok: errors.length === 0,
     handoffHygiene,
+    readFirstQuality,
+    hubStartQuality,
+    docLinkHygiene,
     communityGates,
     ecosystemMatrixGate,
     queryBenchmarks,

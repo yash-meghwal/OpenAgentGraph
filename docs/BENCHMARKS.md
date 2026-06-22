@@ -1,6 +1,6 @@
 # OAG Public Benchmark Scorecard
 
-Generated: 2026-06-22T07:49:41.208Z
+Generated: 2026-06-22T15:49:04.361Z
 
 Reproduce with `npm run graph:scorecard`. Source bodies and private paths are intentionally omitted.
 
@@ -10,6 +10,11 @@ Reproduce with `npm run graph:scorecard`. Source bodies and private paths are in
 | Release gate status | PASS | `npm run verify:graph` |
 | Query success rate | 90% (min 80%) | `npm run verify:graph` |
 | Path success rate | 100% (min 95%) | `npm run verify:graph` |
+| Path detour gate (no doc_section on code-to-code) | PASS | `npm run verify:graph` |
+| Read-first quality gate | PASS | `npm run verify:graph` |
+| Hub start quality gate | PASS | `npm run verify:graph` |
+| Docs link hygiene gate | PASS | `npm run graph:docs:check` |
+| npm CLI packaging | see @openagentgraph/cli pack/smoke tests | `npm run build --workspace=packages/cli && npm test --workspace=packages/cli` |
 | Misleading handoff rate | 0% | `npm run verify:graph` |
 | Provenance coverage | 100% | `npm run graph:scorecard` |
 | External benchmark categories | 10 | `npm run graph:benchmark:external -- --catalog --report` |

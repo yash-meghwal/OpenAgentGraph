@@ -1,5 +1,6 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphEdge, UnifiedCodeGraphNode } from "./codeGraph.js";
 import type { GraphTaskLensId } from "./graphLenses.js";
+import { scoreReadFirstNode } from "./graphReadFirst.js";
 import {
   buildGraphCommunitySummaries,
   GRAPH_COMMUNITY_MIN_MERGE_FILES,
@@ -36,6 +37,9 @@ export interface GraphCommunityHubSummary extends GraphCommunitySummary {
   provenanceMix: GraphCommunityHubProvenanceMix;
   docLinks: string[];
   readFirstNodes: string[];
+  startWithNodes: string[];
+  relatedTests: string[];
+  supportingDocs: string[];
   interCommunityDegree: number;
   isThin: boolean;
   mergedFromLabels?: string[];
@@ -132,11 +136,13 @@ function nodeDisplayLabel(node: UnifiedCodeGraphNode) {
 }
 
 function readFirstPriority(node: UnifiedCodeGraphNode) {
-  if (node.kind === "symbol" && /viewmodel|service|controller|main/i.test(node.label)) return 0;
-  if (node.kind === "code_file" && /\.(cs|ts|tsx|py|go|rs)$/i.test(node.path ?? node.label)) return 1;
-  if (node.kind === "doc_file" || node.kind === "doc_section") return 2;
-  if (node.kind === "config_file") return 3;
-  return 4;
+  return scoreReadFirstNode(node);
+}
+
+function isTestNode(node: UnifiedCodeGraphNode) {
+  return node.kind === "test"
+    || /tests?[/\\]/i.test(node.path ?? "")
+    || /tests?\./i.test(node.path ?? node.label);
 }
 
 function isDocEdge(edge: UnifiedCodeGraphEdge) {
@@ -207,15 +213,17 @@ function buildHubSummary(input: {
   fileCount: number;
   topFiles: string[];
   topSymbols: string[];
+  startWithNodes?: string[];
   incomingRelationships: GraphCommunityHubRelationship[];
   outgoingRelationships: GraphCommunityHubRelationship[];
   provenanceMix: GraphCommunityHubProvenanceMix;
   docLinks: string[];
 }) {
+  const startNodes = input.startWithNodes?.length ? input.startWithNodes : input.topFiles;
   const parts = [
     `${input.label} hub (${input.fileCount} ${input.fileCount === 1 ? "file" : "files"})`,
     input.taskLens ? `lens ${input.taskLens}` : undefined,
-    input.topFiles.length > 0 ? `start ${input.topFiles.slice(0, 2).join(", ")}` : undefined,
+    startNodes.length > 0 ? `start ${startNodes.slice(0, 2).join(", ")}` : undefined,
     input.topSymbols.length > 0 ? `symbols ${input.topSymbols.slice(0, 3).join(", ")}` : undefined,
     input.incomingRelationships.length > 0
       ? `incoming ${input.incomingRelationships.slice(0, 2).map((rel) => `${rel.edgeKind}->${rel.targetLabel}`).join("; ")}`
@@ -239,25 +247,50 @@ function enrichCommunityHub(
   const members = index.membersByCommunityId.get(summary.id) ?? new Set<string>();
   const memberIds = new Set(members);
 
-  const topSymbols = [...members]
+  const memberNodes = [...members]
     .map((id) => index.nodeById.get(id))
     .filter((node): node is UnifiedCodeGraphNode => Boolean(node))
+    .filter((node) => !(node.path ?? node.label).includes("/bin/"))
+    .filter((node) => !(node.path ?? node.label).includes("/obj/"));
+
+  const topSymbols = memberNodes
     .filter((node) => node.kind === "symbol" || node.kind === "test")
+    .filter((node) => !isTestNode(node) || node.kind === "symbol")
     .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
     .map((node) => node.label)
     .filter((value, position, array) => array.indexOf(value) === position)
     .slice(0, 5);
 
-  const readFirstNodes = [...members]
-    .map((id) => index.nodeById.get(id))
-    .filter((node): node is UnifiedCodeGraphNode => Boolean(node))
-    .filter((node) => ["symbol", "code_file", "doc_file", "doc_section", "config_file"].includes(node.kind))
-    .filter((node) => !(node.path ?? node.label).includes("/bin/"))
-    .filter((node) => !(node.path ?? node.label).includes("/obj/"))
+  const startWithNodes = memberNodes
+    .filter((node) => ["symbol", "code_file"].includes(node.kind))
+    .filter((node) => !isTestNode(node))
     .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
     .map(nodeDisplayLabel)
     .filter((value, position, array) => array.indexOf(value) === position)
-    .slice(0, 5);
+    .slice(0, 3);
+
+  const relatedTests = memberNodes
+    .filter((node) => isTestNode(node))
+    .sort((left, right) => left.label.localeCompare(right.label))
+    .map(nodeDisplayLabel)
+    .filter((value, position, array) => array.indexOf(value) === position)
+    .slice(0, 3);
+
+  const supportingDocs = memberNodes
+    .filter((node) => node.kind === "doc_file" || node.kind === "doc_section")
+    .sort((left, right) => left.label.localeCompare(right.label))
+    .map(nodeDisplayLabel)
+    .filter((value, position, array) => array.indexOf(value) === position)
+    .slice(0, 3);
+
+  const readFirstNodes = startWithNodes.length > 0
+    ? startWithNodes
+    : memberNodes
+      .filter((node) => ["symbol", "code_file", "doc_file", "doc_section", "config_file"].includes(node.kind))
+      .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
+      .map(nodeDisplayLabel)
+      .filter((value, position, array) => array.indexOf(value) === position)
+      .slice(0, 5);
 
   const provenanceMix: GraphCommunityHubProvenanceMix = {
     extracted: 0,
@@ -342,6 +375,7 @@ function enrichCommunityHub(
     fileCount: summary.fileCount,
     topFiles: summary.topFiles,
     topSymbols,
+    startWithNodes,
     incomingRelationships,
     outgoingRelationships,
     provenanceMix,
@@ -357,6 +391,9 @@ function enrichCommunityHub(
     provenanceMix,
     docLinks: [...docLinks].sort((left, right) => left.localeCompare(right)).slice(0, 5),
     readFirstNodes,
+    startWithNodes,
+    relatedTests,
+    supportingDocs,
     interCommunityDegree,
     isThin: summary.fileCount < GRAPH_COMMUNITY_HUB_PRESENTATION_MIN_FILES
       && summary.kind !== "generated"
@@ -415,6 +452,9 @@ function mergeHubInto(target: GraphCommunityHubSummary, source: GraphCommunityHu
   target.topSymbols = [...new Set([...target.topSymbols, ...source.topSymbols])].slice(0, 6);
   target.docLinks = [...new Set([...target.docLinks, ...source.docLinks])].slice(0, 6);
   target.readFirstNodes = [...new Set([...target.readFirstNodes, ...source.readFirstNodes])].slice(0, 6);
+  target.startWithNodes = [...new Set([...(target.startWithNodes ?? []), ...(source.startWithNodes ?? [])])].slice(0, 6);
+  target.relatedTests = [...new Set([...(target.relatedTests ?? []), ...(source.relatedTests ?? [])])].slice(0, 4);
+  target.supportingDocs = [...new Set([...(target.supportingDocs ?? []), ...(source.supportingDocs ?? [])])].slice(0, 4);
   target.provenanceMix = mergeProvenanceMix(target.provenanceMix, source.provenanceMix);
 
   const incomingMap = mergeRelationshipMaps(target.incomingRelationships, source.incomingRelationships);
@@ -510,10 +550,22 @@ export function formatReadFirstByCommunityMarkdown(hubs: GraphCommunityHubSummar
   const lines: string[] = ["## Read first by community", ""];
   for (const hub of meaningful.slice(0, 8)) {
     lines.push(`### ${hub.label}`);
-    if (hub.readFirstNodes.length === 0) {
-      lines.push("- No prioritized nodes for this community.");
-    } else {
+    if (hub.startWithNodes?.length) {
+      lines.push("**Start with**");
+      lines.push(...hub.startWithNodes.map((node) => `- \`${node}\``));
+    } else if (hub.readFirstNodes.length > 0) {
+      lines.push("**Start with**");
       lines.push(...hub.readFirstNodes.map((node) => `- \`${node}\``));
+    } else {
+      lines.push("- No prioritized nodes for this community.");
+    }
+    if (hub.relatedTests?.length) {
+      lines.push("**Related tests**");
+      lines.push(...hub.relatedTests.map((node) => `- \`${node}\``));
+    }
+    if (hub.supportingDocs?.length) {
+      lines.push("**Supporting docs**");
+      lines.push(...hub.supportingDocs.map((node) => `- \`${node}\``));
     }
     lines.push("");
   }

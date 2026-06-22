@@ -93,6 +93,73 @@ describe("documentationScanner", () => {
     expect(augmented.diagnostics).toHaveLength(0);
   });
 
+  it("resolves links to llms.txt as first-class documentation", () => {
+    const augmented = augmentDocumentationWorkspaceGraph({
+      scanId: "scan-1",
+      scannedAt: "2026-06-18T00:00:00.000Z",
+      files: [
+        { relativePath: "README.md", body: "Read [llms](llms.txt).\n" },
+        { relativePath: "llms.txt", body: "# OpenAgentGraph\n" },
+      ],
+      fileNodeIdsByPath: new Map([
+        ["README.md", "file:README.md"],
+        ["llms.txt", "file:llms.txt"],
+      ]),
+      docSectionNodeIdsByKey: new Map(),
+      symbolNodeIdsBySimpleName: new Map(),
+      stableId,
+      compactMetadata,
+      maxEdgeLabelLength: 180,
+    });
+    expect(augmented.diagnostics).toHaveLength(0);
+    expect(augmented.edges.some((edge) => edge.metadata?.scannerRelation === "doc_link")).toBe(true);
+  });
+
+  it("resolves bare wikilinks relative to the source documentation folder", () => {
+    const augmented = augmentDocumentationWorkspaceGraph({
+      scanId: "scan-1",
+      scannedAt: "2026-06-18T00:00:00.000Z",
+      files: [
+        { relativePath: "fixtures/docs/README.md", body: "Jump to [[guide]].\n" },
+        { relativePath: "fixtures/docs/docs/guide.md", body: "# Guide\n" },
+        { relativePath: "fixtures/docs/docs/architecture.md", body: "# Architecture\n\n## Components\n\nSee [[architecture#Components]].\n" },
+      ],
+      fileNodeIdsByPath: new Map([
+        ["fixtures/docs/README.md", "file:fixtures/docs/README.md"],
+        ["fixtures/docs/docs/guide.md", "file:fixtures/docs/docs/guide.md"],
+        ["fixtures/docs/docs/architecture.md", "file:fixtures/docs/docs/architecture.md"],
+      ]),
+      docSectionNodeIdsByKey: new Map([
+        ["fixtures/docs/docs/architecture.md|architecture", "section:architecture"],
+        ["fixtures/docs/docs/architecture.md|components", "section:components"],
+      ]),
+      symbolNodeIdsBySimpleName: new Map(),
+      stableId,
+      compactMetadata,
+      maxEdgeLabelLength: 180,
+    });
+    expect(augmented.diagnostics).toHaveLength(0);
+    expect(augmented.edges.filter((edge) => edge.metadata?.scannerRelation === "doc_wikilink")).toHaveLength(2);
+  });
+
+  it("resolves wikilinks to workspace symbols before reporting broken docs", () => {
+    const augmented = augmentDocumentationWorkspaceGraph({
+      scanId: "scan-1",
+      scannedAt: "2026-06-18T00:00:00.000Z",
+      files: [{ relativePath: "docs/playback.md", body: "Start at [[MainViewModel]].\n" }],
+      fileNodeIdsByPath: new Map([["docs/playback.md", "file:docs/playback.md"]]),
+      docSectionNodeIdsByKey: new Map(),
+      symbolNodeIdsBySimpleName: new Map([["MainViewModel", ["symbol:MainViewModel"]]]),
+      stableId,
+      compactMetadata,
+      maxEdgeLabelLength: 180,
+    });
+    expect(augmented.diagnostics).toHaveLength(0);
+    const symbolEdge = augmented.edges.find((edge) => edge.targetNodeId === "symbol:MainViewModel");
+    expect(symbolEdge?.metadata?.scannerRelation).toBe("doc_code_ref");
+    expect(symbolEdge?.metadata?.scannerDocLinkSyntax).toBe("wikilink");
+  });
+
   it("assigns unique slugs for duplicate headings in one file", () => {
     const parsed = parseDocumentationFile("## Setup\n\nA\n\n## Setup\n\nB\n", "docs/guide.md");
     expect(parsed.sections.map((section) => section.slug)).toEqual(["setup", "setup-1"]);
@@ -170,6 +237,6 @@ describe("documentationScanner", () => {
       maxEdgeLabelLength: 180,
     });
     expect(augmented.edges).toHaveLength(0);
-    expect(augmented.diagnostics[0]).toContain("Broken doc link");
+    expect(augmented.diagnostics[0]).toMatch(/Broken doc link in README\.md:1:/);
   });
 });

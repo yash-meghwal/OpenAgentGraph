@@ -10,6 +10,7 @@ import {
   buildDocsLinkedToCodeSummaries,
   scoreDocSectionForQuery,
 } from "./graphDocs.js";
+import { summarizeDocLinkHygiene } from "./graphDocLinks.js";
 import {
   buildGraphGodNodeSummaries,
   filterUnifiedGraphByLens,
@@ -201,6 +202,11 @@ export function buildGraphAgentContextPack(
     if (row.tier === "T2" || row.tier === "T3") {
       risks.push(`${row.scannerId} is ${row.tier}: ${row.limitation}`);
     }
+  }
+  const docLinkHygiene = summarizeDocLinkHygiene(graph);
+  for (const entry of docLinkHygiene.diagnostics.slice(0, 4)) {
+    const location = entry.line ? `${entry.sourcePath}:${entry.line}` : entry.sourcePath;
+    risks.push(`Broken doc link at ${location}: ${entry.rawTarget}`);
   }
 
   const seedLabels = readFirst.map((node) => node.label);

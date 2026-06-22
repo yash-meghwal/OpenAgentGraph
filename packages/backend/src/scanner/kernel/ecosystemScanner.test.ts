@@ -593,4 +593,23 @@ describe("ecosystem scanner", () => {
     expect(contribution.symbolNodes.some((node) => node.title.includes("Post"))).toBe(true);
     expect(contribution.edges.some((edge) => edge.metadata?.scannerRelation === "declares")).toBe(true);
   });
+
+  it("treats llms.txt as a documentation file without making all .txt scannable", () => {
+    const llms = parseEcosystemFile({
+      filePath: "llms.txt",
+      fileName: "llms.txt",
+      extension: ".txt",
+      body: "# Agent guide\n\nSee [README](README.md).\n",
+    });
+    expect(llms?.language).toBe("documentation");
+    expect(llms?.headings).toContain("Agent guide");
+
+    const notes = parseEcosystemFile({
+      filePath: "notes.txt",
+      fileName: "notes.txt",
+      extension: ".txt",
+      body: "# Notes\n",
+    });
+    expect(notes).toBeUndefined();
+  });
 });

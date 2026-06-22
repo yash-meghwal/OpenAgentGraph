@@ -1,0 +1,32 @@
+{
+  "name": "@openagentgraph/cli",
+  "version": "1.5.0",
+  "description": "Public CLI for OpenAgentGraph static graph workflows.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "oag": "./dist/bin.js"
+  },
+  "main": "./dist/bin.js",
+  "types": "./dist/bin.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@openagentgraph/backend": "1.5.0",
+    "@openagentgraph/shared": "1.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.8"
+  }
+}

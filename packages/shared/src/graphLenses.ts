@@ -1,6 +1,13 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
 import { summarizeUnifiedCommunityNode } from "./graphCommunities.js";
 import { getEcosystemScannerCatalogEntry } from "./graphEcosystemHealth.js";
+import { scoreReadFirstNode } from "./graphReadFirst.js";
+
+function isTestLikeNode(node: UnifiedCodeGraphNode) {
+  return node.kind === "test"
+    || /tests?[/\\]/i.test(node.path ?? "")
+    || /tests?\./i.test(node.path ?? node.label);
+}
 
 function buildGraphAdjacency(graph: UnifiedCodeGraph) {
   const adjacency = new Map<string, Set<string>>();
@@ -252,15 +259,24 @@ export function buildGraphGodNodeSummaries(graph: UnifiedCodeGraph, limit = 8): 
     const members = neighborIds
       .map((id) => nodesById.get(id))
       .filter((node): node is UnifiedCodeGraphNode => Boolean(node));
-    const files = members.filter((node) => node.kind === "code_file" || node.kind === "config_file");
-    const symbols = members.filter((node) => node.kind === "symbol");
+    const files = members.filter((node) =>
+      (node.kind === "code_file" || node.kind === "config_file") && !isTestLikeNode(node)
+    );
+    const symbols = members.filter((node) => node.kind === "symbol" && !isTestLikeNode(node));
     const topFiles = enriched.topFiles.length > 0
       ? enriched.topFiles
-      : files.map((node) => node.path ?? node.label).slice(0, 4);
-    const topSymbols = symbols.map((node) => node.label).slice(0, 4);
+      : files
+        .sort((left, right) => scoreReadFirstNode(left) - scoreReadFirstNode(right) || left.label.localeCompare(right.label))
+        .map((node) => node.path ?? node.label)
+        .slice(0, 4);
+    const topSymbols = symbols
+      .sort((left, right) => scoreReadFirstNode(left) - scoreReadFirstNode(right) || left.label.localeCompare(right.label))
+      .map((node) => node.label)
+      .slice(0, 4);
+    const startHints = topSymbols.length > 0 ? topSymbols : topFiles;
     const summary = enriched.summary || [
       `${community.label} community with ${members.length} connected node(s).`,
-      topFiles.length > 0 ? `Start with ${topFiles.slice(0, 2).join(", ")}.` : "Inspect community members in the graph export.",
+      startHints.length > 0 ? `Start with ${startHints.slice(0, 2).join(", ")}.` : "Inspect community members in the graph export.",
     ].join(" ");
     return {
       id: community.id,

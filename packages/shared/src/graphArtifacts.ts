@@ -27,6 +27,7 @@ import {
   formatRichCommunityHubMarkdown,
 } from "./graphCommunityHubs.js";
 import { renderDocsGraphMarkdown } from "./graphDocs.js";
+import { renderBrokenDocLinksMarkdown, summarizeDocLinkHygiene } from "./graphDocLinks.js";
 import { renderEdgeProvenanceMarkdown } from "./graphEdgeProvenance.js";
 import {
   buildGraphExportRisks,
@@ -109,6 +110,7 @@ export function renderUnifiedGraphWiki(
     ...renderEdgeProvenanceMarkdown(graph),
     "",
     ...renderDocsGraphMarkdown(graph),
+    ...renderBrokenDocLinksMarkdown(summarizeDocLinkHygiene(graph).diagnostics),
     "## Community hubs",
     ...formatRichCommunityHubMarkdown(communityHubs.slice(0, 8)),
     "",
@@ -267,6 +269,7 @@ export function renderUnifiedGraphHandoffReport(
     ...renderEdgeProvenanceMarkdown(graph),
     "",
     ...renderDocsGraphMarkdown(graph),
+    ...renderBrokenDocLinksMarkdown(summarizeDocLinkHygiene(graph).diagnostics),
     "## Graph health",
     ...health.badges.map((badge) => `- [${badge.tone}] ${badge.label}: ${badge.detail}`),
     "",

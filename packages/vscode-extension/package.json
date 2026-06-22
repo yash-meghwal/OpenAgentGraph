@@ -2,7 +2,7 @@
   "name": "openagentgraph-vscode-extension",
   "displayName": "OpenAgentGraph",
   "description": "OpenAgentGraph VS Code webview shell",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "publisher": "openagentgraph",
   "license": "AGPL-3.0-only",

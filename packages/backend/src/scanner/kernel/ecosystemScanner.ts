@@ -13,7 +13,9 @@ import {
 } from "./gameEngineProjectParsing.js";
 import {
   augmentDocumentationWorkspaceGraph,
+  DOCUMENTATION_SPECIAL_FILE_NAMES,
   indexDocumentationFile,
+  isDocumentationScannerFilePath,
   parseDocumentationFile,
 } from "./documentationScanner.js";
 
@@ -54,6 +56,7 @@ export const ECOSYSTEM_CONFIG_FILE_NAMES = new Set([
   "meson.build",
   "compile_commands.json",
   "project.godot",
+  ...DOCUMENTATION_SPECIAL_FILE_NAMES,
 ]);
 
 const MAX_SYMBOLS_PER_FILE = 120;
@@ -1189,6 +1192,9 @@ export function parseEcosystemFile(input: {
   extension: string;
   body: string;
 }): EcosystemFileIndex | undefined {
+  if (isDocumentationScannerFilePath(input.filePath)) {
+    return parseDocumentationEcosystemFile(input.body, input.filePath);
+  }
   const config = parseConfigFile(input.fileName, input.body, input.filePath);
   if (config) return config;
 

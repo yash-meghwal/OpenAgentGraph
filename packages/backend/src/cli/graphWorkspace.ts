@@ -24,7 +24,7 @@ export const GRAPH_HTML_FILE_NAME = "graph.html";
 export const GRAPH_WIKI_INDEX_FILE_NAME = "wiki/index.md";
 export const GRAPH_HANDOFF_FILE_NAME = "GRAPH_REPORT.md";
 
-export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" | "lens" | "check" | "update" | "generic";
+export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" | "lens" | "check" | "docs-check" | "update" | "generic";
 
 export interface GraphWorkspaceCliOptions {
   workspace?: string;

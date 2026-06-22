@@ -4,14 +4,14 @@ namespace SampleMediaPlayer.App.ViewModels;
 
 public class MainViewModel
 {
-    private readonly PlaybackService _playbackService;
+    private readonly MpvPlayerAdapter _playerAdapter;
 
-    public MainViewModel(PlaybackService playbackService)
+    public MainViewModel(MpvPlayerAdapter playerAdapter)
     {
-        _playbackService = playbackService;
+        _playerAdapter = playerAdapter;
     }
 
     public string Title => "SampleMediaPlayer";
 
-    public void Play() => _playbackService.Play();
+    public void Play() => _playerAdapter.StartPlayback();
 }

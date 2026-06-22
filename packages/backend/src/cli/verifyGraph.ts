@@ -886,8 +886,18 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!result.unifiedGraph.diagnostics.some((line) => /Broken doc link/i.test(line))) {
         errors.push("Expected broken-link diagnostics in scan output.");
       }
-      if (result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "doc_link")) {
+      if (!result.unifiedGraph.diagnostics.some((line) => /Broken doc anchor/i.test(line))) {
+        errors.push("Expected broken-anchor diagnostics in scan output.");
+      }
+      if (!result.unifiedGraph.diagnostics.some((line) => /README\.md:\d+:/.test(line))) {
+        errors.push("Expected broken-link diagnostics to include source line numbers.");
+      }
+      const docLinkEdges = result.scanPlan.edges.filter((edge) => edge.metadata?.scannerRelation === "doc_link");
+      if (docLinkEdges.some((edge) => /missing\.md|ghost-page/i.test(String(edge.label ?? "")))) {
         errors.push("Broken-link fixture should not create edges for missing targets.");
+      }
+      if (!docLinkEdges.some((edge) => /architecture\.md/i.test(String(edge.label ?? "")))) {
+        errors.push("Expected valid relative doc links to resolve in broken-links fixture.");
       }
       break;
     case "fixture-csharp-wpf":
@@ -913,8 +923,17 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "xaml_code_behind")) {
         errors.push("Expected XAML code-behind edges.");
       }
-      if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 4) {
+      if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 6) {
         errors.push("Expected SampleMediaPlayer stand-in fixture to index multiple C# symbols.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("MpvPlayerAdapter"))) {
+        errors.push("Expected MpvPlayerAdapter symbol in media-player fixture.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("AppController"))) {
+        errors.push("Expected AppController symbol in media-player fixture.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !indexedPaths.includes("docs/playback.md")) {
+        errors.push("Expected docs/playback.md in media-player fixture.");
       }
       const communityNodes = result.scanPlan.nodes.filter((node) => node.kind === "code_community");
       const communityTitles = communityNodes.map((node) => String(node.metadata?.scannerCommunityLabel ?? node.title));
@@ -1197,8 +1216,14 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
         console.log(`  - ${error}`);
       }
     }
+    const readFirstGateFailures = releaseSuite.releaseResults.filter((result) => !result.readFirstQuality.ok).length;
+    const hubStartGateFailures = releaseSuite.releaseResults.filter((result) => !result.hubStartQuality.ok).length;
+    const docLinkGateFailures = releaseSuite.releaseResults.filter((result) => !result.docLinkHygiene.ok).length;
+    const pathDetourFailures = releaseSuite.releaseResults.flatMap((result) =>
+      result.pathBenchmarks.filter((benchmark) => !benchmark.passed && /forbidden node kind/i.test(benchmark.detail))
+    ).length;
     console.log(
-      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% totalScanMs=${payload.releaseGates.totalScanMs}`
+      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% readFirstFails=${readFirstGateFailures} hubStartFails=${hubStartGateFailures} docLinkFails=${docLinkGateFailures} pathDetourFails=${pathDetourFailures} totalScanMs=${payload.releaseGates.totalScanMs}`
     );
     for (const error of releaseSuite.errors) {
       console.log(`  - ${error}`);

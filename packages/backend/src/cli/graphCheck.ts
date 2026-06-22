@@ -1,5 +1,6 @@
 import {
   evaluateOagFusionChecks,
+  summarizeDocLinkHygiene,
   summarizeEcosystemSupportForAgents,
 } from "@openagentgraph/shared";
 import { applyProductGraphCliDataDir, readRequiredCliValue } from "./productGraphDataDir.js";
@@ -104,6 +105,7 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     kernelProfile,
   });
 
+  const docLinkHygiene = summarizeDocLinkHygiene(loaded.graph);
   const payload = {
     status: fusion.ok ? "graph_check_passed" : "graph_check_failed",
     workspaceRoot,
@@ -118,6 +120,7 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     ecosystemSupport,
     analyzers: loaded.graph.analyzers ?? [],
     symbolCount: loaded.graph.nodes.filter((node) => node.kind === "symbol").length,
+    docLinkHygiene,
   };
 
   if (graphOptions.json) {
@@ -155,6 +158,13 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
       console.log("Optional analyzers:");
       for (const analyzer of loaded.graph.analyzers) {
         console.log(`- ${analyzer.id}: ${analyzer.status}${analyzer.fallbackReason ? ` (${analyzer.fallbackReason})` : ""}`);
+      }
+    }
+    if (docLinkHygiene.brokenCount > 0) {
+      console.log(`Broken doc links: ${docLinkHygiene.brokenCount}`);
+      for (const entry of docLinkHygiene.diagnostics.slice(0, 8)) {
+        const location = entry.line ? `${entry.sourcePath}:${entry.line}` : entry.sourcePath;
+        console.log(`- ${location} — ${entry.reason}: ${entry.rawTarget}`);
       }
     }
     console.log(fusion.ok ? "Result: PASS" : "Result: FAIL");

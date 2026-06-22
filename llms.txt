@@ -23,6 +23,8 @@ npm run graph:query -- --workspace . "how does auth work?"
 npm run graph:check -- --workspace . --mode hard
 ```
 
+If the npm CLI is installed, use `oag graph:export --workspace . --offline-only --redact-root` and `oag graph:context --workspace . --goal "orient me" --json`.
+
 ## Read these files first
 
 1. `GRAPH_REPORT.md` (generated per workspace; gitignored)
@@ -57,6 +59,7 @@ npm run graph:check -- --workspace . --mode hard
 | `graph:path` | Ranked route between two targets |
 | `graph:explain` | Node/file neighborhood summary |
 | `graph:check` | Hard/warn quality gates |
+| `graph:docs:check` | Broken Markdown link and anchor diagnostics for a target workspace |
 | `graph:update` | Incremental `.oag/graph.json` refresh |
 | `graph:retrieve` | Deeper lookup by `oag:*` retrieval id |
 | `graph:scorecard` | Reproducible public benchmark proof |

@@ -17,6 +17,12 @@ import {
   scoreGraphPathSeedNodeForQuery,
   tokenizeGraphPathSeedQuery,
 } from "./graphPathSeedResolution.js";
+import {
+  classifyGraphPathIntent,
+  isDocPathEdgeRelation,
+  shouldPenalizeDocPathDetour,
+  type GraphPathIntent,
+} from "./graphPathIntent.js";
 
 export type GraphTraversalMode = "bfs" | "dfs";
 
@@ -45,6 +51,7 @@ export interface GraphPathOptions {
   maxHops?: number;
   explainRanking?: boolean;
   mode?: GraphPathMode;
+  pathIntent?: GraphPathIntent;
 }
 
 export interface GraphPathSeedResolution {
@@ -75,6 +82,7 @@ export interface GraphPathPenalizedAlternative {
 export interface GraphPathExplanation {
   lens: GraphTaskLensId;
   mode: GraphPathMode;
+  pathIntent: GraphPathIntent;
   seedResolution: {
     from: GraphPathSeedResolution;
     to: GraphPathSeedResolution;
@@ -82,6 +90,7 @@ export interface GraphPathExplanation {
   steps: GraphPathStep[];
   totalCost: number;
   penalizedAlternatives: GraphPathPenalizedAlternative[];
+  docPenaltyNotes: string[];
 }
 
 export interface GraphPathResult {
@@ -309,6 +318,11 @@ export function computeGraphPathNodePenalty(node: UnifiedCodeGraphNode, options:
   if (mode === "semantic" && isLowValueBridgeNode(node)) {
     return 50_000;
   }
+  if (shouldPenalizeDocPathDetour(options.pathIntent ?? "mixed_or_unknown", mode)) {
+    if (node.kind === "doc_section" || node.kind === "doc_file") {
+      return 50_000;
+    }
+  }
 
   const balancedPenalty: Partial<Record<UnifiedCodeGraphNode["kind"], number>> = {
     workspace: 5_000,
@@ -318,8 +332,8 @@ export function computeGraphPathNodePenalty(node: UnifiedCodeGraphNode, options:
     community: 350,
     god_node: 250,
     config_file: 120,
-    doc_section: 35,
-    doc_file: 100,
+    doc_section: shouldPenalizeDocPathDetour(options.pathIntent ?? "mixed_or_unknown", mode) ? 50_000 : 35,
+    doc_file: shouldPenalizeDocPathDetour(options.pathIntent ?? "mixed_or_unknown", mode) ? 50_000 : 100,
     asset_file: 90,
     external_dep: 500,
     test: options.lens === "tests" ? 4 : 60,
@@ -337,6 +351,14 @@ export function computeGraphPathNodePenalty(node: UnifiedCodeGraphNode, options:
 export function computeGraphPathEdgeCost(edge: UnifiedCodeGraphEdge, options: GraphPathOptions = {}) {
   const mode = resolveGraphPathMode(options);
   if (!isSemanticPathEdge(edge, mode)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const relation = typeof edge.metadata?.scannerRelation === "string"
+    ? edge.metadata.scannerRelation
+    : undefined;
+  if (shouldPenalizeDocPathDetour(options.pathIntent ?? "mixed_or_unknown", mode)
+    && isDocPathEdgeRelation(relation, edge.kind)) {
     return Number.POSITIVE_INFINITY;
   }
 
@@ -358,9 +380,6 @@ export function computeGraphPathEdgeCost(edge: UnifiedCodeGraphEdge, options: Gr
     inferred: mode === "structural" ? 1.1 : 1.35,
     ambiguous: mode === "structural" ? 1.25 : 1.75,
   };
-  const relation = typeof edge.metadata?.scannerRelation === "string"
-    ? edge.metadata.scannerRelation
-    : undefined;
   let cost = (balancedKindBase[edge.kind] ?? 35) * (provenanceMultiplier[edge.provenance] ?? 1.4);
   if (relation === "extends" || relation === "implements") {
     cost *= 0.9;
@@ -542,11 +561,26 @@ function buildPathExplanation(
   chosenFrom: ReturnType<typeof rankGraphNodeCandidates>[number],
   chosenTo: ReturnType<typeof rankGraphNodeCandidates>[number],
   weighted: NonNullable<ReturnType<typeof dijkstraGraphPath>>,
-  alternatives: GraphPathPenalizedAlternative[]
+  alternatives: GraphPathPenalizedAlternative[],
+  pathIntent: GraphPathIntent
 ): GraphPathExplanation {
+  const docPenaltyNotes: string[] = [];
+  if (shouldPenalizeDocPathDetour(pathIntent, resolveGraphPathMode(options))) {
+    docPenaltyNotes.push("Detected code-to-code path intent; doc_file and doc_section hops are heavily penalized.");
+    const docHops = weighted.steps.filter((step) =>
+      step.node.kind === "doc_section" || step.node.kind === "doc_file"
+    );
+    if (docHops.length > 0) {
+      docPenaltyNotes.push(`Doc detour nodes in chosen path: ${docHops.map((step) => step.node.label).join(", ")}`);
+    }
+  } else if (pathIntent === "doc_to_code" || pathIntent === "doc_to_doc") {
+    docPenaltyNotes.push("Docs-oriented path intent; documentation nodes and edges are allowed.");
+  }
+
   return {
     lens,
     mode: resolveGraphPathMode(options),
+    pathIntent,
     seedResolution: {
       from: buildSeedResolution(fromQuery, chosenFrom),
       to: buildSeedResolution(toQuery, chosenTo),
@@ -554,6 +588,7 @@ function buildPathExplanation(
     steps: weighted.steps,
     totalCost: weighted.totalCost,
     penalizedAlternatives: alternatives,
+    docPenaltyNotes,
   };
 }
 
@@ -587,6 +622,13 @@ export function findGraphPath(
   let weighted: ReturnType<typeof dijkstraGraphPath> | undefined;
   let chosenFrom = fromCandidates[0]!;
   let chosenTo = toCandidates[0]!;
+  const pathIntent = options.pathIntent ?? classifyGraphPathIntent({
+    fromNode: chosenFrom.node,
+    toNode: chosenTo.node,
+    fromQuery,
+    toQuery,
+  });
+  const pathOptions: GraphPathOptions = { ...options, lens, mode: pathMode, pathIntent };
 
   const tryCandidatePair = (
     fromCandidate: (typeof fromCandidates)[number],
@@ -597,7 +639,15 @@ export function findGraphPath(
       scopedGraph,
       fromCandidate.node,
       toCandidate.node,
-      { ...options, lens, mode: pathMode }
+      {
+        ...pathOptions,
+        pathIntent: options.pathIntent ?? classifyGraphPathIntent({
+          fromNode: fromCandidate.node,
+          toNode: toCandidate.node,
+          fromQuery,
+          toQuery,
+        }),
+      }
     );
     if (!candidatePath) return;
     if (!weighted || candidatePath.totalCost < weighted.totalCost) {
@@ -650,7 +700,7 @@ export function findGraphPath(
       scopedGraph,
       fromNode,
       toNode,
-      { ...options, lens, mode: "semantic" }
+      { ...pathOptions, mode: "semantic" }
     );
     if (semanticPath && !pathHasHubDetour(scopedGraph, semanticPath.nodes, degreeMap)) {
       penalizedAlternatives.push({
@@ -688,14 +738,15 @@ export function findGraphPath(
   const explanation: GraphPathExplanation | undefined = options.explainRanking
     ? buildPathExplanation(
       scopedGraph,
-      options,
+      pathOptions,
       lens,
       fromQuery,
       toQuery,
       chosenFrom,
       chosenTo,
       weighted,
-      penalizedAlternatives
+      penalizedAlternatives,
+      pathIntent
     )
     : undefined;
 

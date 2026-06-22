@@ -1,9 +1,17 @@
 {
   "name": "@openagentgraph/backend",
-  "version": "1.4.1",
+  "version": "1.5.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "scanner-tools/roslyn-helper/Program.cs",
+    "scanner-tools/roslyn-helper/RoslynHelper.csproj"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "prepack": "npm run build",
     "build:roslyn-helper": "dotnet build scanner-tools/roslyn-helper/RoslynHelper.csproj -c Release",
     "build:roslyn-helper:optional": "tsx src/cli/buildRoslynHelperOptional.ts",
     "start": "node dist/index.js",
@@ -15,7 +23,7 @@
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@openagentgraph/shared": "*",
+    "@openagentgraph/shared": "1.5.0",
     "better-sqlite3": "^12.9.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",

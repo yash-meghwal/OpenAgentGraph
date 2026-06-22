@@ -1,6 +1,6 @@
 {
   "name": "@openagentgraph/sdk",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepack": "npm run build",
     "test": "vitest run"
   },
   "devDependencies": {

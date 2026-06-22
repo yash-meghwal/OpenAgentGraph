@@ -11,7 +11,7 @@ If `GRAPH_REPORT.md` exists in the repo root, read it before broad codebase expl
 
 - `GRAPH_REPORT.md`: compact generated orientation for the current workspace.
 - `llms.txt`: compact model-facing orientation contract.
-- `docs/AGENT-ACCESS-LAYER.md`: 1.4 CLI/MCP/context access overview.
+- `docs/AGENT-ACCESS-LAYER.md`: CLI/MCP/context access overview.
 - `docs/GRAPH-CONTEXT.md`: bounded `graph:context` pack contract.
 - `docs/MCP.md`: stdio MCP server setup and tool list.
 - `docs/OPENAGENTGRAPH-FOR-LLMS.md`: first-time agent workflow and adoption checklist.
@@ -220,6 +220,7 @@ Rules for external agents:
 - Plan proposals are inert until an operator or admin explicitly accepts them (accepted proposals become normal executable nodes).
 - Never include source bodies, secrets, or private content in submissions.
 - Always cross-check important facts in source files. OAG surfaces are navigation aids.
+- For repositories with Markdown docs, run `graph:docs:check` on the target workspace or read the broken-link section in `GRAPH_REPORT.md` before trusting doc paths. This repository includes intentionally broken-link fixtures, so use `npm run verify:graph` for release proof here.
 
 ### Graph Navigation Rules For Agents
 

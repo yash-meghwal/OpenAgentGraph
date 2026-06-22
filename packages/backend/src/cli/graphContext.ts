@@ -5,6 +5,7 @@ import {
 import { detectWorkspaceKernelProfile } from "../scanner/kernel/workspaceDetection.js";
 import {
   loadWorkspaceUnifiedGraph,
+  normalizeGraphCliText,
   parseGraphWorkspaceArgv,
   readHandoffFreshness,
   requireWorkspaceOption,
@@ -27,7 +28,7 @@ function parseGraphContextArgv(argv: string[]) {
       if (!value || value.startsWith("--")) {
         throw new Error("--goal requires a value.");
       }
-      contextOptions.goal = value;
+      contextOptions.goal = normalizeGraphCliText(value);
       index += 1;
     } else if (arg === "--redact-root") {
       contextOptions.redactRoot = true;

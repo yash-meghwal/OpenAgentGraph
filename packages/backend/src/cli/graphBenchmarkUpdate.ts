@@ -11,6 +11,7 @@ import {
   runGraphUpdateBenchmarkForWorkspace,
   runGraphUpdateBenchmarkSuite,
 } from "../scanner/kernel/graphUpdateBenchmarkRunner.js";
+import { readGraphWorkspaceCliValue } from "./graphWorkspace.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
 const DEFAULT_FIXTURES_DIR = "tests/fixtures/graph";
@@ -45,7 +46,7 @@ function parseArgs(argv: string[]): GraphBenchmarkUpdateCliOptions {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--workspace") {
-      options.workspace = readRequiredCliValue(argv, index, "--workspace");
+      options.workspace = readGraphWorkspaceCliValue(argv, index);
       index += 1;
     } else if (arg === "--changed-files") {
       options.changedFiles = Number(readRequiredCliValue(argv, index, "--changed-files"));

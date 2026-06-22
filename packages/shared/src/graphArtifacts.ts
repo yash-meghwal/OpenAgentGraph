@@ -1,4 +1,4 @@
-import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
+import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
 import {
   formatGraphAnalyzerDiagnostics,
 } from "./graphAnalyzers.js";
@@ -36,22 +36,9 @@ import {
   renderLensReadFirstMarkdown,
   type GraphExportPresentationOptions,
 } from "./graphExportBundle.js";
+import { getReadTheseFirstNodes } from "./graphReadFirst.js";
 
-export function getReadTheseFirstNodes(graph: UnifiedCodeGraph, limit = 8): UnifiedCodeGraphNode[] {
-  const priority = (node: UnifiedCodeGraphNode) => {
-    if (node.kind === "symbol" && /viewmodel|service|controller|main/i.test(node.label)) return 0;
-    if (node.kind === "code_file" && /\.(cs|ts|tsx)$/i.test(node.path ?? node.label)) return 1;
-    if (node.kind === "community") return 2;
-    if (node.kind === "config_file") return 3;
-    return 4;
-  };
-  return [...graph.nodes]
-    .filter((node) => ["symbol", "code_file", "community", "config_file"].includes(node.kind))
-    .filter((node) => !(node.path ?? node.label).includes("/bin/"))
-    .filter((node) => !(node.path ?? node.label).includes("/obj/"))
-    .sort((left, right) => priority(left) - priority(right) || left.label.localeCompare(right.label))
-    .slice(0, limit);
-}
+export { getReadTheseFirstNodes } from "./graphReadFirst.js";
 
 export function renderUnifiedGraphHtml(
   graph: UnifiedCodeGraph,

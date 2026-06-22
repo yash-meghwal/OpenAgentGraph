@@ -3,7 +3,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { runGraphContextCli } from "./graphContext.js";
 import { runGraphExportCli } from "./graphExport.js";
-import { normalizeWorkspaceCliPath, requireWorkspaceOption, tryLoadCachedWorkspaceGraph } from "./graphWorkspace.js";
+import {
+  normalizeGraphCliText,
+  normalizeWorkspaceCliPath,
+  requireWorkspaceOption,
+  tryLoadCachedWorkspaceGraph,
+} from "./graphWorkspace.js";
 import { readRequiredCliValue } from "./productGraphDataDir.js";
 
 type SupportedAgent = "codex" | "claude" | "gemini" | "grok";
@@ -33,7 +38,7 @@ function parseOagWrapArgv(argv: string[]) {
       options.workspace = normalizeWorkspaceCliPath(readRequiredCliValue(argv, index, "--workspace"));
       index += 1;
     } else if (arg === "--goal") {
-      options.goal = readRequiredCliValue(argv, index, "--goal");
+      options.goal = normalizeGraphCliText(readRequiredCliValue(argv, index, "--goal"));
       index += 1;
     } else if (arg === "--agent") {
       const value = readRequiredCliValue(argv, index, "--agent");

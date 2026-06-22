@@ -85,6 +85,29 @@ describe.sequential("graph:benchmark:update", () => {
     expect(fs.readFileSync(viewModelPath, "utf8")).not.toContain("// oag-benchmark-workspace");
   });
 
+  it("normalizes quoted custom workspaces with repeated spaces", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "oag-benchmark-spaced-"));
+    tempPaths.push(base);
+    const workspaceRoot = path.join(base, "Video  Player", "fixture-csharp-wpf");
+    fs.mkdirSync(path.dirname(workspaceRoot), { recursive: true });
+    fs.cpSync(path.join(repoRoot(), "tests", "fixtures", "graph", "fixture-csharp-wpf"), workspaceRoot, { recursive: true });
+
+    const { seedGraphWorkspaceForUpdate } = await import("./graphUpdate.js");
+    const { runGraphBenchmarkUpdateCli } = await import("./graphBenchmarkUpdate.js");
+
+    await seedGraphWorkspaceForUpdate(workspaceRoot);
+    const payload = await runGraphBenchmarkUpdateCli([
+      "--workspace",
+      `"${workspaceRoot}"`,
+      "--changed-files",
+      "1",
+      "--json",
+    ]);
+
+    expect(payload.ok).toBe(true);
+    expect(payload.results[0]?.sourceWorkspaceRoot).toBe(workspaceRoot);
+  });
+
   it("touches generated output only after cold seed and still noops", async () => {
     const { runGraphUpdateBenchmarkScenario } = await import("../scanner/kernel/graphUpdateBenchmarkRunner.js");
     const scenario = GRAPH_UPDATE_BENCHMARK_SCENARIOS.find((entry) => entry.id === "generated-noop");

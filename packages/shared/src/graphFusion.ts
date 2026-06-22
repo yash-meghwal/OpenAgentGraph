@@ -6,6 +6,7 @@ import {
   type GraphTaskLensId,
 } from "./graphLenses.js";
 import { buildGraphAdjacency, findGraphSeedNodes, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
+import { getReadTheseFirstNodes } from "./graphReadFirst.js";
 import {
   findProductGraphAcceptanceEvidenceGaps,
   summarizeProductGraphCodeIntentDrift,
@@ -273,8 +274,8 @@ export function buildAgentCodeContextSlice(
   const godNodes = buildGraphGodNodeSummaries(graph, 4);
   const readTheseFirst = uniqueNodes(
     [
+      ...getReadTheseFirstNodes(graph, 8),
       ...findGraphSeedNodes(graph, "viewmodel service controller main entrypoint", 4),
-      ...graph.nodes.filter((node) => node.kind === "code_file" || node.kind === "symbol"),
     ],
     8
   ).map((node) => summarizeNode(node, workspaceRoot));

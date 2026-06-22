@@ -1,6 +1,6 @@
 {
   "name": "openagentgraph",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Event-sourced execution graphs, code maps, handoffs, and coordination surfaces for supervised autonomous software work.",
   "private": true,
   "license": "AGPL-3.0-only",

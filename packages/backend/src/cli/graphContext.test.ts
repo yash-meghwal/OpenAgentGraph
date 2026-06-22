@@ -37,4 +37,20 @@ describe("graph:context cli", () => {
     expect(result.estimatedSize).toBeLessThanOrEqual(10000);
     expect(result.readFirstNodes.length).toBeGreaterThan(0);
   });
+
+  it("normalizes npm/cmd caret markers in goal text", async () => {
+    const { runGraphContextCli } = await import("./graphContext.js");
+    const workspaceRoot = fixtureRoot("mixed-dotnet-node");
+    const result = await runGraphContextCli([
+      "--workspace",
+      workspaceRoot,
+      "--goal",
+      "^MainViewModel^ playback^",
+      "--json",
+      "--budget",
+      "10000",
+    ]);
+
+    expect(result.goal).toBe("MainViewModel playback");
+  });
 });

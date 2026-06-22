@@ -10,6 +10,7 @@ export * from "./graphAnalyzerGates";
 export * from "./semanticEdgeNormalization";
 export * from "./graphEdgeProvenance";
 export * from "./graphDocs";
+export * from "./graphReadFirst";
 export * from "./graphEcosystemHealth";
 export * from "./graphOperational";
 export * from "./graphReleaseGates";

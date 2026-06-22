@@ -26,6 +26,7 @@ import {
 } from "./graphLenses.js";
 import { buildGraphPathSeedResolverBrowserScript } from "./graphPathSeedResolution.js";
 import { computeGraphPathEdgeCost } from "./graphQueryEngine.js";
+import { getReadTheseFirstNodes } from "./graphReadFirst.js";
 import { GRAPH_PATH_FILE_QUERY_EXTENSION_LIST } from "./sourceExtensions.js";
 
 export const EXPORT_REDACTED_WORKSPACE_ROOT = "<workspace>";
@@ -429,28 +430,12 @@ export function buildGraphExplorerPayload(
   };
 }
 
-function prioritizeReadFirstNodes(graph: UnifiedCodeGraph, limit: number) {
-  const priority = (node: UnifiedCodeGraphNode) => {
-    if (node.kind === "symbol" && /viewmodel|service|controller|main/i.test(node.label)) return 0;
-    if (node.kind === "code_file" && /\.(cs|ts|tsx)$/i.test(node.path ?? node.label)) return 1;
-    if (node.kind === "community") return 2;
-    if (node.kind === "config_file") return 3;
-    return 4;
-  };
-  return [...graph.nodes]
-    .filter((node) => ["symbol", "code_file", "community", "config_file"].includes(node.kind))
-    .filter((node) => !(node.path ?? node.label).includes("/bin/"))
-    .filter((node) => !(node.path ?? node.label).includes("/obj/"))
-    .sort((left, right) => priority(left) - priority(right) || left.label.localeCompare(right.label))
-    .slice(0, limit);
-}
-
 export function getReadTheseFirstNodesByLens(
   graph: UnifiedCodeGraph,
   lensId: GraphTaskLensId,
   limit = 5
 ) {
-  return prioritizeReadFirstNodes(filterUnifiedGraphByLens(graph, lensId), limit);
+  return getReadTheseFirstNodes(filterUnifiedGraphByLens(graph, lensId), limit);
 }
 
 export function renderLensReadFirstMarkdown(graph: UnifiedCodeGraph, kernelProfile?: WorkspaceKernelProfile) {
@@ -477,7 +462,7 @@ export function renderLensReadFirstMarkdown(graph: UnifiedCodeGraph, kernelProfi
 
   for (const lensId of lensIds) {
     const definition = GRAPH_TASK_LENS_DEFINITIONS.find((entry) => entry.id === lensId);
-    const readFirst = prioritizeReadFirstNodes(filterUnifiedGraphByLens(graph, lensId), 5);
+    const readFirst = getReadTheseFirstNodes(filterUnifiedGraphByLens(graph, lensId), 5);
     lines.push(`### ${definition?.label ?? lensId}`);
     if (readFirst.length === 0) {
       lines.push("- No prioritized nodes for this lens.");

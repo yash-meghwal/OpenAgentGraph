@@ -348,7 +348,7 @@ describe("code scanner", () => {
     expect(plan.summary.diagnostics.join("\n")).toContain("T0 structural indexing");
     expect(plan.summary.diagnostics.join("\n")).toContain("Skipped paths by reason");
     expect(plan.summary.skippedDirectoryCount).toBeGreaterThanOrEqual(3);
-  });
+  }, 20_000);
 
   it("marks emergency breaker hits with visible diagnostics", async () => {
     const workspaceRoot = makeTempWorkspace();

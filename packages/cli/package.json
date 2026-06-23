@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
-    "oag": "./dist/bin.js"
+    "oag": "dist/bin.js"
   },
   "main": "./dist/bin.js",
   "types": "./dist/bin.d.ts",

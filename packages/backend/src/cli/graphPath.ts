@@ -9,7 +9,7 @@ import {
 } from "./graphWorkspace.js";
 
 export async function runGraphPathCli(argv = process.argv.slice(2)) {
-  const { options, positionals } = parseGraphWorkspaceArgv(argv);
+  const { options, positionals } = parseGraphWorkspaceArgv(argv, "path");
   if (!options.json) warnIgnoredGraphCliOptions("path", options);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
   if (positionals.length < 2) {

@@ -25,7 +25,12 @@ import {
   type GraphTaskLensId,
 } from "./graphLenses.js";
 import { buildGraphPathSeedResolverBrowserScript } from "./graphPathSeedResolution.js";
-import { computeGraphPathEdgeCost } from "./graphQueryEngine.js";
+import {
+  buildGraphPathExplorerBrowserScript,
+  GRAPH_EXPLORER_PATH_MODEL_VERSION,
+} from "./graphPathBrowserModel.js";
+
+
 import { getReadTheseFirstNodes } from "./graphReadFirst.js";
 import { GRAPH_PATH_FILE_QUERY_EXTENSION_LIST } from "./sourceExtensions.js";
 
@@ -63,11 +68,6 @@ export interface GraphExplorerEdge {
   confidence?: number;
   label?: string;
   scannerRelation?: string;
-  pathCosts?: {
-    balanced: number;
-    semantic: number;
-    structural: number;
-  };
 }
 
 export interface GraphExplorerNode {
@@ -353,9 +353,6 @@ export function buildGraphExportDocument(
 }
 
 function toExplorerEdge(edge: UnifiedCodeGraphEdge): GraphExplorerEdge {
-  const balanced = computeGraphPathEdgeCost(edge, { mode: "balanced" });
-  const semantic = computeGraphPathEdgeCost(edge, { mode: "semantic" });
-  const structural = computeGraphPathEdgeCost(edge, { mode: "structural" });
   return {
     id: edge.id,
     sourceNodeId: edge.sourceNodeId,
@@ -368,11 +365,6 @@ function toExplorerEdge(edge: UnifiedCodeGraphEdge): GraphExplorerEdge {
     scannerRelation: typeof edge.metadata?.scannerRelation === "string"
       ? edge.metadata.scannerRelation
       : undefined,
-    pathCosts: {
-      balanced: Number.isFinite(balanced) ? balanced : 9999,
-      semantic: Number.isFinite(semantic) ? semantic : 9999,
-      structural: Number.isFinite(structural) ? structural : 9999,
-    },
   };
 }
 
@@ -414,7 +406,7 @@ export function buildGraphExplorerPayload(
 
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = sanitized.edges
-    .map(toExplorerEdge)
+    .map((edge) => toExplorerEdge(edge))
     .filter((edge) => nodeIds.has(edge.sourceNodeId) && nodeIds.has(edge.targetNodeId));
 
   return {
@@ -480,6 +472,7 @@ export function renderLensReadFirstMarkdown(graph: UnifiedCodeGraph, kernelProfi
 
 function buildExplorerClientScript() {
   const pathSeedResolver = buildGraphPathSeedResolverBrowserScript(GRAPH_PATH_FILE_QUERY_EXTENSION_LIST);
+  const pathModelRuntime = buildGraphPathExplorerBrowserScript();
   return `
 (function () {
   const data = JSON.parse(document.getElementById("oag-explorer-data").textContent || "{}");
@@ -497,17 +490,6 @@ function buildExplorerClientScript() {
   const pathRunButton = document.getElementById("oag-path-run");
   const pathModeSelect = document.getElementById("oag-path-mode");
   const communityCards = document.querySelectorAll("[data-community-id]");
-  const NODE_PENALTY = {
-    workspace: 5000,
-    project: 2500,
-    package: 450,
-    directory: 400,
-    community: 350,
-    code_file: 18,
-    symbol: 2,
-    external_dep: 500,
-  };
-
   let activeCommunityId = "";
 
   function normalize(value) {
@@ -617,6 +599,8 @@ function buildExplorerClientScript() {
 
 ${pathSeedResolver}
 
+${pathModelRuntime}
+
   function classifyPathIntent(fromNode, toNode) {
     const codeKinds = new Set(["symbol", "code_file", "test", "route", "command"]);
     const docKinds = new Set(["doc_file", "doc_section"]);
@@ -630,31 +614,7 @@ ${pathSeedResolver}
     return "mixed_or_unknown";
   }
 
-  function nodePenalty(node, mode, pathIntent) {
-    if (mode === "semantic" && ["workspace", "project", "community", "package", "directory"].includes(node.kind)) {
-      return 50000;
-    }
-    if (pathIntent === "code_to_code" && mode !== "structural" && (node.kind === "doc_section" || node.kind === "doc_file")) {
-      return 50000;
-    }
-    let penalty = NODE_PENALTY[node.kind] ?? 40;
-    if (node.kind === "symbol" && /\\(namespace\\)/i.test(node.label)) penalty = 900;
-    if (node.kind === "symbol" && /\\(external\\)/i.test(node.label)) penalty = 700;
-    if (mode === "structural") penalty *= 0.35;
-    return penalty;
-  }
-
-  function edgeCost(edge, mode, pathIntent) {
-    const relation = edge.scannerRelation || "";
-    if (pathIntent === "code_to_code" && mode !== "structural") {
-      if (edge.kind === "documents" || ["doc_link", "doc_wikilink", "doc_code_ref"].includes(relation)) {
-        return 9999;
-      }
-    }
-    return edge.pathCosts?.[mode] ?? 9999;
-  }
-
-  function buildWeightedAdjacency(mode, pathIntent) {
+  function buildWeightedAdjacency(mode, pathIntent, lensId) {
     const adjacency = new Map();
     const add = (sourceId, targetId, edge, cost) => {
       const current = adjacency.get(sourceId) || [];
@@ -662,7 +622,11 @@ ${pathSeedResolver}
       adjacency.set(sourceId, current);
     };
     for (const edge of data.edges) {
-      const cost = edgeCost(edge, mode, pathIntent);
+      const sourceNode = nodesById.get(edge.sourceNodeId);
+      const targetNode = nodesById.get(edge.targetNodeId);
+      if (!sourceNode || !targetNode) continue;
+      if (!lensAllowsNode(sourceNode, lensId) || !lensAllowsNode(targetNode, lensId)) continue;
+      const cost = edgeCost(edge, mode, pathIntent, lensId, sourceNode, targetNode);
       if (cost >= 9000) continue;
       add(edge.sourceNodeId, edge.targetNodeId, edge, cost);
       add(edge.targetNodeId, edge.sourceNodeId, edge, cost);
@@ -672,29 +636,52 @@ ${pathSeedResolver}
 
   function findWeightedPath(fromNode, toNode, mode) {
     const pathIntent = classifyPathIntent(fromNode, toNode);
-    const adjacency = buildWeightedAdjacency(mode, pathIntent);
-    const dist = new Map([[fromNode.id, 0]]);
+    const lensId = lensSelect ? lensSelect.value : "all";
+    const adjacency = buildWeightedAdjacency(mode, pathIntent, lensId);
+    const infiniteRank = {
+      cost: Infinity,
+      testHops: Infinity,
+      structuralHops: Infinity,
+      hubHops: Infinity,
+      inheritanceHops: Infinity,
+      hopCount: Infinity,
+    };
+    const rankById = new Map([[fromNode.id, {
+      cost: 0,
+      testHops: 0,
+      structuralHops: 0,
+      hubHops: 0,
+      inheritanceHops: 0,
+      hopCount: 0,
+    }]]);
     const previous = new Map([[fromNode.id, null]]);
     const visited = new Set();
     const queue = [fromNode.id];
     while (queue.length > 0) {
-      queue.sort((left, right) => (dist.get(left) ?? Infinity) - (dist.get(right) ?? Infinity));
+      queue.sort((left, right) => {
+        const leftRank = rankById.get(left) ?? infiniteRank;
+        const rightRank = rankById.get(right) ?? infiniteRank;
+        const compared = comparePathRanks(leftRank, rightRank);
+        return compared !== 0 ? compared : left.localeCompare(right);
+      });
       const currentId = queue.shift();
       if (!currentId || visited.has(currentId)) continue;
       visited.add(currentId);
       if (currentId === toNode.id) break;
-      const currentDist = dist.get(currentId) ?? Infinity;
+      const currentRank = rankById.get(currentId) ?? infiniteRank;
       for (const entry of adjacency.get(currentId) || []) {
         const neighbor = nodesById.get(entry.neighborId);
         if (!neighbor) continue;
-        const nextDist = currentDist + entry.cost + nodePenalty(neighbor, mode, pathIntent);
-        if (nextDist >= (dist.get(entry.neighborId) ?? Infinity)) continue;
-        dist.set(entry.neighborId, nextDist);
-        previous.set(entry.neighborId, { nodeId: currentId, edge: entry.edge, edgeCost: entry.cost, nodePenalty: nodePenalty(neighbor, mode, pathIntent) });
+        const penalty = nodePenalty(neighbor, mode, pathIntent, lensId);
+        const nextRank = buildPathRank(currentRank, entry.edge, entry.cost, penalty, neighbor, mode);
+        const knownRank = rankById.get(entry.neighborId);
+        if (knownRank !== undefined && comparePathRanks(nextRank, knownRank) >= 0) continue;
+        rankById.set(entry.neighborId, nextRank);
+        previous.set(entry.neighborId, { nodeId: currentId, edge: entry.edge, edgeCost: entry.cost, nodePenalty: penalty });
         if (!visited.has(entry.neighborId)) queue.push(entry.neighborId);
       }
     }
-    if (!dist.has(toNode.id)) return { nodes: [], steps: [], totalCost: null };
+    if (!rankById.has(toNode.id)) return { nodes: [], steps: [], totalCost: null };
     const pathIds = [];
     const steps = [];
     let cursor = toNode.id;
@@ -711,7 +698,7 @@ ${pathSeedResolver}
     return {
       nodes: pathIds.map((id) => nodesById.get(id)).filter(Boolean),
       steps,
-      totalCost: dist.get(toNode.id) ?? null,
+      totalCost: rankById.get(toNode.id)?.cost ?? null,
     };
   }
 
@@ -935,6 +922,7 @@ export function renderGraphExplorerHtml(
           <option value="structural">Structural</option>
         </select>
         <button id="oag-path-run" type="button">Preview path</button>
+        <p class="meta">Path model v${GRAPH_EXPLORER_PATH_MODEL_VERSION} (costs computed in-browser per mode, path intent, and lens from exported edge metadata; includes test-context penalties, hub detection, node penalties, lens filtering, and rank-vector tie-breaking).</p>
         <div id="oag-path-panel" class="meta" style="margin-top:12px"></div>
       </section>
       <section>

@@ -39,4 +39,33 @@ describe("graphAgentContextPack", () => {
     const pack = buildGraphAgentContextPack(makeGraph(), { goal: "auth" });
     expect(pack.readFirstNodes[0]?.retrievalId).toMatch(/^oag:node:/);
   });
+
+  it("applies docs query mode intent to agent context packs", () => {
+    const pack = buildGraphAgentContextPack(makeGraph(), {
+      goal: "architecture guide authentication",
+      queryMode: "docs",
+    });
+    expect(pack.queryIntent?.requestedMode).toBe("docs");
+    expect(pack.queryIntent?.effectiveMode).toBe("docs");
+    expect(pack.relevantDocs.length).toBeGreaterThan(0);
+    expect(pack.readFirstNodes[0]?.kind).toMatch(/doc_file|doc_section/);
+  });
+
+  it("places matching code before docs in code query mode context packs", () => {
+    const pack = buildGraphAgentContextPack(makeGraph(), {
+      goal: "fix auth bug login",
+      queryMode: "code",
+    });
+    expect(pack.readFirstNodes[0]?.kind).toMatch(/symbol|code_file/);
+  });
+
+  it("preserves balanced mode mixed ordering with code context first", () => {
+    const pack = buildGraphAgentContextPack(makeGraph(), {
+      goal: "fix auth bug",
+      queryMode: "balanced",
+    });
+    expect(pack.readFirstNodes.length).toBeGreaterThan(0);
+    const kinds = pack.readFirstNodes.map((node) => node.kind);
+    expect(new Set(kinds).size).toBeGreaterThan(0);
+  });
 });

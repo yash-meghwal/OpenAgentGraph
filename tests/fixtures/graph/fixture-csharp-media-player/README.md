@@ -8,4 +8,5 @@ and test relationships without referencing a private application.
 
 - `MainViewModel` -> `MpvPlayerAdapter` should resolve through code relationships.
 - `AppController` is the preferred community entrypoint over alphabetical services.
+- `ObservableObject`, `IPlayerAdapter`, and `AlphaHelperService` provide inheritance/interface/helper ranking patterns.
 - `docs/playback.md` documents playback symbols with wikilinks.

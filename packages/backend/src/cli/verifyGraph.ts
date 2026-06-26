@@ -3,9 +3,12 @@ import path from "path";
 import {
   evaluateGraphExternalBenchmarkSuite,
   evaluateGraphUpdateBenchmarkSuite,
+  evaluateGraphRelevanceBaselineSuite,
   evaluateReleaseBenchmarkSuite,
   formatGraphExternalBenchmarkSummaryLine,
   formatGraphUpdateBenchmarkSummaryLine,
+  countGraphPathQualityFailures,
+  GRAPH_PATH_QUALITY_MODEL_VERSION,
   GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
   GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
@@ -481,6 +484,15 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!indexedPaths.includes("app/page.tsx")) {
         errors.push("Expected app/page.tsx to be indexed.");
       }
+      if (!indexedPaths.includes("src/lib/orders-controller.ts")) {
+        errors.push("Expected src/lib/orders-controller.ts to be indexed.");
+      }
+      if (!indexedPaths.includes("src/lib/orders-service.ts")) {
+        errors.push("Expected src/lib/orders-service.ts to be indexed.");
+      }
+      if (!indexedPaths.includes("src/lib/orders-repository.ts")) {
+        errors.push("Expected src/lib/orders-repository.ts to be indexed.");
+      }
       if (indexedPaths.some((indexedPath) => indexedPath.includes(".next/"))) {
         errors.push(".next/ build output must not be indexed.");
       }
@@ -863,8 +875,20 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!indexedPaths.includes("docs/feature.md")) {
         errors.push("Expected docs/feature.md to be indexed.");
       }
+      if (!indexedPaths.includes("docs/architecture.md")) {
+        errors.push("Expected docs/architecture.md to be indexed.");
+      }
+      if (!indexedPaths.includes("docs/runbook.md")) {
+        errors.push("Expected docs/runbook.md to be indexed.");
+      }
       if (!indexedPaths.includes("src/checkout/service.ts")) {
         errors.push("Expected src/checkout/service.ts to be indexed.");
+      }
+      if (!indexedPaths.includes("src/checkout/controller.ts")) {
+        errors.push("Expected src/checkout/controller.ts to be indexed.");
+      }
+      if (!indexedPaths.includes("src/checkout/repository.ts")) {
+        errors.push("Expected src/checkout/repository.ts to be indexed.");
       }
       if (!result.scanPlan.nodes.some((node) => node.metadata?.scannerSymbolKind === "doc_section")) {
         errors.push("Expected doc_section nodes in mixed docs/code fixture.");
@@ -923,8 +947,17 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
       if (!result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "xaml_code_behind")) {
         errors.push("Expected XAML code-behind edges.");
       }
-      if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 6) {
+      if (fixtureName === "fixture-csharp-media-player" && symbolTitles.length < 8) {
         errors.push("Expected SampleMediaPlayer stand-in fixture to index multiple C# symbols.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("ObservableObject"))) {
+        errors.push("Expected ObservableObject base class in media-player fixture.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("IPlayerAdapter"))) {
+        errors.push("Expected IPlayerAdapter interface in media-player fixture.");
+      }
+      if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("AlphaHelperService"))) {
+        errors.push("Expected AlphaHelperService helper in media-player fixture.");
       }
       if (fixtureName === "fixture-csharp-media-player" && !symbolTitles.some((title) => title.includes("MpvPlayerAdapter"))) {
         errors.push("Expected MpvPlayerAdapter symbol in media-player fixture.");
@@ -1132,7 +1165,9 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
 async function scanFixture(fixturesRoot: string, fixtureName: string): Promise<FixtureScanBundle> {
   const fixturePath = path.join(fixturesRoot, fixtureName);
   const startedAt = Date.now();
-  const scan = await runKernelWorkspaceScan(fixturePath);
+  const scan = await runKernelWorkspaceScan(fixturePath, {
+    captureStageTimings: (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(fixtureName),
+  });
   return {
     fixture: fixtureName,
     scan,
@@ -1156,16 +1191,27 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
 
   const results = bundles.map(verifyFixture);
   const failed = results.filter((result) => !result.passed);
+  const releaseBundles = bundles.filter((bundle) =>
+    (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(bundle.fixture)
+  );
   const releaseSuite = evaluateReleaseBenchmarkSuite({
-    results: bundles
-      .filter((bundle) => (GRAPH_RELEASE_FIXTURE_IDS as readonly string[]).includes(bundle.fixture))
-      .map((bundle) => ({
-        fixture: bundle.fixture,
-        graph: bundle.scan.unifiedGraph,
-        kernelProfile: bundle.scan.kernelProfile,
-        scanMs: bundle.scanMs,
-      })),
+    results: releaseBundles.map((bundle) => ({
+      fixture: bundle.fixture,
+      graph: bundle.scan.unifiedGraph,
+      kernelProfile: bundle.scan.kernelProfile,
+      scanMs: bundle.scanMs,
+    })),
   });
+  const relevanceBaseline = evaluateGraphRelevanceBaselineSuite({
+    results: releaseBundles.map((bundle) => ({
+      fixture: bundle.fixture,
+      graph: bundle.scan.unifiedGraph,
+      stageTimings: bundle.scan.stageTimings,
+    })),
+  });
+  const pathQualityFailures = countGraphPathQualityFailures(
+    relevanceBaseline.results.flatMap((result) => result.pathQuality)
+  );
 
   const updateBenchmarkResults = await runGraphUpdateBenchmarkSuite({ fixturesRoot });
   const updateBenchmarkSuite = evaluateGraphUpdateBenchmarkSuite(updateBenchmarkResults);
@@ -1192,6 +1238,14 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       passed: releaseSuite.ok,
       errors: releaseSuite.errors,
       results: releaseSuite.releaseResults,
+      pathModelVersion: GRAPH_PATH_QUALITY_MODEL_VERSION,
+    },
+    pathQualityMeasured: {
+      measuredOnly: true,
+      modelVersion: GRAPH_PATH_QUALITY_MODEL_VERSION,
+      directnessFailures: pathQualityFailures.pathDirectnessFailures,
+      endpointFidelityFailures: pathQualityFailures.pathEndpointFidelityFailures,
+      hubDetourFailures: pathQualityFailures.pathHubDetourFailures,
     },
     updateBenchmarks: {
       passed: updateBenchmarkSuite.ok,
@@ -1203,6 +1257,16 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       passed: externalBenchmarkSuite.ok,
       errors: externalBenchmarkSuite.errors,
       results: externalBenchmarkSuite.results,
+    },
+    relevanceBaseline: {
+      version: relevanceBaseline.version,
+      pathQualityPassRate: relevanceBaseline.pathQualityPassRate,
+      queryModePassRate: relevanceBaseline.queryModePassRate,
+      guidanceConsistencyFailures: relevanceBaseline.guidanceConsistencyFailures,
+      measuredOnly: true,
+      passed: relevanceBaseline.ok,
+      errors: relevanceBaseline.errors,
+      results: relevanceBaseline.results,
     },
   };
 
@@ -1225,6 +1289,9 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     console.log(
       `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% readFirstFails=${readFirstGateFailures} hubStartFails=${hubStartGateFailures} docLinkFails=${docLinkGateFailures} pathDetourFails=${pathDetourFailures} totalScanMs=${payload.releaseGates.totalScanMs}`
     );
+    console.log(
+      `Path quality (measured only): model=${GRAPH_PATH_QUALITY_MODEL_VERSION} directnessFails=${pathQualityFailures.pathDirectnessFailures} endpointFails=${pathQualityFailures.pathEndpointFidelityFailures} hubDetourFails=${pathQualityFailures.pathHubDetourFailures}`
+    );
     for (const error of releaseSuite.errors) {
       console.log(`  - ${error}`);
     }
@@ -1234,6 +1301,12 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     }
     console.log(formatGraphExternalBenchmarkSummaryLine(externalBenchmarkSuite));
     for (const error of externalBenchmarkSuite.errors) {
+      console.log(`  - ${error}`);
+    }
+    console.log(
+      `Relevance baseline (measured only): pathQuality=${Math.round(relevanceBaseline.pathQualityPassRate * 100)}% queryMode=${Math.round(relevanceBaseline.queryModePassRate * 100)}% guidanceConsistencyFails=${relevanceBaseline.guidanceConsistencyFailures}`
+    );
+    for (const error of relevanceBaseline.errors.slice(0, 8)) {
       console.log(`  - ${error}`);
     }
     console.log(`Graph fixture verification: ${payload.passed ? "PASS" : "FAIL"} (${results.length} fixtures)`);

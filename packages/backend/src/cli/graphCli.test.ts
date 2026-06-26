@@ -444,4 +444,36 @@ describe("graph cli", () => {
     ]);
     expect(refreshed.fromCache).toBe(false);
   });
+
+  it("returns query intent metadata in graph:query JSON output", async () => {
+    const workspaceRoot = fixtureRoot("fixture-docs-mixed-code");
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+    const result = await runGraphQueryCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--mode",
+      "docs",
+      "how does checkout work",
+    ]);
+    expect(result.queryMode).toBe("docs");
+    expect(result.intent?.requestedMode).toBe("docs");
+    expect(result.intent?.effectiveMode).toBe("docs");
+    expect(result.mode).toBe("bfs");
+  });
+
+  it("ranks code mode toward code symbols on mixed docs/code fixture", async () => {
+    const workspaceRoot = fixtureRoot("fixture-docs-mixed-code");
+    const { runGraphQueryCli } = await import("./graphQuery.js");
+    const result = await runGraphQueryCli([
+      "--workspace",
+      workspaceRoot,
+      "--json",
+      "--mode",
+      "code",
+      "CheckoutController service",
+    ]);
+    expect(result.queryMode).toBe("code");
+    expect(result.seeds[0]?.label).toMatch(/CheckoutController|CheckoutService/i);
+  });
 });

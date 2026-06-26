@@ -37,6 +37,7 @@ const TOOL_DEFINITIONS = [
       properties: {
         workspace: { type: "string" },
         query: { type: "string" },
+        mode: { type: "string", enum: ["code", "docs", "balanced"] },
         lens: { type: "string" },
         budget: { type: "number" },
         refresh: { type: "boolean" },
@@ -95,6 +96,7 @@ const TOOL_DEFINITIONS = [
       properties: {
         workspace: { type: "string" },
         goal: { type: "string" },
+        mode: { type: "string", enum: ["code", "docs", "balanced"] },
         lens: { type: "string" },
         budget: { type: "number" },
         refresh: { type: "boolean" },
@@ -154,7 +156,8 @@ export function createOagMcpServer() {
           result = await mcpOagQuery({
             workspace: String(args.workspace),
             query: String(args.query),
-            lens: args.lens as never,
+            mode: args.mode !== undefined && args.mode !== null ? String(args.mode) : undefined,
+            lens: typeof args.lens === "string" ? args.lens as never : undefined,
             budget: typeof args.budget === "number" ? args.budget : undefined,
             refresh: Boolean(args.refresh),
           });
@@ -164,9 +167,9 @@ export function createOagMcpServer() {
             workspace: String(args.workspace),
             from: String(args.from),
             to: String(args.to),
-            mode: args.mode as never,
+            mode: args.mode !== undefined && args.mode !== null ? String(args.mode) : undefined,
             maxHops: typeof args.maxHops === "number" ? args.maxHops : undefined,
-            lens: args.lens as never,
+            lens: typeof args.lens === "string" ? args.lens as never : undefined,
             refresh: Boolean(args.refresh),
           });
           break;
@@ -188,7 +191,8 @@ export function createOagMcpServer() {
           result = await mcpOagContext({
             workspace: String(args.workspace),
             goal: typeof args.goal === "string" ? args.goal : undefined,
-            lens: args.lens as never,
+            mode: args.mode !== undefined && args.mode !== null ? String(args.mode) : undefined,
+            lens: typeof args.lens === "string" ? args.lens as never : undefined,
             budget: typeof args.budget === "number" ? args.budget : undefined,
             refresh: Boolean(args.refresh),
             redactRoot: args.redactRoot !== false,

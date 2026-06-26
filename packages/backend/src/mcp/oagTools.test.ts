@@ -36,4 +36,34 @@ describe("oag mcp tools", () => {
     expect(result.status).toBe("graph_context_ready");
     expect(result.retrievalHints.length).toBeGreaterThan(0);
   });
+
+  it("rejects semantic query mode at runtime", async () => {
+    const workspaceRoot = fixtureRoot("fixture-docs-mixed-code");
+    await expect(mcpOagQuery({
+      workspace: workspaceRoot,
+      query: "checkout",
+      mode: "semantic",
+    })).rejects.toThrow(/Unknown graph query mode/);
+  });
+
+  it("rejects semantic context mode at runtime", async () => {
+    const workspaceRoot = fixtureRoot("fixture-docs-mixed-code");
+    await expect(mcpOagContext({
+      workspace: workspaceRoot,
+      goal: "architecture",
+      mode: "semantic",
+    })).rejects.toThrow(/Unknown graph query mode/);
+  });
+
+  it("honors docs query mode in MCP query output", async () => {
+    const workspaceRoot = fixtureRoot("fixture-docs-mixed-code");
+    const result = await mcpOagQuery({
+      workspace: workspaceRoot,
+      query: "how does checkout work",
+      mode: "docs",
+      budget: 12,
+    });
+    expect(result.queryMode).toBe("docs");
+    expect(result.intent?.effectiveMode).toBe("docs");
+  });
 });

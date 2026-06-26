@@ -6,8 +6,10 @@ import {
   evaluateOagFusionChecks,
   retrieveOagById,
   summarizeEcosystemSupportForAgents,
+  parseGraphPathMode,
+  parseGraphQueryIntentMode,
 } from "@openagentgraph/shared";
-import type { GraphPathMode, GraphTaskLensId } from "@openagentgraph/shared";
+import type { GraphPathMode, GraphQueryIntentMode, GraphTaskLensId } from "@openagentgraph/shared";
 import { detectWorkspaceKernelProfile } from "../scanner/kernel/workspaceDetection.js";
 import { runOfflineKernelGraphExport } from "../cli/offlineGraphExport.js";
 import {
@@ -65,15 +67,18 @@ export async function mcpOagExport(input: {
 export async function mcpOagQuery(input: {
   workspace: string;
   query: string;
+  mode?: GraphQueryIntentMode | string;
   lens?: GraphTaskLensId;
   budget?: number;
   refresh?: boolean;
 }) {
   const workspaceRoot = requireWorkspaceOption(input.workspace);
   const loaded = await loadWorkspaceUnifiedGraph(workspaceRoot, { refresh: input.refresh ?? false });
+  const queryMode = input.mode === undefined ? "balanced" : parseGraphQueryIntentMode(String(input.mode));
   const result = queryUnifiedCodeGraph(loaded.graph, input.query, {
     budget: Math.min(input.budget ?? 20, MAX_RESPONSE_NODES),
     lens: input.lens,
+    intentMode: queryMode,
   });
   const ecosystemSupport = summarizeEcosystemSupportForAgents({
     graph: loaded.graph,
@@ -85,6 +90,9 @@ export async function mcpOagQuery(input: {
     workspaceRoot,
     fromCache: loaded.fromCache,
     query: result.query,
+    mode: result.mode,
+    queryMode: result.intent?.requestedMode ?? queryMode,
+    intent: result.intent,
     lens: input.lens ?? "all",
     truncated: result.truncated,
     ecosystemSupport,
@@ -101,15 +109,16 @@ export async function mcpOagPath(input: {
   workspace: string;
   from: string;
   to: string;
-  mode?: GraphPathMode;
+  mode?: GraphPathMode | string;
   maxHops?: number;
   lens?: GraphTaskLensId;
   refresh?: boolean;
 }) {
   const workspaceRoot = requireWorkspaceOption(input.workspace);
   const loaded = await loadWorkspaceUnifiedGraph(workspaceRoot, { refresh: input.refresh ?? false });
+  const pathMode = input.mode === undefined ? "balanced" : parseGraphPathMode(String(input.mode));
   const result = findGraphPath(loaded.graph, input.from, input.to, {
-    mode: input.mode ?? "balanced",
+    mode: pathMode,
     maxHops: input.maxHops ?? 8,
     lens: input.lens,
   });
@@ -119,7 +128,7 @@ export async function mcpOagPath(input: {
     workspaceRoot,
     from: input.from,
     to: input.to,
-    mode: input.mode ?? "balanced",
+    mode: pathMode,
     found: result.found,
     nodes: boundArray(result.nodes, MAX_RESPONSE_NODES),
     edges: boundArray(result.edges, MAX_RESPONSE_EDGES),
@@ -187,6 +196,7 @@ export async function mcpOagCheck(input: {
 export async function mcpOagContext(input: {
   workspace: string;
   goal?: string;
+  mode?: GraphQueryIntentMode | string;
   lens?: GraphTaskLensId;
   budget?: number;
   refresh?: boolean;
@@ -196,9 +206,11 @@ export async function mcpOagContext(input: {
   const loaded = await loadWorkspaceUnifiedGraph(workspaceRoot, { refresh: input.refresh ?? false });
   const kernelProfile = loaded.kernelProfile ?? await detectWorkspaceKernelProfile(workspaceRoot);
   const handoffFreshness = await readHandoffFreshness(workspaceRoot, loaded.graph.generatedAt);
+  const queryMode = input.mode === undefined ? undefined : parseGraphQueryIntentMode(String(input.mode));
 
   const pack = buildGraphAgentContextPack(loaded.graph, {
     goal: input.goal,
+    queryMode,
     lens: input.lens,
     budget: input.budget ?? 12_000,
     workspaceRoot,

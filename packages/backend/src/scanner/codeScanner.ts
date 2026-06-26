@@ -16,7 +16,7 @@ import type {
   ScannerCommunityFileInput,
   WorkspaceKernelProfile,
 } from "@openagentgraph/shared";
-import { buildScannerCommunityAssignments } from "@openagentgraph/shared";
+import { buildScannerCommunityAssignments, GraphWorkflowTimingCollector } from "@openagentgraph/shared";
 import {
   DEFAULT_LIGHTWEIGHT_SCAN_LIMITS,
   DEFAULT_SEMANTIC_SCAN_LIMITS,
@@ -2711,17 +2711,21 @@ export async function scanWorkspaceCodebase(input: {
   disableDartStructuralLite?: boolean;
   disableGameEngineStructuralLite?: boolean;
   onProgress?: (snapshot: ScanProgressSnapshot) => void;
+  workflowTiming?: GraphWorkflowTimingCollector;
 }): Promise<CodebaseScanPlan> {
   const start = Date.now();
   const scanId = createHash("sha1").update(`${input.workspaceRoot}:${start}`).digest("hex").slice(0, 12);
   const scannedAt = new Date(start).toISOString();
   const workspaceRoot = await safeRealpath(input.workspaceRoot);
-  const { files, stats } = await collectFiles(workspaceRoot, {
+  const collectFilesWork = () => collectFiles(workspaceRoot, {
     scanId,
     startedAt: start,
     limits: input.scanLimits,
     onProgress: input.onProgress,
   });
+  const { files, stats } = input.workflowTiming
+    ? await input.workflowTiming.measure("file_collection", collectFilesWork)
+    : await collectFilesWork();
   const workspaceProfile = await detectWorkspaceScanProfile(workspaceRoot, {
     sourceExtensionCounts: stats.sourceExtensionCounts,
     skippedDirectoryCounts: stats.skippedDirectoryCounts,
@@ -2759,209 +2763,257 @@ export async function scanWorkspaceCodebase(input: {
   const dotnetFileBodies = new Map<string, string>();
   const dotnetSymbolLookup = createDotNetSymbolLookup();
 
-  for (const file of files) {
-    const scannedFile = await buildScannedFile(file, scanId, scannedAt, {
-      promoteMethodNodes: input.promoteMethodNodes,
-    });
-    scannedFiles.push(scannedFile);
-    skippedFileCount += scannedFile.skippedFileCount;
-    if (!scannedFile.fileNode) continue;
-    fileNodeIdsByPath.set(scannedFile.file.relativePath, scannedFile.fileNode.id);
-    scannedFileRecords.push({ filePath: scannedFile.file.relativePath, fileNodeId: scannedFile.fileNode.id });
-    dependencySpecs.push(...scannedFile.dependencySpecs);
-    nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
-    for (const symbolNode of scannedFile.symbolNodes) {
-      nodesById.set(symbolNode.id, symbolNode);
-      registerDotNetSymbolNode(dotnetSymbolLookup, {
-        filePath: scannedFile.file.relativePath,
-        symbolId: symbolNode.id,
-        kind: typeof symbolNode.metadata?.scannerSymbolKind === "string"
-          ? symbolNode.metadata.scannerSymbolKind
-          : undefined,
-        name: typeof symbolNode.metadata?.scannerSymbolName === "string"
-          ? symbolNode.metadata.scannerSymbolName
-          : undefined,
-        parentType: typeof symbolNode.metadata?.scannerSymbolParentType === "string"
-          ? symbolNode.metadata.scannerSymbolParentType
-          : undefined,
+  const runStructuralIndexing = async () => {
+    for (const file of files) {
+      const scannedFile = await buildScannedFile(file, scanId, scannedAt, {
+        promoteMethodNodes: input.promoteMethodNodes,
       });
-    }
-    for (const edge of scannedFile.edges) {
-      edgesById.set(edge.id, edge);
-    }
-    const extension = path.extname(file.relativePath).toLowerCase();
-    if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension) || extension === ".xaml") {
-      try {
-        dotnetFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
-      } catch {
-        // File bodies are optional for workspace-level .NET graph augmentation.
+      scannedFiles.push(scannedFile);
+      skippedFileCount += scannedFile.skippedFileCount;
+      if (!scannedFile.fileNode) continue;
+      fileNodeIdsByPath.set(scannedFile.file.relativePath, scannedFile.fileNode.id);
+      scannedFileRecords.push({ filePath: scannedFile.file.relativePath, fileNodeId: scannedFile.fileNode.id });
+      dependencySpecs.push(...scannedFile.dependencySpecs);
+      nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
+      for (const symbolNode of scannedFile.symbolNodes) {
+        nodesById.set(symbolNode.id, symbolNode);
+        registerDotNetSymbolNode(dotnetSymbolLookup, {
+          filePath: scannedFile.file.relativePath,
+          symbolId: symbolNode.id,
+          kind: typeof symbolNode.metadata?.scannerSymbolKind === "string"
+            ? symbolNode.metadata.scannerSymbolKind
+            : undefined,
+          name: typeof symbolNode.metadata?.scannerSymbolName === "string"
+            ? symbolNode.metadata.scannerSymbolName
+            : undefined,
+          parentType: typeof symbolNode.metadata?.scannerSymbolParentType === "string"
+            ? symbolNode.metadata.scannerSymbolParentType
+            : undefined,
+        });
+      }
+      for (const edge of scannedFile.edges) {
+        edgesById.set(edge.id, edge);
+      }
+      const extension = path.extname(file.relativePath).toLowerCase();
+      if (isDotNetSourceExtension(extension) || isDotNetConfigExtension(extension) || extension === ".xaml") {
+        try {
+          dotnetFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+        } catch {
+          // File bodies are optional for workspace-level .NET graph augmentation.
+        }
       }
     }
+  };
+  if (input.workflowTiming) {
+    await input.workflowTiming.measure("structural_indexing", runStructuralIndexing);
+  } else {
+    await runStructuralIndexing();
   }
 
   const ecosystemFileBodies = new Map<string, string>();
   const scriptFileBodies = new Map<string, string>();
-  for (const file of files) {
-    const extension = path.extname(file.relativePath).toLowerCase();
-    const fileName = path.basename(file.relativePath);
-    if (isScriptScannableExtension(extension)) {
-      try {
-        scriptFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
-      } catch {
-        // File bodies are optional for workspace-level script graph augmentation.
+  const runEcosystemAugmentation = async () => {
+    for (const file of files) {
+      const extension = path.extname(file.relativePath).toLowerCase();
+      const fileName = path.basename(file.relativePath);
+      if (isScriptScannableExtension(extension)) {
+        try {
+          scriptFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+        } catch {
+          // File bodies are optional for workspace-level script graph augmentation.
+        }
+        continue;
       }
-      continue;
+      if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
+        continue;
+      }
+      try {
+        ecosystemFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
+      } catch {
+        // File bodies are optional for workspace-level ecosystem graph augmentation.
+      }
     }
-    if (extension !== ".tf" && !isEcosystemScannableExtension(extension) && !isEcosystemConfigFileName(fileName)) {
-      continue;
-    }
-    try {
-      ecosystemFileBodies.set(file.relativePath, await fs.readFile(file.absolutePath, "utf8"));
-    } catch {
-      // File bodies are optional for workspace-level ecosystem graph augmentation.
-    }
-  }
-  const ecosystemFiles = files
-    .filter((file) => ecosystemFileBodies.has(file.relativePath))
-    .map((file) => ({
-      relativePath: file.relativePath,
-      body: ecosystemFileBodies.get(file.relativePath) ?? "",
-    }));
-  const documentationLookups = buildDocumentationGraphLookups(nodesById);
-  const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
-    scanId,
-    scannedAt,
-    files: ecosystemFiles,
-    fileNodeIdsByPath,
-    docSectionNodeIdsByKey: documentationLookups.docSectionNodeIdsByKey,
-    symbolNodeIdsBySimpleName: documentationLookups.symbolNodeIdsBySimpleName,
-    stableId: stableProductId,
-    compactMetadata,
-    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
-    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
-  });
-  for (const edge of ecosystemWorkspace.edges) {
-    edgesById.set(edge.id, edge);
-  }
-  for (const externalNode of ecosystemWorkspace.externalNodes) {
-    nodesById.set(externalNode.id, externalNode);
-  }
-  const javaKotlinSemanticLite = await mergeJavaKotlinSemanticLiteGraph({
-    workspaceRoot,
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableJavaKotlinSemanticLite,
-  });
-  const phpSemanticLite = await mergePhpSemanticLiteGraph({
-    workspaceRoot,
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disablePhpSemanticLite,
-  });
-  const rubySemanticLite = await mergeRubySemanticLiteGraph({
-    workspaceRoot,
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableRubySemanticLite,
-  });
-  const swiftStructuralLite = mergeSwiftStructuralLiteGraph({
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableSwiftStructuralLite,
-  });
-  const cppStructuralLite = mergeCppStructuralLiteGraph({
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableCppStructuralLite,
-  });
-  const dartStructuralLite = mergeDartStructuralLiteGraph({
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableDartStructuralLite,
-  });
-  const gameEngineStructuralLite = mergeGameEngineStructuralLiteGraph({
-    activeScannerIds: kernelProfile.activeScannerIds,
-    ecosystemFiles,
-    fileNodeIdsByPath,
-    nodesById,
-    edgesById,
-    scanId,
-    scannedAt,
-    disabled: input.disableGameEngineStructuralLite,
-  });
-
-  const dotnetWorkspace = augmentDotNetWorkspaceGraph({
-    workspaceRoot,
-    scanId,
-    scannedAt,
-    files: files
-      .filter((file) => dotnetFileBodies.has(file.relativePath))
-      .map((file) => ({ relativePath: file.relativePath, body: dotnetFileBodies.get(file.relativePath) })),
-    fileNodeIdsByPath,
-    symbolLookup: dotnetSymbolLookup,
-    stableId: stableProductId,
-    compactMetadata,
-    sourceRef: codeScanSourceRef,
-    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
-  });
-  for (const edge of dotnetWorkspace.edges) {
-    edgesById.set(edge.id, edge);
-  }
-  for (const externalNode of dotnetWorkspace.externalNodes) {
-    nodesById.set(externalNode.id, externalNode);
-  }
-
-  const scriptWorkspace = augmentScriptWorkspaceGraph({
-    scanId,
-    scannedAt,
-    files: files
-      .filter((file) => scriptFileBodies.has(file.relativePath))
+    const ecosystemFiles = files
+      .filter((file) => ecosystemFileBodies.has(file.relativePath))
       .map((file) => ({
         relativePath: file.relativePath,
-        body: scriptFileBodies.get(file.relativePath) ?? "",
-      })),
-    fileNodeIdsByPath,
-    stableId: stableProductId,
-    compactMetadata,
-    maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
-    maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
-  });
-  for (const edge of scriptWorkspace.edges) {
-    edgesById.set(edge.id, edge);
-  }
-  for (const externalNode of scriptWorkspace.externalNodes) {
-    nodesById.set(externalNode.id, externalNode);
-  }
+        body: ecosystemFileBodies.get(file.relativePath) ?? "",
+      }));
+    const documentationLookups = buildDocumentationGraphLookups(nodesById);
+    const ecosystemWorkspace = augmentEcosystemWorkspaceGraph({
+      scanId,
+      scannedAt,
+      files: ecosystemFiles,
+      fileNodeIdsByPath,
+      docSectionNodeIdsByKey: documentationLookups.docSectionNodeIdsByKey,
+      symbolNodeIdsBySimpleName: documentationLookups.symbolNodeIdsBySimpleName,
+      stableId: stableProductId,
+      compactMetadata,
+      maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+      maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+      workflowTiming: input.workflowTiming,
+    });
+    for (const edge of ecosystemWorkspace.edges) {
+      edgesById.set(edge.id, edge);
+    }
+    for (const externalNode of ecosystemWorkspace.externalNodes) {
+      nodesById.set(externalNode.id, externalNode);
+    }
+    input.workflowTiming?.start("ecosystem_augmentation");
+    let javaKotlinSemanticLite;
+    let phpSemanticLite;
+    let rubySemanticLite;
+    let swiftStructuralLite;
+    let cppStructuralLite;
+    let dartStructuralLite;
+    let gameEngineStructuralLite;
+    let dotnetWorkspace;
+    let scriptWorkspace;
+    try {
+    javaKotlinSemanticLite = await mergeJavaKotlinSemanticLiteGraph({
+      workspaceRoot,
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableJavaKotlinSemanticLite,
+    });
+    phpSemanticLite = await mergePhpSemanticLiteGraph({
+      workspaceRoot,
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disablePhpSemanticLite,
+    });
+    rubySemanticLite = await mergeRubySemanticLiteGraph({
+      workspaceRoot,
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableRubySemanticLite,
+    });
+    swiftStructuralLite = mergeSwiftStructuralLiteGraph({
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableSwiftStructuralLite,
+    });
+    cppStructuralLite = mergeCppStructuralLiteGraph({
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableCppStructuralLite,
+    });
+    dartStructuralLite = mergeDartStructuralLiteGraph({
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableDartStructuralLite,
+    });
+    gameEngineStructuralLite = mergeGameEngineStructuralLiteGraph({
+      activeScannerIds: kernelProfile.activeScannerIds,
+      ecosystemFiles,
+      fileNodeIdsByPath,
+      nodesById,
+      edgesById,
+      scanId,
+      scannedAt,
+      disabled: input.disableGameEngineStructuralLite,
+    });
+
+    dotnetWorkspace = augmentDotNetWorkspaceGraph({
+      workspaceRoot,
+      scanId,
+      scannedAt,
+      files: files
+        .filter((file) => dotnetFileBodies.has(file.relativePath))
+        .map((file) => ({ relativePath: file.relativePath, body: dotnetFileBodies.get(file.relativePath) })),
+      fileNodeIdsByPath,
+      symbolLookup: dotnetSymbolLookup,
+      stableId: stableProductId,
+      compactMetadata,
+      sourceRef: codeScanSourceRef,
+      maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+    });
+    for (const edge of dotnetWorkspace.edges) {
+      edgesById.set(edge.id, edge);
+    }
+    for (const externalNode of dotnetWorkspace.externalNodes) {
+      nodesById.set(externalNode.id, externalNode);
+    }
+
+    scriptWorkspace = augmentScriptWorkspaceGraph({
+      scanId,
+      scannedAt,
+      files: files
+        .filter((file) => scriptFileBodies.has(file.relativePath))
+        .map((file) => ({
+          relativePath: file.relativePath,
+          body: scriptFileBodies.get(file.relativePath) ?? "",
+        })),
+      fileNodeIdsByPath,
+      stableId: stableProductId,
+      compactMetadata,
+      maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
+      maxTitleLength: MAX_PRODUCT_NODE_TITLE_LENGTH,
+    });
+    for (const edge of scriptWorkspace.edges) {
+      edgesById.set(edge.id, edge);
+    }
+    for (const externalNode of scriptWorkspace.externalNodes) {
+      nodesById.set(externalNode.id, externalNode);
+    }
+    } finally {
+      input.workflowTiming?.end("ecosystem_augmentation");
+    }
+
+    return {
+      ecosystemDiagnostics: ecosystemWorkspace.diagnostics,
+      scriptDiagnostics: scriptWorkspace.diagnostics,
+      javaKotlinSemanticLite,
+      phpSemanticLite,
+      rubySemanticLite,
+      swiftStructuralLite,
+      cppStructuralLite,
+      dartStructuralLite,
+      gameEngineStructuralLite,
+    };
+  };
+  const ecosystemAugmentationResult = await runEcosystemAugmentation();
+  const {
+    ecosystemDiagnostics,
+    scriptDiagnostics,
+    javaKotlinSemanticLite,
+    phpSemanticLite,
+    rubySemanticLite,
+    swiftStructuralLite,
+    cppStructuralLite,
+    dartStructuralLite,
+    gameEngineStructuralLite,
+  } = ecosystemAugmentationResult;
 
   let dotnetRoslynSemantic: DotNetRoslynSemanticResult | undefined;
   if (kernelProfile.activeScannerIds.includes("dotnet")) {
@@ -2983,13 +3035,13 @@ export async function scanWorkspaceCodebase(input: {
       sourceRef: codeScanSourceRef,
       maxEdgeLabelLength: MAX_PRODUCT_EDGE_LABEL_LENGTH,
       disabled: input.disableDotNetRoslynSemantic,
+      workflowTiming: input.workflowTiming,
     });
     for (const edge of dotnetRoslynSemantic.edges) {
       edgesById.set(edge.id, edge);
     }
   }
 
-  let semanticAnalysis: SemanticAnalysisContext;
   const semanticLimits = normalizeScanBreakerLimits(input.semanticScanLimits, DEFAULT_SEMANTIC_SCAN_LIMITS);
   const semanticBreakers = createScanBreakerStatus(semanticLimits);
   const typescriptSemanticApplicable = semanticEligibleFiles.length > 0;
@@ -2999,103 +3051,124 @@ export async function scanWorkspaceCodebase(input: {
     maxDurationMs: input.semanticAnalysisBudget?.maxDurationMs ?? semanticLimits.maxDurationMs,
     now: input.semanticAnalysisBudget?.now,
   });
-  if (typescriptSemanticApplicable) {
-    input.onProgress?.(buildScanProgressSnapshot({
-      scanId,
-      scope: "product_codebase",
-      phase: "semantic_analysis",
-      startedAtMs: start,
-      filesScanned: stats.filesScanned,
-      bytesScanned: stats.totalBytes,
-      skippedFileCount,
-      skippedDirectoryCount: stats.skippedDirectoryCount,
-      breakers: semanticBreakers,
-      message: "Running TypeScript/JavaScript semantic analysis when available.",
-    }));
-    try {
-      semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, semanticEligibleFiles, semanticBudget);
-    } catch (error) {
+  const runTypeScriptSemanticAnalysis = async () => {
+    let semanticAnalysis: SemanticAnalysisContext;
+    if (typescriptSemanticApplicable) {
+      input.onProgress?.(buildScanProgressSnapshot({
+        scanId,
+        scope: "product_codebase",
+        phase: "semantic_analysis",
+        startedAtMs: start,
+        filesScanned: stats.filesScanned,
+        bytesScanned: stats.totalBytes,
+        skippedFileCount,
+        skippedDirectoryCount: stats.skippedDirectoryCount,
+        breakers: semanticBreakers,
+        message: "Running TypeScript/JavaScript semantic analysis when available.",
+      }));
+      try {
+        semanticAnalysis = await buildSemanticAnalysisContext(workspaceRoot, semanticEligibleFiles, semanticBudget);
+      } catch (error) {
+        semanticAnalysis = {
+          enabled: true,
+          succeeded: false,
+          fallbackReason: error instanceof Error ? boundedReason(error.message) : "TypeScript semantic analysis initialization failed.",
+          workspaceRoot,
+          contextsBySourcePath: new Map(),
+          configCount: 0,
+          configuredFileCount: 0,
+          syntheticFileCount: 0,
+          unconfiguredFileCount: semanticEligibleFiles.length,
+          configPaths: [],
+        };
+      }
+    } else {
       semanticAnalysis = {
-        enabled: true,
+        enabled: false,
         succeeded: false,
-        fallbackReason: error instanceof Error ? boundedReason(error.message) : "TypeScript semantic analysis initialization failed.",
         workspaceRoot,
         contextsBySourcePath: new Map(),
         configCount: 0,
         configuredFileCount: 0,
         syntheticFileCount: 0,
-        unconfiguredFileCount: semanticEligibleFiles.length,
+        unconfiguredFileCount: 0,
         configPaths: [],
       };
     }
-  } else {
-    semanticAnalysis = {
-      enabled: false,
-      succeeded: false,
-      workspaceRoot,
-      contextsBySourcePath: new Map(),
-      configCount: 0,
-      configuredFileCount: 0,
-      syntheticFileCount: 0,
-      unconfiguredFileCount: 0,
-      configPaths: [],
-    };
-  }
-  if (typescriptSemanticApplicable && !semanticAnalysis.succeeded && semanticAnalysis.fallbackReason) {
-    if (semanticAnalysis.fallbackReason.includes("files exceeds budget")) {
-      markScanBreakerHit(semanticBreakers, "maxFiles", files.length, semanticAnalysis.fallbackReason);
-    } else if (semanticAnalysis.fallbackReason.includes("bytes exceeds budget")) {
-      markScanBreakerHit(semanticBreakers, "maxTotalBytes", semanticBudget.totalBytes, semanticAnalysis.fallbackReason);
-    } else if (semanticAnalysis.fallbackReason.includes("reached budget")) {
-      markScanBreakerHit(semanticBreakers, "maxDurationMs", semanticBudget.now() - semanticBudget.startedAt, semanticAnalysis.fallbackReason);
-    }
-  } else if (typescriptSemanticApplicable) {
-    updateScanBreakerNear(semanticBreakers, {
-      maxFiles: files.length,
-      maxTotalBytes: semanticBudget.totalBytes,
-      maxDurationMs: semanticBudget.now() - semanticBudget.startedAt,
-    });
-  }
-  const dependencyGraph = buildDependencyEdges({
-    dependencySpecs,
-    fileNodeIdsByPath,
-    semanticAnalysis,
-    scanId,
-    scannedAt,
-  });
-  for (const scannedFile of scannedFiles) {
-    if (!scannedFile.fileNode) continue;
-    updateFileDependencyMetadata(
-      scannedFile.fileNode,
-      dependencyGraph.dependencyStatsBySource.get(scannedFile.file.relativePath)
-    );
-    nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
-  }
-  for (const edge of dependencyGraph.edges) {
-    edgesById.set(edge.id, edge);
-  }
-
-  let semanticAnalysisSucceeded = semanticAnalysis.succeeded;
-  let semanticFallbackReason = semanticAnalysis.fallbackReason;
-  let semanticSymbolEdges: ProductGraphEdge[] = [];
-  if (semanticAnalysis.succeeded) {
-    try {
-      semanticSymbolEdges = buildSemanticSymbolEdges({
-        semanticAnalysis,
-        nodes: nodesById.values(),
-        scanId,
-        scannedAt,
-      });
-      for (const edge of semanticSymbolEdges) {
-        edgesById.set(edge.id, edge);
+    if (typescriptSemanticApplicable && !semanticAnalysis.succeeded && semanticAnalysis.fallbackReason) {
+      if (semanticAnalysis.fallbackReason.includes("files exceeds budget")) {
+        markScanBreakerHit(semanticBreakers, "maxFiles", files.length, semanticAnalysis.fallbackReason);
+      } else if (semanticAnalysis.fallbackReason.includes("bytes exceeds budget")) {
+        markScanBreakerHit(semanticBreakers, "maxTotalBytes", semanticBudget.totalBytes, semanticAnalysis.fallbackReason);
+      } else if (semanticAnalysis.fallbackReason.includes("reached budget")) {
+        markScanBreakerHit(semanticBreakers, "maxDurationMs", semanticBudget.now() - semanticBudget.startedAt, semanticAnalysis.fallbackReason);
       }
-    } catch (error) {
-      semanticAnalysisSucceeded = false;
-      semanticFallbackReason = error instanceof Error
-        ? boundedReason(error.message)
-        : "Semantic symbol analysis failed.";
+    } else if (typescriptSemanticApplicable) {
+      updateScanBreakerNear(semanticBreakers, {
+        maxFiles: files.length,
+        maxTotalBytes: semanticBudget.totalBytes,
+        maxDurationMs: semanticBudget.now() - semanticBudget.startedAt,
+      });
     }
-  }
+    const dependencyGraph = buildDependencyEdges({
+      dependencySpecs,
+      fileNodeIdsByPath,
+      semanticAnalysis,
+      scanId,
+      scannedAt,
+    });
+    for (const scannedFile of scannedFiles) {
+      if (!scannedFile.fileNode) continue;
+      updateFileDependencyMetadata(
+        scannedFile.fileNode,
+        dependencyGraph.dependencyStatsBySource.get(scannedFile.file.relativePath)
+      );
+      nodesById.set(scannedFile.fileNode.id, scannedFile.fileNode);
+    }
+    for (const edge of dependencyGraph.edges) {
+      edgesById.set(edge.id, edge);
+    }
+
+    let semanticAnalysisSucceeded = semanticAnalysis.succeeded;
+    let semanticFallbackReason = semanticAnalysis.fallbackReason;
+    let semanticSymbolEdges: ProductGraphEdge[] = [];
+    if (semanticAnalysis.succeeded) {
+      try {
+        semanticSymbolEdges = buildSemanticSymbolEdges({
+          semanticAnalysis,
+          nodes: nodesById.values(),
+          scanId,
+          scannedAt,
+        });
+        for (const edge of semanticSymbolEdges) {
+          edgesById.set(edge.id, edge);
+        }
+      } catch (error) {
+        semanticAnalysisSucceeded = false;
+        semanticFallbackReason = error instanceof Error
+          ? boundedReason(error.message)
+          : "Semantic symbol analysis failed.";
+      }
+    }
+
+    return {
+      semanticAnalysis,
+      dependencyGraph,
+      semanticAnalysisSucceeded,
+      semanticFallbackReason,
+      semanticSymbolEdges,
+    };
+  };
+  const typescriptSemantic = input.workflowTiming && typescriptSemanticApplicable
+    ? await input.workflowTiming.measure("typescript_semantic_analysis", runTypeScriptSemanticAnalysis)
+    : await runTypeScriptSemanticAnalysis();
+  const {
+    semanticAnalysis,
+    dependencyGraph,
+    semanticAnalysisSucceeded,
+    semanticFallbackReason,
+    semanticSymbolEdges,
+  } = typescriptSemantic;
 
   const semanticModuleEdgeCount = dependencyGraph.edges.filter((edge) => edge.metadata?.scannerResolution === "semantic").length;
   const communityGraph = buildCommunityGraph({
@@ -3194,8 +3267,8 @@ export async function scanWorkspaceCodebase(input: {
     ...(cppStructuralLite?.diagnostics ?? []),
     ...(dartStructuralLite?.diagnostics ?? []),
     ...(gameEngineStructuralLite?.diagnostics ?? []),
-    ...(ecosystemWorkspace.diagnostics ?? []),
-    ...(scriptWorkspace.diagnostics ?? []),
+    ...(ecosystemDiagnostics ?? []),
+    ...(scriptDiagnostics ?? []),
   ];
   const analyzers = [
     dotnetRoslynSemantic?.analyzer,

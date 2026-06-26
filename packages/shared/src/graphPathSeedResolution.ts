@@ -169,6 +169,24 @@ export function scoreGraphNodeForPathResolution(
         matchReason = "class symbol";
       }
     }
+    if (node.label.includes("(interface)")) {
+      const interfaceName = symbolClassName(node.label);
+      if (interfaceName === normalizedQuery) {
+        score += 1_200;
+        matchReason = "interface name";
+      }
+      if (isSimpleIdentifierQuery(query)) {
+        score -= 1_500;
+        if (score <= 0) matchReason = "interface penalty";
+      }
+    }
+    if (/\(field\)|\(property\)/i.test(node.label) && isSimpleIdentifierQuery(query)) {
+      const owner = node.label.split(".")[0]?.trim() ?? "";
+      if (normalizeSearchText(owner) === normalizedQuery) {
+        score -= 2_800;
+        matchReason = "field penalty";
+      }
+    }
     if (/\(function\)|\(method\)/i.test(node.label) && fileQuery) {
       score -= 1_800;
       if (score > 0) matchReason = "inner callable";

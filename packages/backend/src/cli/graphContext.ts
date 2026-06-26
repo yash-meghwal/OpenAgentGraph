@@ -37,7 +37,7 @@ function parseGraphContextArgv(argv: string[]) {
     }
   }
 
-  const parsed = parseGraphWorkspaceArgv(stripped);
+  const parsed = parseGraphWorkspaceArgv(stripped, "context");
   if (parsed.positionals.length > 0) {
     throw new Error(`Unknown graph:context arguments: ${parsed.positionals.join(" ")}`);
   }
@@ -47,7 +47,7 @@ function parseGraphContextArgv(argv: string[]) {
 
 export async function runGraphContextCli(argv = process.argv.slice(2)) {
   const { graphOptions, contextOptions } = parseGraphContextArgv(argv);
-  if (!graphOptions.json) warnIgnoredGraphCliOptions("generic", graphOptions);
+  if (!graphOptions.json) warnIgnoredGraphCliOptions("context", graphOptions);
   const workspaceRoot = requireWorkspaceOption(graphOptions.workspace);
   const loaded = await loadWorkspaceUnifiedGraph(workspaceRoot, { refresh: graphOptions.refresh });
   const kernelProfile = loaded.kernelProfile ?? await detectWorkspaceKernelProfile(workspaceRoot);
@@ -55,6 +55,7 @@ export async function runGraphContextCli(argv = process.argv.slice(2)) {
 
   const pack = buildGraphAgentContextPack(loaded.graph, {
     goal: contextOptions.goal,
+    queryMode: graphOptions.queryMode,
     lens: graphOptions.lens,
     budget: graphOptions.budget !== 40 ? graphOptions.budget : 12_000,
     workspaceRoot,

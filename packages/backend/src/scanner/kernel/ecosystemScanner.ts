@@ -1,5 +1,5 @@
 import path from "path";
-import type { ProductGraphEdge, ProductGraphNode, ProductMetadataValue } from "@openagentgraph/shared";
+import type { GraphWorkflowTimingCollector, ProductGraphEdge, ProductGraphNode, ProductMetadataValue } from "@openagentgraph/shared";
 import { parseCppFile } from "./cppParsing.js";
 import { parseCMakeLists, parseCompileCommands } from "./cppProjectParsing.js";
 import { parseDartFile } from "./dartParsing.js";
@@ -1560,6 +1560,7 @@ export function augmentEcosystemWorkspaceGraph(input: {
   compactMetadata: (values: Record<string, ProductMetadataValue | undefined>) => Record<string, ProductMetadataValue> | undefined;
   maxEdgeLabelLength: number;
   maxTitleLength?: number;
+  workflowTiming?: GraphWorkflowTimingCollector;
 }) {
   const edges: ProductGraphEdge[] = [];
   const diagnostics: string[] = [];
@@ -1567,6 +1568,9 @@ export function augmentEcosystemWorkspaceGraph(input: {
   const terraformModules = new Map<string, string>();
   const javaKotlinIndex = buildJavaKotlinWorkspaceIndex(input.files);
 
+  const timing = input.workflowTiming;
+  timing?.start("ecosystem_augmentation");
+  try {
   for (const file of input.files) {
     const extension = path.extname(file.relativePath).toLowerCase();
     if (extension === ".py" || extension === ".go" || extension === ".rs") {
@@ -1735,17 +1739,27 @@ export function augmentEcosystemWorkspaceGraph(input: {
     }
   }
 
-  const documentation = augmentDocumentationWorkspaceGraph({
-    scanId: input.scanId,
-    scannedAt: input.scannedAt,
-    files: input.files,
-    fileNodeIdsByPath: input.fileNodeIdsByPath,
-    docSectionNodeIdsByKey: input.docSectionNodeIdsByKey ?? new Map(),
-    symbolNodeIdsBySimpleName: input.symbolNodeIdsBySimpleName ?? new Map(),
-    stableId: input.stableId,
-    compactMetadata: input.compactMetadata,
-    maxEdgeLabelLength: input.maxEdgeLabelLength,
-  });
+  } finally {
+    timing?.end("ecosystem_augmentation");
+  }
+
+  timing?.start("documentation_indexing");
+  let documentation;
+  try {
+    documentation = augmentDocumentationWorkspaceGraph({
+      scanId: input.scanId,
+      scannedAt: input.scannedAt,
+      files: input.files,
+      fileNodeIdsByPath: input.fileNodeIdsByPath,
+      docSectionNodeIdsByKey: input.docSectionNodeIdsByKey ?? new Map(),
+      symbolNodeIdsBySimpleName: input.symbolNodeIdsBySimpleName ?? new Map(),
+      stableId: input.stableId,
+      compactMetadata: input.compactMetadata,
+      maxEdgeLabelLength: input.maxEdgeLabelLength,
+    });
+  } finally {
+    timing?.end("documentation_indexing");
+  }
   edges.push(...documentation.edges);
   diagnostics.push(...documentation.diagnostics);
 

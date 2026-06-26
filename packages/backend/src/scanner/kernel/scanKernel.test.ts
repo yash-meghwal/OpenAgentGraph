@@ -1,7 +1,9 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runKernelWorkspaceScan } from "./scanKernel.js";
+
+vi.setConfig({ testTimeout: 60_000 });
 
 function repoRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -103,6 +105,19 @@ describe("scan kernel", () => {
     expect(indexedPaths).toContain("scenes/main.tscn");
     expect(indexedPaths.some((title) => title.includes(".godot/"))).toBe(false);
     expect(result.scanPlan.edges.some((edge) => edge.metadata?.scannerRelation === "autoload")).toBe(true);
+  });
+
+  it("captures optional stage timings without changing scan output", async () => {
+    const result = await runKernelWorkspaceScan(fixtureRoot("fixture-empty"), { captureStageTimings: true });
+    const stageIds = result.stageTimings?.stages.map((entry) => entry.stage) ?? [];
+    expect(stageIds).toEqual(expect.arrayContaining([
+      "workspace_detection",
+      "file_collection",
+      "structural_indexing",
+      "community_construction",
+    ]));
+    expect(result.stageTimings?.totalMs).toBeGreaterThan(0);
+    expect(result.unifiedGraph.nodes.length).toBeGreaterThan(0);
   });
 
   it("respects gitignore dist output and records skip diagnostics", async () => {

@@ -111,8 +111,42 @@ describe("parseGraphWorkspaceArgv", () => {
       "semantic",
       "from",
       "to",
-    ]);
+    ], "path");
     expect(parsed.options.pathMode).toBe("semantic");
+  });
+
+  it("parses graph:query --mode code", () => {
+    const parsed = parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--mode",
+      "code",
+      "CheckoutController",
+    ], "query");
+    expect(parsed.options.queryMode).toBe("code");
+  });
+
+  it("rejects unknown graph:query modes", () => {
+    expect(() => parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--mode",
+      "semantic",
+      "query",
+    ], "query")).toThrow(/Unknown graph query mode/);
+  });
+
+  it("warns when --mode code is passed to unrelated commands", () => {
+    const parsed = parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--mode",
+      "code",
+      "target",
+    ]);
+    expect(parsed.options.queryMode).toBe("code");
+    const warnings = collectIgnoredGraphCliOptions("explain", parsed.options);
+    expect(warnings).toContain("--mode code|docs|balanced is only used by graph:query; ignoring.");
   });
 });
 
@@ -129,6 +163,37 @@ describe("collectIgnoredGraphCliOptions", () => {
     const warnings = collectIgnoredGraphCliOptions("explain", parsed.options);
     expect(warnings).toContain("--max-hops is only used by graph:path; ignoring.");
     expect(warnings).toContain("--explain-ranking is only used by graph:path; ignoring.");
+  });
+
+  it("parses graph:context --mode docs without ignored-mode warnings", () => {
+    const parsed = parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--mode",
+      "docs",
+      "--lens",
+      "frontend",
+      "--budget",
+      "12000",
+    ], "context");
+    expect(parsed.options.queryMode).toBe("docs");
+    expect(parsed.options.lens).toBe("frontend");
+    expect(parsed.options.budget).toBe(12000);
+    const warnings = collectIgnoredGraphCliOptions("context", parsed.options);
+    expect(warnings).not.toContain("--mode code|docs|balanced is only used by graph:query; ignoring.");
+    expect(warnings).not.toContain("--budget is only used by graph:query; ignoring.");
+    expect(warnings).not.toContain("--lens is only used by graph:query, graph:path, and graph:lens; ignoring.");
+  });
+
+  it("still warns about path-only options on graph:context", () => {
+    const parsed = parseGraphWorkspaceArgv([
+      "--workspace",
+      "C:\\repo",
+      "--max-hops",
+      "2",
+    ], "context");
+    const warnings = collectIgnoredGraphCliOptions("context", parsed.options);
+    expect(warnings).toContain("--max-hops is only used by graph:path; ignoring.");
   });
 
   it("flags query-only options on graph:path", () => {

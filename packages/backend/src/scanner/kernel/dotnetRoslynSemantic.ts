@@ -1,4 +1,4 @@
-import type { GraphAnalyzerAvailability, ProductEdgeKind, ProductGraphEdge, ProductMetadataValue } from "@openagentgraph/shared";
+import type { GraphAnalyzerAvailability, GraphWorkflowTimingCollector, ProductEdgeKind, ProductGraphEdge, ProductMetadataValue } from "@openagentgraph/shared";
 import { runAnalyzerHelper, validateAnalyzerHelperJson } from "./analyzerHelperRunner.js";
 import {
   isResolvedDotNetRelationshipEdge,
@@ -234,6 +234,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
   maxEdgeLabelLength: number;
   limits?: Partial<typeof DEFAULT_ROSLYN_LIMITS>;
   disabled?: boolean;
+  workflowTiming?: GraphWorkflowTimingCollector;
 }): Promise<DotNetRoslynSemanticResult> {
   const startedAt = Date.now();
   const empty: DotNetRoslynSemanticResult = {
@@ -262,7 +263,9 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
     };
   }
 
-  const preparation = await ensureRoslynHelperPrepared({ autoBuild: true });
+  const preparation = input.workflowTiming
+    ? await input.workflowTiming.measure("roslyn_preparation", () => ensureRoslynHelperPrepared({ autoBuild: true }))
+    : await ensureRoslynHelperPrepared({ autoBuild: true });
   if (preparation.availability.status !== "enabled" || !preparation.dllPath) {
     return {
       ...empty,
@@ -293,7 +296,7 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
   }
 
   try {
-    const response = await invokeRoslynHelper(
+    const invokeAnalysis = () => invokeRoslynHelper(
       {
         workspaceRoot: input.workspaceRoot,
         solutionPath: input.solutionPath,
@@ -302,6 +305,9 @@ export async function runDotNetRoslynSemanticAnalysis(input: {
       },
       limits.maxDurationMs
     );
+    const response = input.workflowTiming
+      ? await input.workflowTiming.measure("roslyn_analysis", invokeAnalysis)
+      : await invokeAnalysis();
 
     if (response.status !== "ok") {
       const fallbackReason = response.reason ?? "Roslyn helper failed.";

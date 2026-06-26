@@ -18,13 +18,20 @@ import {
   type GraphTaskLensId,
 } from "./graphLenses.js";
 import { buildWorkspaceGraphQueryEntryPoints } from "./graphOperational.js";
-import { findGraphSeedNodes } from "./graphQueryEngine.js";
+import { findGraphSeedNodes, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
+import {
+  isGraphCodeSurfaceKind,
+  isGraphDocSurfaceKind,
+  type GraphQueryIntentMode,
+  type GraphQueryIntentSummary,
+} from "./graphQueryIntent.js";
 import { summarizeEcosystemSupportForAgents } from "./graphEcosystemHealth.js";
 import { sanitizeOperationalText } from "./safeText.js";
 import { attachRetrievalIdsToNodes, encodeOagRetrievalId } from "./graphRetrieval.js";
 
 export interface GraphAgentContextPackOptions {
   goal?: string;
+  queryMode?: GraphQueryIntentMode;
   lens?: GraphTaskLensId;
   budget?: number;
   workspaceRoot?: string;
@@ -81,6 +88,7 @@ export interface GraphAgentContextPack {
   risks: string[];
   retrievalHints: string[];
   queryEntryPoints: ReturnType<typeof buildWorkspaceGraphQueryEntryPoints>;
+  queryIntent?: GraphQueryIntentSummary;
 }
 
 const DEFAULT_CONTEXT_BUDGET = 12_000;
@@ -149,7 +157,14 @@ export function buildGraphAgentContextPack(
     ? safeText(graph.workspaceRoot, graph.workspaceRoot, 120)
     : (options.workspaceRoot ?? graph.workspaceRoot);
   const goal = options.goal?.trim() ? safeText(options.goal.trim(), graph.workspaceRoot, 500) : undefined;
+  const queryMode = options.queryMode ?? "balanced";
+  const focusQuery = goal ?? "entrypoint main service controller";
   const tokens = tokenizeGoal(goal);
+  const queryResult = queryUnifiedCodeGraph(graph, focusQuery, {
+    budget: 16,
+    intentMode: queryMode,
+    lens,
+  });
 
   const codeContext = buildAgentCodeContextSlice(graph, {
     focusQuery: goal,
@@ -178,17 +193,17 @@ export function buildGraphAgentContextPack(
     .slice(0, 6)
     .map((entry) => entry.node);
 
-  const seedNodes = findGraphSeedNodes(graph, goal ?? "entrypoint main service controller", 6);
+  const seedNodes = queryResult.seeds.length > 0
+    ? queryResult.seeds
+    : findGraphSeedNodes(graph, focusQuery, 6, queryMode);
+  const seedEntries = seedNodes.map((node) => ({
+    id: node.id,
+    kind: node.kind,
+    label: safeText(node.label, graph.workspaceRoot, 240),
+    path: node.path ? safeText(node.path, graph.workspaceRoot, 500) : undefined,
+  }));
   const readFirst = attachRetrievalIdsToNodes(
-    uniqueById([
-      ...codeContext.readTheseFirst,
-      ...seedNodes.map((node) => ({
-        id: node.id,
-        kind: node.kind,
-        label: safeText(node.label, graph.workspaceRoot, 240),
-        path: node.path ? safeText(node.path, graph.workspaceRoot, 500) : undefined,
-      })),
-    ]).slice(0, 12)
+    orderReadFirstNodesByQueryMode(queryMode, seedEntries, codeContext.readTheseFirst).slice(0, 12)
   );
 
   const risks: string[] = [];
@@ -276,12 +291,41 @@ export function buildGraphAgentContextPack(
       workspaceRoot: safeText(workspaceRoot, graph.workspaceRoot, 500),
       lens,
     }),
+    queryIntent: queryResult.intent,
   };
 
   const bounded = enforceBudget(pack, budget);
   bounded.pack.estimatedSize = JSON.stringify(bounded.pack).length;
   bounded.pack.truncated = bounded.pack.truncated || bounded.truncated;
   return bounded.pack;
+}
+
+type ReadFirstEntry = {
+  id: string;
+  kind: string;
+  label: string;
+  path?: string;
+};
+
+function orderReadFirstNodesByQueryMode(
+  queryMode: GraphQueryIntentMode,
+  seedEntries: ReadFirstEntry[],
+  codeEntries: ReadFirstEntry[]
+): ReadFirstEntry[] {
+  if (queryMode === "balanced") {
+    return uniqueById([...codeEntries, ...seedEntries]);
+  }
+
+  const docs = [...seedEntries, ...codeEntries].filter((entry) => isGraphDocSurfaceKind(entry.kind as never));
+  const code = [...seedEntries, ...codeEntries].filter((entry) => isGraphCodeSurfaceKind(entry.kind as never));
+  const other = [...seedEntries, ...codeEntries].filter(
+    (entry) => !isGraphDocSurfaceKind(entry.kind as never) && !isGraphCodeSurfaceKind(entry.kind as never)
+  );
+
+  if (queryMode === "docs") {
+    return uniqueById([...docs, ...code, ...other]);
+  }
+  return uniqueById([...code, ...docs, ...other]);
 }
 
 function uniqueById<T extends { id: string }>(items: T[]): T[] {

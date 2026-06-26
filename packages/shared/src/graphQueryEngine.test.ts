@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UnifiedCodeGraph } from "./codeGraph.js";
 import {
+  computeGraphPathEdgeCost,
   explainGraphNode,
   findGraphPath,
   queryUnifiedCodeGraph,
@@ -135,6 +136,7 @@ describe("graph query engine", () => {
     expect(result.seeds.map((node) => node.id)).toContain("sym:vm");
     expect(result.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["sym:vm", "sym:svc"]));
     expect(result.edges.length).toBeGreaterThan(0);
+    expect(result.intent?.requestedMode).toBe("balanced");
   });
 
   it("finds a meaningful path between view and service symbols without workspace-root bridges", () => {
@@ -187,6 +189,153 @@ describe("graph query engine", () => {
     };
     expect(rankGraphNodeCandidates(graph, "User")[0]?.node.id).toBe("sym:php-user");
     expect(rankGraphNodeCandidates(graph, "User.php")[0]?.node.id).toBe("file:php-user");
+  });
+
+  it("returns finite constructor edge costs in all path modes", () => {
+    const edge = {
+      kind: "references" as const,
+      provenance: "extracted" as const,
+      metadata: { scannerRelation: "semantic_constructor" },
+    };
+    for (const mode of ["balanced", "semantic", "structural"] as const) {
+      const cost = computeGraphPathEdgeCost(edge, { mode, pathIntent: "code_to_code" });
+      expect(Number.isFinite(cost)).toBe(true);
+      expect(cost).toBeGreaterThan(0);
+    }
+    const supportedRelations = [
+      "semantic_calls",
+      "semantic_constructor",
+      "depends_on",
+      "source_file",
+      "inherits",
+      "implements",
+    ];
+    for (const scannerRelation of supportedRelations) {
+      const relationEdge = {
+        kind: "references" as const,
+        provenance: "extracted" as const,
+        metadata: { scannerRelation },
+      };
+      const cost = computeGraphPathEdgeCost(relationEdge, { mode: "balanced", pathIntent: "code_to_code" });
+      expect(Number.isFinite(cost)).toBe(true);
+    }
+  });
+
+  it("finds production constructor relationships in balanced, semantic, and structural modes", () => {
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      activeScannerIds: ["dotnet"],
+      diagnostics: [],
+      nodes: [
+        { id: "sym:order", kind: "symbol", label: "OrderService (class)", path: "Services/OrderService.cs" },
+        { id: "sym:payment", kind: "symbol", label: "PaymentClient (class)", path: "Services/PaymentClient.cs" },
+        { id: "file:order", kind: "code_file", label: "Services/OrderService.cs", path: "Services/OrderService.cs" },
+        { id: "file:payment", kind: "code_file", label: "Services/PaymentClient.cs", path: "Services/PaymentClient.cs" },
+      ],
+      edges: [
+        { id: "e1", sourceNodeId: "sym:order", targetNodeId: "sym:payment", kind: "references", provenance: "extracted", metadata: { scannerRelation: "semantic_constructor" } },
+        { id: "e2", sourceNodeId: "sym:order", targetNodeId: "file:order", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e3", sourceNodeId: "sym:payment", targetNodeId: "file:payment", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+      ],
+    };
+    for (const mode of ["balanced", "semantic", "structural"] as const) {
+      const result = findGraphPath(graph, "OrderService", "PaymentClient", { mode });
+      expect(result.found).toBe(true);
+      expect(result.toNode?.label).toMatch(/PaymentClient/i);
+      expect(result.edges.some((edge) => edge.metadata?.scannerRelation === "semantic_constructor")).toBe(true);
+    }
+  });
+
+  it("permits test constructor shortcuts in tests lens", () => {
+    const testNode = {
+      id: "sym:test",
+      kind: "test" as const,
+      label: "FixtureTests.SetUp (method)",
+      path: "tests/FixtureTests.cs",
+    };
+    const sutNode = {
+      id: "sym:sut",
+      kind: "test" as const,
+      label: "SutService (class)",
+      path: "tests/SutService.cs",
+    };
+    const ctorEdge = {
+      kind: "references" as const,
+      provenance: "extracted" as const,
+      metadata: { scannerRelation: "semantic_constructor" },
+    };
+    expect(Number.isFinite(
+      computeGraphPathEdgeCost(ctorEdge, { mode: "balanced", pathIntent: "code_to_code", lens: "tests" }, {
+        sourceNode: testNode,
+        targetNode: sutNode,
+      })
+    )).toBe(true);
+
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      activeScannerIds: ["dotnet"],
+      diagnostics: [],
+      nodes: [testNode, sutNode],
+      edges: [
+        { id: "e1", sourceNodeId: "sym:test", targetNodeId: "sym:sut", ...ctorEdge },
+      ],
+    };
+    const result = findGraphPath(graph, "FixtureTests", "SutService", {
+      mode: "balanced",
+      lens: "tests",
+    });
+    expect(result.found).toBe(true);
+    expect(result.nodes.some((node) => node.label.includes("FixtureTests"))).toBe(true);
+    expect(result.edges.some((edge) => edge.metadata?.scannerRelation === "semantic_constructor")).toBe(true);
+  });
+
+  it("prefers runtime call chains over test constructor shortcuts for code-to-code paths", () => {
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      activeScannerIds: ["dotnet"],
+      diagnostics: [],
+      nodes: [
+        { id: "sym:vm", kind: "symbol", label: "MainViewModel (class)", path: "ViewModels/MainViewModel.cs" },
+        { id: "sym:vm-play", kind: "symbol", label: "MainViewModel.Play (method)", path: "ViewModels/MainViewModel.cs" },
+        { id: "sym:adapter", kind: "symbol", label: "MpvPlayerAdapter (class)", path: "Services/MpvPlayerAdapter.cs" },
+        { id: "sym:adapter-play", kind: "symbol", label: "MpvPlayerAdapter.StartPlayback (method)", path: "Services/MpvPlayerAdapter.cs" },
+        { id: "sym:svc", kind: "symbol", label: "PlaybackService (class)", path: "Services/PlaybackService.cs" },
+        { id: "sym:svc-play", kind: "symbol", label: "PlaybackService.Play (method)", path: "Services/PlaybackService.cs" },
+        { id: "sym:test", kind: "symbol", label: "MainViewModelTests.Title_is_set (method)", path: "SampleMediaPlayer.Tests/MainViewModelTests.cs" },
+        { id: "file:vm", kind: "code_file", label: "ViewModels/MainViewModel.cs", path: "ViewModels/MainViewModel.cs" },
+        { id: "file:adapter", kind: "code_file", label: "Services/MpvPlayerAdapter.cs", path: "Services/MpvPlayerAdapter.cs" },
+        { id: "file:svc", kind: "code_file", label: "Services/PlaybackService.cs", path: "Services/PlaybackService.cs" },
+      ],
+      edges: [
+        { id: "e1", sourceNodeId: "sym:vm", targetNodeId: "file:vm", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e2", sourceNodeId: "sym:vm-play", targetNodeId: "file:vm", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e3", sourceNodeId: "sym:vm-play", targetNodeId: "sym:adapter-play", kind: "references", provenance: "extracted", metadata: { scannerRelation: "semantic_calls" } },
+        { id: "e4", sourceNodeId: "sym:adapter-play", targetNodeId: "file:adapter", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e5", sourceNodeId: "sym:adapter", targetNodeId: "file:adapter", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e6", sourceNodeId: "sym:adapter-play", targetNodeId: "sym:svc-play", kind: "references", provenance: "extracted", metadata: { scannerRelation: "semantic_calls" } },
+        { id: "e7", sourceNodeId: "sym:svc-play", targetNodeId: "file:svc", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e8", sourceNodeId: "sym:svc", targetNodeId: "file:svc", kind: "belongs_to", provenance: "extracted", metadata: { scannerRelation: "source_file" } },
+        { id: "e9", sourceNodeId: "sym:test", targetNodeId: "sym:vm", kind: "references", provenance: "extracted", metadata: { scannerRelation: "semantic_constructor" } },
+        { id: "e10", sourceNodeId: "sym:test", targetNodeId: "sym:svc", kind: "references", provenance: "extracted", metadata: { scannerRelation: "semantic_constructor" } },
+      ],
+    };
+    const result = findGraphPath(graph, "MainViewModel", "PlaybackService", {
+      mode: "balanced",
+      explainRanking: true,
+    });
+    expect(result.found).toBe(true);
+    expect(result.toNode?.label).toMatch(/PlaybackService/i);
+    expect(result.nodes.some((node) => node.label.includes("MainViewModelTests"))).toBe(false);
+    expect(result.nodes.some((node) => node.label.includes("Play (method)"))).toBe(true);
+    expect(result.explanation?.penalizedAlternatives.some((entry) =>
+      typeof entry.directnessScore === "number"
+    )).toBe(true);
   });
 
   it("supports semantic path mode that avoids workspace-root detours", () => {

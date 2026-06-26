@@ -11,7 +11,7 @@ import {
 } from "./graphWorkspace.js";
 
 export async function runGraphQueryCli(argv = process.argv.slice(2)) {
-  const { options, positionals } = parseGraphWorkspaceArgv(argv);
+  const { options, positionals } = parseGraphWorkspaceArgv(argv, "query");
   if (!options.json) warnIgnoredGraphCliOptions("query", options);
   const workspaceRoot = requireWorkspaceOption(options.workspace);
   const query = joinGraphCliPositionals(positionals);
@@ -24,6 +24,7 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     mode: options.dfs ? "dfs" : "bfs",
     budget: options.budget,
     lens: options.lens,
+    intentMode: options.queryMode ?? "balanced",
   });
 
   const ecosystemSupport = summarizeEcosystemSupportForAgents({
@@ -41,6 +42,9 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     analyzers: loaded.graph.analyzers ?? [],
     query: result.query,
     mode: result.mode,
+    queryMode: result.intent?.requestedMode ?? options.queryMode ?? "balanced",
+    traversalMode: result.mode,
+    intent: result.intent,
     truncated: result.truncated,
     seeds: result.seeds,
     nodes: result.nodes,
@@ -58,7 +62,15 @@ export async function runGraphQueryCli(argv = process.argv.slice(2)) {
     console.log(`Ecosystem support: ${ecosystemSupport.map((row) => `${row.scannerId} (${row.tier})`).join(", ")}`);
   }
   console.log(`Query: ${result.query}`);
-  console.log(`Mode: ${result.mode}${result.truncated ? " (truncated)" : ""}`);
+  console.log(`Query mode: ${payload.queryMode} (effective: ${result.intent?.effectiveMode ?? payload.queryMode})`);
+  console.log(`Traversal: ${result.mode}${result.truncated ? " (truncated)" : ""}`);
+  if (result.intent) {
+    console.log(`Top selection: ${result.intent.topSelectionReason}`);
+    if (result.intent.fallbackUsed) {
+      console.log(`Fallback: ${result.intent.fallbackReason ?? "preferred surface unavailable"}`);
+    }
+    console.log(`Result mix: code=${result.intent.codeResultCount} docs=${result.intent.docResultCount}`);
+  }
   if (result.seeds.length === 0) {
     console.log("No matching seed nodes.");
     return payload;

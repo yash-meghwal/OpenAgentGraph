@@ -1,6 +1,8 @@
+using SampleMediaPlayer.Core.Common;
+
 namespace SampleMediaPlayer.Core.Services;
 
-public class MpvPlayerAdapter
+public class MpvPlayerAdapter : ObservableObject, IPlayerAdapter
 {
     private readonly PlaybackService _playbackService;
 

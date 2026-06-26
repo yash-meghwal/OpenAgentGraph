@@ -1,6 +1,11 @@
 import path from "path";
 import type { ProductGraphProjection, SkipReason, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
-import { flattenEcosystemScannerHealthDiagnostics, formatGraphAnalyzerDiagnostics } from "@openagentgraph/shared";
+import {
+  flattenEcosystemScannerHealthDiagnostics,
+  formatGraphAnalyzerDiagnostics,
+  GraphWorkflowTimingCollector,
+  type GraphWorkflowTimingReport,
+} from "@openagentgraph/shared";
 import { scanWorkspaceCodebase } from "../codeScanner.js";
 import { IgnoreEngine } from "./ignoreEngine.js";
 import { buildUnifiedCodeGraph } from "./unifiedGraph.js";
@@ -14,6 +19,7 @@ export interface KernelScanResult {
   scanPlan: Awaited<ReturnType<typeof scanWorkspaceCodebase>>;
   kernelProfile: WorkspaceKernelProfile;
   unifiedGraph: UnifiedCodeGraph;
+  stageTimings?: GraphWorkflowTimingReport;
 }
 
 function emptyProjection(): ProductGraphProjection {
@@ -39,14 +45,19 @@ export async function runKernelWorkspaceScan(
   input: {
     projection?: ProductGraphProjection;
     scanLimits?: Parameters<typeof scanWorkspaceCodebase>[0]["scanLimits"];
+    captureStageTimings?: boolean;
   } = {}
 ): Promise<KernelScanResult> {
   const resolvedRoot = path.resolve(workspaceRoot);
-  const ignoreEngine = await IgnoreEngine.load(resolvedRoot);
+  const timing = input.captureStageTimings ? new GraphWorkflowTimingCollector() : undefined;
+  const ignoreEngine = timing
+    ? await timing.measure("workspace_detection", () => IgnoreEngine.load(resolvedRoot))
+    : await IgnoreEngine.load(resolvedRoot);
   const scanPlan = await scanWorkspaceCodebase({
     workspaceRoot: resolvedRoot,
     projection: input.projection ?? emptyProjection(),
     scanLimits: input.scanLimits,
+    workflowTiming: timing,
   });
 
   const skippedCounts = new Map<SkipReason, number>();
@@ -61,13 +72,21 @@ export async function runKernelWorkspaceScan(
       .map(([extension, count]) => [extension, count])
   );
 
-  const kernelProfile = await detectWorkspaceKernelProfile(resolvedRoot, {
-    ignoreEngine,
-    ignoreRules: ignoreEngine.rules,
-    sourceExtensionCounts: extensionCounts,
-    skippedCountsByReason: skippedCounts,
-    warnings: scanPlan.summary.workspaceProfile?.warnings,
-  });
+  const kernelProfile = await (timing
+    ? timing.measure("workspace_detection", () => detectWorkspaceKernelProfile(resolvedRoot, {
+      ignoreEngine,
+      ignoreRules: ignoreEngine.rules,
+      sourceExtensionCounts: extensionCounts,
+      skippedCountsByReason: skippedCounts,
+      warnings: scanPlan.summary.workspaceProfile?.warnings,
+    }))
+    : detectWorkspaceKernelProfile(resolvedRoot, {
+      ignoreEngine,
+      ignoreRules: ignoreEngine.rules,
+      sourceExtensionCounts: extensionCounts,
+      skippedCountsByReason: skippedCounts,
+      warnings: scanPlan.summary.workspaceProfile?.warnings,
+    }));
 
   const diagnostics = [
     ...kernelProfileDiagnostics(kernelProfile),
@@ -80,31 +99,37 @@ export async function runKernelWorkspaceScan(
     }),
   ];
 
-  const unifiedGraph = buildUnifiedCodeGraph({
-    workspaceRoot: resolvedRoot,
-    generatedAt: scanPlan.scannedAt,
-    analyzers: scanPlan.summary.analyzers,
-    projection: {
-      ...(input.projection ?? emptyProjection()),
-      nodes: scanPlan.nodes.map((node) => ({
-        ...node,
-        incomingEdgeIds: [],
-        outgoingEdgeIds: [],
-        blockedByNodeIds: [],
-      })),
-      edges: scanPlan.edges,
-      summary: {
-        nodeCount: scanPlan.nodes.length,
-        edgeCount: scanPlan.edges.length,
-        nodesByKind: {},
-        edgesByKind: {},
-        unresolvedOpenQuestionCount: 0,
-        blockedTaskCount: 0,
+  timing?.start("community_construction");
+  let unifiedGraph;
+  try {
+    unifiedGraph = buildUnifiedCodeGraph({
+      workspaceRoot: resolvedRoot,
+      generatedAt: scanPlan.scannedAt,
+      analyzers: scanPlan.summary.analyzers,
+      projection: {
+        ...(input.projection ?? emptyProjection()),
+        nodes: scanPlan.nodes.map((node) => ({
+          ...node,
+          incomingEdgeIds: [],
+          outgoingEdgeIds: [],
+          blockedByNodeIds: [],
+        })),
+        edges: scanPlan.edges,
+        summary: {
+          nodeCount: scanPlan.nodes.length,
+          edgeCount: scanPlan.edges.length,
+          nodesByKind: {},
+          edgesByKind: {},
+          unresolvedOpenQuestionCount: 0,
+          blockedTaskCount: 0,
+        },
       },
-    },
-    kernelProfile,
-    diagnostics,
-  });
+      kernelProfile,
+      diagnostics,
+    });
+  } finally {
+    timing?.end("community_construction");
+  }
 
   return {
     kernelVersion: SCAN_KERNEL_VERSION,
@@ -112,5 +137,6 @@ export async function runKernelWorkspaceScan(
     scanPlan,
     kernelProfile,
     unifiedGraph,
+    stageTimings: timing?.buildReport(),
   };
 }

@@ -3,6 +3,7 @@ import path from "path";
 import type {
   GraphIncrementalManifest,
   GraphPathMode,
+  GraphQueryIntentMode,
   GraphTaskLensId,
   UnifiedCodeGraph,
   WorkspaceKernelProfile,
@@ -11,6 +12,7 @@ import {
   CODE_GRAPH_SCHEMA_VERSION,
   evaluateHandoffFreshness,
   GRAPH_TASK_LENS_DEFINITIONS,
+  parseGraphQueryIntentMode,
   type GraphHandoffFreshnessResult,
 } from "@openagentgraph/shared";
 import { runKernelWorkspaceScan } from "../scanner/kernel/scanKernel.js";
@@ -24,7 +26,7 @@ export const GRAPH_HTML_FILE_NAME = "graph.html";
 export const GRAPH_WIKI_INDEX_FILE_NAME = "wiki/index.md";
 export const GRAPH_HANDOFF_FILE_NAME = "GRAPH_REPORT.md";
 
-export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" | "lens" | "check" | "docs-check" | "update" | "generic";
+export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" | "lens" | "check" | "docs-check" | "update" | "context" | "generic";
 
 export interface GraphWorkspaceCliOptions {
   workspace?: string;
@@ -36,6 +38,8 @@ export interface GraphWorkspaceCliOptions {
   maxHops?: number;
   explainRanking: boolean;
   pathMode?: GraphPathMode;
+  queryMode?: GraphQueryIntentMode;
+  unscopedMode?: string;
 }
 
 const GRAPH_PATH_MODES = new Set<GraphPathMode>(["semantic", "balanced", "structural"]);
@@ -96,7 +100,7 @@ export function readGraphWorkspaceCliValue(argv: string[], index: number) {
   return normalizeWorkspaceCliPath(readRequiredCliValue(argv, index, "--workspace"));
 }
 
-export function parseGraphWorkspaceArgv(argv: string[]) {
+export function parseGraphWorkspaceArgv(argv: string[], command?: GraphWorkspaceCliCommand) {
   const options: GraphWorkspaceCliOptions = {
     json: false,
     refresh: false,
@@ -144,10 +148,20 @@ export function parseGraphWorkspaceArgv(argv: string[]) {
       options.explainRanking = true;
     } else if (arg === "--mode") {
       const value = readRequiredCliValue(argv, index, "--mode");
-      if (!GRAPH_PATH_MODES.has(value as GraphPathMode)) {
-        throw new Error(`Unknown graph path mode '${value}'. Expected semantic, balanced, or structural.`);
+      if (command === "query" || command === "context") {
+        options.queryMode = parseGraphQueryIntentMode(value);
+      } else if (command === "path") {
+        if (!GRAPH_PATH_MODES.has(value as GraphPathMode)) {
+          throw new Error(`Unknown graph path mode '${value}'. Expected semantic, balanced, or structural.`);
+        }
+        options.pathMode = value as GraphPathMode;
+      } else {
+        try {
+          options.queryMode = parseGraphQueryIntentMode(value);
+        } catch {
+          options.unscopedMode = value;
+        }
       }
-      options.pathMode = value as GraphPathMode;
       index += 1;
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown graph option: ${arg}`);
@@ -172,10 +186,18 @@ export function collectIgnoredGraphCliOptions(
       warnings.push("--explain-ranking is only used by graph:path; ignoring.");
     }
     if (options.pathMode) {
-      warnings.push("--mode is only used by graph:path; ignoring.");
+      warnings.push("--mode semantic|balanced|structural is only used by graph:path; ignoring.");
     }
   }
-  if (command !== "query") {
+  if (command !== "query" && command !== "context") {
+    if (options.queryMode) {
+      warnings.push("--mode code|docs|balanced is only used by graph:query; ignoring.");
+    }
+  }
+  if (command !== "query" && command !== "context" && command !== "path" && options.unscopedMode) {
+    warnings.push("--mode is only used by graph:query and graph:path; ignoring.");
+  }
+  if (command !== "query" && command !== "context") {
     if (options.dfs) {
       warnings.push("--dfs is only used by graph:query; ignoring.");
     }
@@ -183,7 +205,7 @@ export function collectIgnoredGraphCliOptions(
       warnings.push("--budget is only used by graph:query; ignoring.");
     }
   }
-  if (command !== "query" && command !== "path" && command !== "lens" && options.lens) {
+  if (command !== "query" && command !== "context" && command !== "path" && command !== "lens" && options.lens) {
     warnings.push("--lens is only used by graph:query, graph:path, and graph:lens; ignoring.");
   }
   return warnings;

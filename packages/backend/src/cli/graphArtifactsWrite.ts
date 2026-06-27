@@ -6,6 +6,7 @@ import {
   renderUnifiedGraphHandoffReport,
   renderUnifiedGraphHtml,
   renderUnifiedGraphWiki,
+  type GraphWorkflowTimingCollector,
 } from "@openagentgraph/shared";
 import {
   GRAPH_EXPORT_DIR_NAME,
@@ -29,6 +30,7 @@ export interface WriteGraphArtifactsOptions {
   /** Workspace-relative handoff report path; defaults to GRAPH_REPORT.md. */
   handoffPath?: string;
   redactRoot?: boolean;
+  workflowTiming?: GraphWorkflowTimingCollector;
 }
 
 export async function writeGraphArtifacts(

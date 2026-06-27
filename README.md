@@ -16,6 +16,7 @@ After installing the published CLI, the same static-export path is:
 
 ```bash
 npm install -g @openagentgraph/cli
+oag doctor --workspace .
 oag graph:export --workspace . --offline-only --redact-root
 oag graph:context --workspace . --goal "orient me" --json
 ```
@@ -34,14 +35,14 @@ Regenerate live values with `npm run graph:scorecard` or `npm run verify:graph`.
 | --- | --- |
 | Release benchmark fixtures | `npm run verify:graph` |
 | Release gate status | `npm run verify:graph` |
-| Query/path success rates | `npm run verify:graph` |
-| Read-first and hub-start quality | `npm run verify:graph` |
-| Code-to-code path detour gate | `npm run verify:graph` |
-| Documentation link hygiene | `npm run verify:graph` |
-| Misleading handoff rate | `npm run verify:graph` |
+| Balanced/code/docs query success | `npm run verify:graph` |
+| Path success and detour/directness floors | `npm run verify:graph` |
+| Read-first, hub-start, guidance consistency | `npm run verify:graph` |
+| Docs repair suggestion coverage | `npm run graph:docs:check -- --suggest` |
+| Update benchmark warm/cold ratio | `npm run graph:benchmark:update` |
+| CLI clean-install smoke | `npm test --workspace=packages/cli` |
 | Provenance coverage | `npm run graph:scorecard` |
 | External benchmark categories | `npm run graph:benchmark:external -- --catalog --report` |
-| Update benchmark status | `npm run graph:benchmark:update` |
 
 See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for the full public scorecard.
 
@@ -58,7 +59,7 @@ Agents should read [`llms.txt`](llms.txt) before the full README. MCP clients ca
 - Event-sourced Run Graph: plans, execution events, evidence, approvals, replay, diagnostics, and external-agent coordination.
 - Product Graph / Code Map: deterministic file, symbol, dependency, documentation, community, and provenance graph for a workspace.
 - Static workspace graph CLI: query, path, explain, export, check, update, and benchmark commands that work without an AI provider key.
-- Published `oag` CLI: npm-installable facade for export/query/path/explain/check/docs/context workflows.
+- Published `oag` CLI: npm-installable facade for `doctor`, `dogfood`, export/query/path/explain/check/docs/context workflows.
 - Offline export bundle: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, and `GRAPH_REPORT.md` for agents working from a folder alone.
 - Agent context surfaces: bounded `/agent-context` and `/frontier` reads plus operator-gated progress, evidence, and inert plan proposal APIs.
 - Release gates: graph fixture checks, path/query benchmarks, update benchmarks, static export hygiene, provenance coverage, and external benchmark catalog prep.
@@ -105,10 +106,11 @@ Local startup commands:
 - Frontend prod-like preview: `npm run start:frontend`
 - Print deterministic handoff: `npm run handoff:print`
 - Write deterministic handoff: `npm run handoff:write`
-- Dogfood an external workspace (no provider key): `npm run dogfood -- --workspace "<absolute path>"`
+- Dogfood an external workspace (no provider key): `npm run dogfood -- --workspace "<absolute path>"` or `oag dogfood --workspace "<absolute path>"`
+- Diagnose local setup and workspace readiness: `oag doctor --workspace "<absolute path>"` or `npm run build --workspace=packages/backend --silent && node packages/backend/dist/cli/doctor.js --workspace "<absolute path>"`
 - Export a static workspace graph (no server, SQLite, or provider): `npm run graph:export -- --workspace "<absolute path>" --offline-only`
 - Export share-safe report/wiki/html without absolute paths: add `--redact-root` to `graph:export` (`.oag/graph.json` keeps the real root for local cache reload)
-- Query a workspace graph: `npm run graph:query -- --workspace "<absolute path>" "how does auth work?"`
+- Query a workspace graph: `npm run graph:query -- --workspace "<absolute path>" --mode balanced "how does auth work?"` (`--mode code` or `--mode docs` for intent-specific ranking)
 - Find a ranked path: `npm run graph:path -- --workspace "<absolute path>" "MainViewModel" "PlaybackService" --mode balanced --explain-ranking`
 - Explain a node or file: `npm run graph:explain -- --workspace "<absolute path>" "CheckoutService"`
 - Check graph quality gates: `npm run graph:check -- --workspace "<absolute path>" --mode hard`
@@ -365,10 +367,14 @@ Run the full CI-equivalent path, including graph fixtures and the Playwright smo
 npm run verify:ci
 ```
 
-`verify:graph` skips the Roslyn helper build when the .NET SDK is unavailable and continues with structural graph verification. It also enforces read-first quality, hub-start quality, code-to-code path detour avoidance, documentation-link hygiene, update benchmarks, and external benchmark catalog prep. CI still runs the strict `build:roslyn-helper` step when .NET is installed. `verify:ci` also requires Playwright Chromium for the e2e smoke unless you run the narrower `npm run verify` path instead.
+`verify:graph` skips the Roslyn helper build when the .NET SDK is unavailable and continues with structural graph verification. It enforces balanced query success (min 90%), code/docs query modes (min 95%), path success (min 95% on release fixtures, 100% on the release path suite), zero path detour/directness/endpoint failures on release gates, read-first and hub-start quality, guidance consistency, docs repair suggestion coverage, zero duplicate kernel scans per benchmark workflow, update warm/cold ratio gates, and external benchmark catalog prep. Regenerate the public scorecard with `npm run graph:scorecard -- --output docs/BENCHMARKS.md`. CI still runs the strict `build:roslyn-helper` step when .NET is installed. `verify:ci` also requires Playwright Chromium for the e2e smoke and the `@openagentgraph/cli` clean-install smoke unless you run the narrower `npm run verify` path instead.
 
 ## Current Practical Limits
 
+- `graph:query --mode` uses explicit intent: `code` prefers symbols/files, `docs` prefers documentation surfaces, and `balanced` keeps the default mixed ranking. Mode-specific floors are measured on the release fixture suite in `verify:graph`.
+- `graph:path` path-quality metrics are benchmark-specific. Release gates require zero detour/directness/endpoint failures on the pinned suite; broader repos may still need source inspection.
+- `graph:docs:check --suggest` emits repair proposals only. It does not mutate user-authored Markdown.
+- Dogfood/export/update performance numbers come from the local benchmark fixtures and warm-repeat scenarios; they are not universal latency claims.
 - T0, T1.5, and T1 are support tiers, not promises that every ecosystem has compiler-grade semantic resolution.
 - TypeScript/JavaScript has the deepest semantic graph in base. .NET/C# uses structural indexing plus optional Roslyn semantic edges when the .NET SDK/helper can run.
 - Java/Kotlin, Ruby, and PHP use semantic-lite heuristics for project-aware imports, inheritance, routes, tests, packages, and modules; they do not run full javac/kotlinc/parser/tokenizer semantic analysis yet.

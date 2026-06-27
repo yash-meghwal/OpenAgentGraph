@@ -17,14 +17,18 @@ npm install -g @openagentgraph/cli
 ## Commands
 
 ```bash
+oag doctor --workspace "<path>"
+oag dogfood --workspace "<path>"
 oag graph:export --workspace "<path>" --offline-only --redact-root
-oag graph:query --workspace "<path>" "<query>"
+oag graph:query --workspace "<path>" --mode code "<query>"
 oag graph:path --workspace "<path>" "<from>" "<to>"
 oag graph:explain --workspace "<path>" "<node-or-file>"
 oag graph:check --workspace "<path>"
-oag graph:docs:check --workspace "<path>" --json
+oag graph:docs:check --workspace "<path>" --json --suggest
 oag graph:context --workspace "<path>" --goal "<goal>"
 ```
+
+`graph:query --mode` accepts `code`, `docs`, or `balanced`. No provider key is required for any graph command.
 
 ## Local development
 

@@ -1,6 +1,6 @@
 # OAG Public Benchmark Scorecard
 
-Generated: 2026-06-22T15:49:04.361Z
+Generated: 2026-06-26T16:06:42.592Z
 
 Reproduce with `npm run graph:scorecard`. Source bodies and private paths are intentionally omitted.
 
@@ -8,16 +8,24 @@ Reproduce with `npm run graph:scorecard`. Source bodies and private paths are in
 | --- | --- | --- |
 | Release benchmark fixtures | 41 | `npm run verify:graph` |
 | Release gate status | PASS | `npm run verify:graph` |
-| Query success rate | 90% (min 80%) | `npm run verify:graph` |
+| Balanced query success rate | 90% (min 90%) | `npm run verify:graph` |
+| Code-mode query success rate | 100% (min 95%) | `npm run verify:graph` |
+| Docs-mode query success rate | 100% (min 95%) | `npm run verify:graph` |
 | Path success rate | 100% (min 95%) | `npm run verify:graph` |
-| Path detour gate (no doc_section on code-to-code) | PASS | `npm run verify:graph` |
-| Read-first quality gate | PASS | `npm run verify:graph` |
-| Hub start quality gate | PASS | `npm run verify:graph` |
-| Docs link hygiene gate | PASS | `npm run graph:docs:check` |
-| npm CLI packaging | see @openagentgraph/cli pack/smoke tests | `npm run build --workspace=packages/cli && npm test --workspace=packages/cli` |
+| Path detour failures | 0 | `npm run verify:graph` |
+| Path directness failures | 0 | `npm run verify:graph` |
+| Path endpoint fidelity failures | 0 | `npm run verify:graph` |
+| Guidance consistency failures | 0 | `npm run verify:graph` |
+| Read-first failures | 0 | `npm run verify:graph` |
+| Hub-start failures | 0 | `npm run verify:graph` |
+| Docs repair suggestion coverage | 100% | `npm run graph:docs:check -- --suggest` |
+| Generated artifact broken links | 0 | `npm run verify:graph` |
+| Duplicate kernel scans (max per workflow) | 0 | `npm run graph:benchmark:update` |
+| Warm/cold performance ratio | 0.03x (max 0.5x) | `npm run graph:benchmark:update` |
+| CLI clean-install smoke | not_run | `npm test --workspace=packages/cli` |
 | Misleading handoff rate | 0% | `npm run verify:graph` |
 | Provenance coverage | 100% | `npm run graph:scorecard` |
-| External benchmark categories | 10 | `npm run graph:benchmark:external -- --catalog --report` |
+| External benchmark categories | 10/10 | `npm run graph:benchmark:external -- --catalog --report` |
 | Update benchmark status | PASS | `npm run graph:benchmark:update` |
 
 ## Active scanners (fixture sample)

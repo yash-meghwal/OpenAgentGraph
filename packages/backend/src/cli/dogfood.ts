@@ -1,7 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
 import { createHash } from "crypto";
-import { buildProductGraphHandoffReport } from "@openagentgraph/shared";
+import {
+  buildProductGraphHandoffReport,
+  GraphWorkflowTimingCollector,
+  summarizeGraphWorkflowTiming,
+} from "@openagentgraph/shared";
 import { loadAppConfig, setAppConfigOverride } from "../config.js";
 import {
   checkProductGraphWorkspacePaths,
@@ -92,22 +96,8 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
     throw new Error(`Workspace path does not exist or is not a directory: ${workspaceRoot}`);
   }
 
-  let staticExportPaths: string[] = [];
-  let staticNodeCount = 0;
-  let staticEdgeCount = 0;
-  let staticScannerIds: string[] = [];
-
   const handoffOutput = parsed.output ?? DEFAULT_HANDOFF_OUTPUT;
-
-  if (!parsed.noExport) {
-    const staticExport = await runOfflineKernelGraphExport(workspaceRoot, {
-      handoffPath: handoffOutput,
-    });
-    staticExportPaths = staticExport.writtenPaths;
-    staticNodeCount = staticExport.graph.nodes.length;
-    staticEdgeCount = staticExport.graph.edges.length;
-    staticScannerIds = staticExport.graph.activeScannerIds;
-  }
+  const workflowTiming = new GraphWorkflowTimingCollector();
 
   const repoRoot = await resolveOpenAgentGraphRepoRoot();
   const dataDir = path.join(repoRoot, DOGFOOD_DATA_DIR_NAME, workspaceDataDirHash(workspaceRoot));
@@ -124,9 +114,10 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
   if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = "development";
   }
-  setAppConfigOverride(loadAppConfig(process.env));
+  const config = loadAppConfig(process.env);
+  setAppConfigOverride(config);
 
-  const [{ closeDb, initDb }, { getProductGraphProjection }, { runProductGraphCodebaseScan }] = await Promise.all([
+  const [{ closeDb, initDb }, { getProductGraphProjection }, { applyProductGraphCodebaseScanPlan }] = await Promise.all([
     import("../db/client.js"),
     import("../db/productGraphRepo.js"),
     import("../routes/productGraphRouteHelpers.js"),
@@ -134,18 +125,55 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
 
   initDb();
   try {
-    const scanResult = await runProductGraphCodebaseScan({
-      actorId: "dogfood",
-      displayName: "Dogfood CLI",
-      role: "operator",
-    });
+    const productGraphProjection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
+    const scanOptions = {
+      workflowTiming,
+      projection: productGraphProjection,
+      scanLimits: config.scanner.scanLimits,
+      semanticScanLimits: config.scanner.semanticScanLimits,
+      semanticAnalysisBudget: config.scanner.semanticAnalysisBudget,
+    };
+
+    let staticExportPaths: string[] = [];
+    let staticNodeCount = 0;
+    let staticEdgeCount = 0;
+    let staticScannerIds: string[] = [];
+    let scanResultSummary: Awaited<ReturnType<typeof applyProductGraphCodebaseScanPlan>> | undefined;
+    let reportSummary: unknown;
+
+    if (!parsed.noExport) {
+      const staticExport = await runOfflineKernelGraphExport(workspaceRoot, {
+        handoffPath: handoffOutput,
+        ...scanOptions,
+      });
+      staticExportPaths = staticExport.writtenPaths;
+      staticNodeCount = staticExport.graph.nodes.length;
+      staticEdgeCount = staticExport.graph.edges.length;
+      staticScannerIds = staticExport.graph.activeScannerIds;
+
+      scanResultSummary = await workflowTiming.measure("product_graph_handoff", () =>
+        applyProductGraphCodebaseScanPlan(staticExport.scanResult.scanPlan, {
+          actorId: "dogfood",
+          displayName: "Dogfood CLI",
+          role: "operator",
+        })
+      );
+    } else {
+      const { runKernelWorkspaceScan } = await import("../scanner/kernel/scanKernel.js");
+      const scanResult = await runKernelWorkspaceScan(workspaceRoot, scanOptions);
+      scanResultSummary = await workflowTiming.measure("product_graph_handoff", () =>
+        applyProductGraphCodebaseScanPlan(scanResult.scanPlan, {
+          actorId: "dogfood",
+          displayName: "Dogfood CLI",
+          role: "operator",
+        })
+      );
+    }
 
     const outputPath = resolveOutputPath(workspaceRoot, handoffOutput);
-    let reportSummary: unknown;
 
     if (parsed.noExport) {
       const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
-      const config = loadAppConfig(process.env);
       const handoffOptions = {
         workspaceRoot: formatHandoffWorkspaceRootForReport(workspaceRoot, config.env.isProduction),
         workspaceRootSource: "configured" as const,
@@ -163,6 +191,7 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
       throw new Error(`Static export did not write the requested handoff report: ${handoffOutput}`);
     }
 
+    const stageTimings = workflowTiming.buildReport();
     const payload = {
       status: "dogfood_complete",
       workspaceRoot,
@@ -176,8 +205,9 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
             edgeCount: staticEdgeCount,
             activeScannerIds: staticScannerIds,
           },
-      scan: scanResult.scanned,
+      scan: scanResultSummary?.scanned,
       summary: reportSummary,
+      stageTimings,
     };
 
     if (parsed.json) {
@@ -194,19 +224,22 @@ export async function runDogfoodCli(argv = process.argv.slice(2)) {
         console.log(`Wrote ${writtenPath}`);
       }
     }
-    console.log(`Files indexed: ${scanResult.scanned.fileCount}`);
-    console.log(`Symbols indexed: ${scanResult.scanned.symbolCount}`);
-    console.log(`Skipped directories: ${scanResult.scanned.skippedDirectoryCount}`);
-    if (scanResult.scanned.workspaceProfile) {
-      console.log(`Detected types: ${scanResult.scanned.workspaceProfile.detectedProjectTypes.join(", ")}`);
-      for (const warning of scanResult.scanned.workspaceProfile.warnings) {
-        console.log(`Warning: ${warning}`);
+    if (scanResultSummary) {
+      console.log(`Files indexed: ${scanResultSummary.scanned.fileCount}`);
+      console.log(`Symbols indexed: ${scanResultSummary.scanned.symbolCount}`);
+      console.log(`Skipped directories: ${scanResultSummary.scanned.skippedDirectoryCount}`);
+      if (scanResultSummary.scanned.workspaceProfile) {
+        console.log(`Detected types: ${scanResultSummary.scanned.workspaceProfile.detectedProjectTypes.join(", ")}`);
+        for (const warning of scanResultSummary.scanned.workspaceProfile.warnings) {
+          console.log(`Warning: ${warning}`);
+        }
+      }
+      for (const diagnostic of scanResultSummary.scanned.diagnostics ?? []) {
+        console.log(diagnostic);
       }
     }
-    for (const diagnostic of scanResult.scanned.diagnostics ?? []) {
-      console.log(diagnostic);
-    }
     console.log(`Wrote ${outputPath}`);
+    console.log(summarizeGraphWorkflowTiming(stageTimings).join("\n"));
   } finally {
     closeDb();
     setAppConfigOverride(undefined);

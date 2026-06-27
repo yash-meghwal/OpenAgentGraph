@@ -31,6 +31,7 @@ export class GraphWorkflowTimingCollector {
   private readonly startedAt = Date.now();
   private readonly stageStarts = new Map<GraphWorkflowStageId, number>();
   private readonly stageDurations = new Map<GraphWorkflowStageId, number>();
+  private kernelScanCount = 0;
   private duplicateKernelScanCount = 0;
 
   start(stage: GraphWorkflowStageId) {
@@ -52,6 +53,11 @@ export class GraphWorkflowTimingCollector {
     } finally {
       this.end(stage);
     }
+  }
+
+  recordKernelScanStart() {
+    this.kernelScanCount += 1;
+    this.duplicateKernelScanCount = Math.max(0, this.kernelScanCount - 1);
   }
 
   recordDuplicateKernelScan(count = 1) {

@@ -4,7 +4,9 @@ import {
   GRAPH_RELEASE_FIXTURE_IDS,
   buildGraphPublicScorecard,
   evaluateGraphExternalBenchmarkSuite,
+  evaluateGraphRelevanceBaselineSuite,
   evaluateGraphUpdateBenchmarkSuite,
+  evaluateReleaseBenchmarkSuite,
   formatGraphPublicScorecardMarkdown,
   formatGraphPublicScorecardReadmeTable,
 } from "@openagentgraph/shared";
@@ -16,6 +18,8 @@ import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
 const DEFAULT_FIXTURES_DIR = "tests/fixtures/graph";
 
+type CliCleanInstallSmokeStatus = "pass" | "fail" | "not_run";
+
 interface GraphScorecardCliOptions {
   fixtures?: string;
   json: boolean;
@@ -24,15 +28,25 @@ interface GraphScorecardCliOptions {
   output?: string;
   includeExternal: boolean;
   includeUpdate: boolean;
+  cliSmokeStatus: CliCleanInstallSmokeStatus;
 }
 
-function parseGraphScorecardArgv(argv: string[]) {
+function parseCliSmokeStatus(value: string): CliCleanInstallSmokeStatus {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pass" || normalized === "fail" || normalized === "not_run") {
+    return normalized;
+  }
+  throw new Error(`Invalid --cli-smoke-status value '${value}'. Expected pass, fail, or not_run.`);
+}
+
+export function parseGraphScorecardArgv(argv: string[]) {
   const options: GraphScorecardCliOptions = {
     json: false,
     markdown: true,
     readmeTable: false,
     includeExternal: true,
     includeUpdate: true,
+    cliSmokeStatus: "not_run",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -53,6 +67,9 @@ function parseGraphScorecardArgv(argv: string[]) {
       options.includeExternal = false;
     } else if (arg === "--no-update") {
       options.includeUpdate = false;
+    } else if (arg === "--cli-smoke-status") {
+      options.cliSmokeStatus = parseCliSmokeStatus(readRequiredCliValue(argv, index, "--cli-smoke-status"));
+      index += 1;
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown graph:scorecard option: ${arg}`);
     } else {
@@ -86,20 +103,41 @@ export async function runGraphScorecardCli(argv = process.argv.slice(2)) {
     externalResults = await runGraphExternalBenchmarkCatalog({ fixturesRoot });
   }
 
+  let updateBenchmarkResults;
   let updateBenchmarkSummary: string | undefined;
   let updateBenchmarkOk: boolean | undefined;
   if (options.includeUpdate) {
-    const updateResults = await runGraphUpdateBenchmarkSuite({ fixturesRoot });
-    const updateSuite = evaluateGraphUpdateBenchmarkSuite(updateResults);
+    updateBenchmarkResults = await runGraphUpdateBenchmarkSuite({ fixturesRoot });
+    const updateSuite = evaluateGraphUpdateBenchmarkSuite(updateBenchmarkResults);
     updateBenchmarkOk = updateSuite.ok;
     updateBenchmarkSummary = updateSuite.ok ? "PASS" : "FAIL";
   }
 
+  const releaseSuite = evaluateReleaseBenchmarkSuite({ results: releaseResults });
+  const pathDetourFailures = releaseSuite.releaseResults.flatMap((result) =>
+    result.pathBenchmarks.filter((benchmark) => !benchmark.passed && /forbidden node kind/i.test(benchmark.detail))
+  ).length;
+  const generatedArtifactBrokenLinkCount = releaseSuite.releaseResults
+    .filter((result) => result.fixture !== "fixture-docs-broken-links")
+    .reduce((sum, result) => sum + result.docLinkHygiene.brokenCount, 0);
+  const relevanceBaseline = evaluateGraphRelevanceBaselineSuite({
+    results: releaseResults.map((result) => ({
+      fixture: result.fixture,
+      graph: result.graph,
+    })),
+    pathDetourFailures,
+    generatedArtifactBrokenLinkCount,
+  });
+
   const scorecard = buildGraphPublicScorecard({
     releaseResults,
     externalResults,
+    updateBenchmarkResults,
     updateBenchmarkOk,
     updateBenchmarkSummary,
+    relevanceBaseline,
+    pathDetourFailures,
+    cliCleanInstallSmokeStatus: options.cliSmokeStatus,
   });
 
   if (options.includeExternal && externalResults) {

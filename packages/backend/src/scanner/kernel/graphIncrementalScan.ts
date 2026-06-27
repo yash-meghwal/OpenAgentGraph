@@ -1,5 +1,6 @@
 import path from "path";
 import type { GraphIncrementalManifest, GraphUpdatePlan, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
+import type { GraphWorkflowTimingCollector } from "@openagentgraph/shared";
 import {
   buildGraphIncrementalManifest,
   mergeUnifiedGraphUpdate,
@@ -87,11 +88,14 @@ export async function runGraphWorkspaceUpdate(
     manifest?: GraphIncrementalManifest;
     refresh?: boolean;
     dryRun?: boolean;
+    workflowTiming?: GraphWorkflowTimingCollector;
   } = {}
 ): Promise<GraphWorkspaceUpdateResult> {
   const startedAt = Date.now();
   const resolvedRoot = path.resolve(workspaceRoot);
-  const fingerprintResult = await collectWorkspaceFileFingerprints(resolvedRoot);
+  const fingerprintResult = input.workflowTiming
+    ? await input.workflowTiming.measure("fingerprint_cache_load", () => collectWorkspaceFileFingerprints(resolvedRoot))
+    : await collectWorkspaceFileFingerprints(resolvedRoot);
   const kernelProfile = await detectCurrentKernelProfile(resolvedRoot, fingerprintResult.files);
   const plan = planGraphIncrementalUpdate({
     cachedGraph: input.cachedGraph,
@@ -123,7 +127,9 @@ export async function runGraphWorkspaceUpdate(
   }
 
   if (plan.mode === "full" || !input.cachedGraph) {
-    const scanResult = await runKernelWorkspaceScan(resolvedRoot);
+    const scanResult = await runKernelWorkspaceScan(resolvedRoot, {
+      workflowTiming: input.workflowTiming,
+    });
     const manifest = buildGraphIncrementalManifest({
       graph: scanResult.unifiedGraph,
       kernelProfile: scanResult.kernelProfile,

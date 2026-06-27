@@ -123,7 +123,15 @@ export async function buildRoslynHelper(input: { timeoutMs?: number } = {}) {
   };
 }
 
-export async function ensureRoslynHelperPrepared(input: {
+let roslynHelperPreparedCache:
+  | Awaited<ReturnType<typeof ensureRoslynHelperPreparedUncached>>
+  | undefined;
+
+export function resetRoslynHelperPreparedCache() {
+  roslynHelperPreparedCache = undefined;
+}
+
+async function ensureRoslynHelperPreparedUncached(input: {
   autoBuild?: boolean;
   buildTimeoutMs?: number;
 } = {}) {
@@ -194,4 +202,19 @@ export async function ensureRoslynHelperPrepared(input: {
     }),
     dllPath,
   };
+}
+
+export async function ensureRoslynHelperPrepared(input: {
+  autoBuild?: boolean;
+  buildTimeoutMs?: number;
+  forceRefresh?: boolean;
+} = {}) {
+  if (!input.forceRefresh && roslynHelperPreparedCache) {
+    return roslynHelperPreparedCache;
+  }
+  const prepared = await ensureRoslynHelperPreparedUncached(input);
+  if (prepared.availability.status === "enabled") {
+    roslynHelperPreparedCache = prepared;
+  }
+  return prepared;
 }

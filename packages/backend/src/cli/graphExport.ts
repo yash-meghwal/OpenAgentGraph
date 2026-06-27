@@ -1,3 +1,4 @@
+import { summarizeGraphWorkflowTiming } from "@openagentgraph/shared";
 import { runOfflineKernelGraphExport } from "./offlineGraphExport.js";
 import { readGraphWorkspaceCliValue, requireWorkspaceOption } from "./graphWorkspace.js";
 
@@ -87,9 +88,10 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
     writeWiki: formats.writeWiki,
     writeReport: formats.writeReport,
     redactRoot: options.redactRoot,
+    captureStageTimings: true,
   });
 
-  const { graph, kernelProfile, writtenPaths } = exportResult;
+  const { graph, kernelProfile, writtenPaths, stageTimings } = exportResult;
 
   const payload = {
     status: "graph_export_complete",
@@ -102,6 +104,7 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
     edgeCount: graph.edges.length,
     activeScannerIds: graph.activeScannerIds,
     primaryType: kernelProfile.primaryType,
+    stageTimings,
   };
 
   console.log(`Workspace: ${workspaceRoot}`);
@@ -115,6 +118,9 @@ export async function runGraphExportCli(argv = process.argv.slice(2)) {
   console.log(`Scanners: ${graph.activeScannerIds.join(", ") || "generic"}`);
   for (const outputPath of writtenPaths) {
     console.log(`Wrote ${outputPath}`);
+  }
+  if (stageTimings) {
+    console.log(summarizeGraphWorkflowTiming(stageTimings).join("\n"));
   }
   return payload;
 }

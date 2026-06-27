@@ -1,7 +1,11 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphNode, WorkspaceKernelProfile } from "./codeGraph.js";
 import { summarizeUnifiedCommunityNode } from "./graphCommunities.js";
 import { getEcosystemScannerCatalogEntry } from "./graphEcosystemHealth.js";
-import { scoreReadFirstNode } from "./graphReadFirst.js";
+import { buildCommunityTopologyIndex } from "./graphCommunityHubs.js";
+import {
+  communityStartGuidanceScore,
+  rankStartGuidanceNodes,
+} from "./graphStartGuidance.js";
 
 function isTestLikeNode(node: UnifiedCodeGraphNode) {
   return node.kind === "test"
@@ -250,34 +254,32 @@ export function recommendPrimaryGraphLens(
 
 export function buildGraphGodNodeSummaries(graph: UnifiedCodeGraph, limit = 8): GraphGodNodeSummary[] {
   const communities = graph.nodes.filter((node) => node.kind === "community");
-  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
-  const adjacency = buildGraphAdjacency(graph);
+  const topology = buildCommunityTopologyIndex(graph);
 
   const summaries = communities.map((community) => {
     const enriched = summarizeUnifiedCommunityNode(community);
-    const neighborIds = [...(adjacency.get(community.id) ?? [])];
-    const members = neighborIds
-      .map((id) => nodesById.get(id))
-      .filter((node): node is UnifiedCodeGraphNode => Boolean(node));
+    const memberIds = topology.membersByCommunityId.get(community.id) ?? new Set<string>();
+    const members = [...memberIds]
+      .map((id) => topology.nodeById.get(id))
+      .filter((node): node is UnifiedCodeGraphNode => Boolean(node))
+      .filter((node) => !(node.path ?? node.label).includes("/bin/"))
+      .filter((node) => !(node.path ?? node.label).includes("/obj/"));
     const files = members.filter((node) =>
       (node.kind === "code_file" || node.kind === "config_file") && !isTestLikeNode(node)
     );
     const symbols = members.filter((node) => node.kind === "symbol" && !isTestLikeNode(node));
+    const rankedFiles = rankStartGuidanceNodes(files);
+    const rankedSymbols = rankStartGuidanceNodes(symbols);
     const topFiles = enriched.topFiles.length > 0
       ? enriched.topFiles
-      : files
-        .sort((left, right) => scoreReadFirstNode(left) - scoreReadFirstNode(right) || left.label.localeCompare(right.label))
-        .map((node) => node.path ?? node.label)
-        .slice(0, 4);
-    const topSymbols = symbols
-      .sort((left, right) => scoreReadFirstNode(left) - scoreReadFirstNode(right) || left.label.localeCompare(right.label))
-      .map((node) => node.label)
-      .slice(0, 4);
+      : rankedFiles.map((node) => node.path ?? node.label).slice(0, 4);
+    const topSymbols = rankedSymbols.map((node) => node.label).slice(0, 4);
     const startHints = topSymbols.length > 0 ? topSymbols : topFiles;
     const summary = enriched.summary || [
       `${community.label} community with ${members.length} connected node(s).`,
       startHints.length > 0 ? `Start with ${startHints.slice(0, 2).join(", ")}.` : "Inspect community members in the graph export.",
     ].join(" ");
+    const guidanceScore = communityStartGuidanceScore(members, graph);
     return {
       id: community.id,
       label: enriched.label,
@@ -286,11 +288,19 @@ export function buildGraphGodNodeSummaries(graph: UnifiedCodeGraph, limit = 8): 
       topSymbols,
       topFiles,
       summary,
+      guidanceScore,
     };
   });
 
   if (summaries.length > 0) {
-    return summaries.sort((left, right) => right.memberCount - left.memberCount).slice(0, limit);
+    return summaries
+      .sort((left, right) =>
+        (left.guidanceScore ?? Number.POSITIVE_INFINITY) - (right.guidanceScore ?? Number.POSITIVE_INFINITY)
+        || right.memberCount - left.memberCount
+        || left.label.localeCompare(right.label)
+      )
+      .slice(0, limit)
+      .map(({ guidanceScore: _guidanceScore, ...summary }) => summary);
   }
 
   const prefixCounts = new Map<string, { files: string[]; symbols: string[] }>();

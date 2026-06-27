@@ -36,7 +36,7 @@ import {
 } from "../db/productGraphRepo.js";
 import { getGraphProjection as getExecutionGraphProjection } from "../db/graphRepo.js";
 import { incrementFailureMetric, incrementMetric } from "../observability/metrics.js";
-import { scanWorkspaceCodebase, type CodebaseScanSummary } from "../scanner/codeScanner.js";
+import { scanWorkspaceCodebase, type CodebaseScanPlan, type CodebaseScanSummary } from "../scanner/codeScanner.js";
 import {
   buildScanProgressSnapshot,
   createScanBreakerStatus,
@@ -2215,21 +2215,11 @@ function publicCodebaseScanSummary(summary: CodebaseScanSummary): CodebaseScanSu
   };
 }
 
-export async function runProductGraphCodebaseScan(
+export async function applyProductGraphCodebaseScanPlan(
+  scanPlan: CodebaseScanPlan,
   actor: ActorIdentity,
   onProgress?: (snapshot: ScanProgressSnapshot) => void
 ): Promise<ProductGraphCodebaseScanResult> {
-  const workspaceRoot = await resolveProductGraphWorkspaceRoot();
-  const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
-  const config = getAppConfig();
-  const scanPlan = await scanWorkspaceCodebase({
-    workspaceRoot,
-    projection,
-    scanLimits: config.scanner.scanLimits,
-    semanticScanLimits: config.scanner.semanticScanLimits,
-    semanticAnalysisBudget: config.scanner.semanticAnalysisBudget,
-    onProgress,
-  });
   const events: Parameters<typeof appendProductEvents>[0] = [
     ...scanPlan.nodes.map((node) => ({
       productGraphId: DEFAULT_PRODUCT_GRAPH_ID,
@@ -2284,6 +2274,24 @@ export async function runProductGraphCodebaseScan(
     scannedAt: scanPlan.scannedAt,
     scanned: publicCodebaseScanSummary(scanPlan.summary),
   };
+}
+
+export async function runProductGraphCodebaseScan(
+  actor: ActorIdentity,
+  onProgress?: (snapshot: ScanProgressSnapshot) => void
+): Promise<ProductGraphCodebaseScanResult> {
+  const workspaceRoot = await resolveProductGraphWorkspaceRoot();
+  const projection = await getProductGraphProjection(DEFAULT_PRODUCT_GRAPH_ID);
+  const config = getAppConfig();
+  const scanPlan = await scanWorkspaceCodebase({
+    workspaceRoot,
+    projection,
+    scanLimits: config.scanner.scanLimits,
+    semanticScanLimits: config.scanner.semanticScanLimits,
+    semanticAnalysisBudget: config.scanner.semanticAnalysisBudget,
+    onProgress,
+  });
+  return applyProductGraphCodebaseScanPlan(scanPlan, actor, onProgress);
 }
 
 export function publicProductScanJob(job: ProductGraphScanJob): ScanJobStatus<ProductGraphCodebaseScanResult> {

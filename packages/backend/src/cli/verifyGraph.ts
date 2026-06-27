@@ -7,7 +7,6 @@ import {
   evaluateReleaseBenchmarkSuite,
   formatGraphExternalBenchmarkSummaryLine,
   formatGraphUpdateBenchmarkSummaryLine,
-  countGraphPathQualityFailures,
   GRAPH_PATH_QUALITY_MODEL_VERSION,
   GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
@@ -1202,16 +1201,22 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       scanMs: bundle.scanMs,
     })),
   });
+  const pathDetourFailures = releaseSuite.releaseResults.flatMap((result) =>
+    result.pathBenchmarks.filter((benchmark) => !benchmark.passed && /forbidden node kind/i.test(benchmark.detail))
+  ).length;
+  const generatedArtifactBrokenLinkCount = releaseSuite.releaseResults
+    .filter((result) => result.fixture !== "fixture-docs-broken-links")
+    .reduce((sum, result) => sum + result.docLinkHygiene.brokenCount, 0);
   const relevanceBaseline = evaluateGraphRelevanceBaselineSuite({
     results: releaseBundles.map((bundle) => ({
       fixture: bundle.fixture,
       graph: bundle.scan.unifiedGraph,
       stageTimings: bundle.scan.stageTimings,
     })),
+    pathDetourFailures,
+    generatedArtifactBrokenLinkCount,
   });
-  const pathQualityFailures = countGraphPathQualityFailures(
-    relevanceBaseline.results.flatMap((result) => result.pathQuality)
-  );
+  const pathQualityFailures = relevanceBaseline.pathQualityFailures;
 
   const updateBenchmarkResults = await runGraphUpdateBenchmarkSuite({ fixturesRoot });
   const updateBenchmarkSuite = evaluateGraphUpdateBenchmarkSuite(updateBenchmarkResults);
@@ -1222,7 +1227,11 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
   const payload = {
     fixturesRoot,
     fixtureCount: results.length,
-    passed: failed.length === 0 && releaseSuite.ok && updateBenchmarkSuite.ok && externalBenchmarkSuite.ok,
+    passed: failed.length === 0
+      && releaseSuite.ok
+      && relevanceBaseline.ok
+      && updateBenchmarkSuite.ok
+      && externalBenchmarkSuite.ok,
     results,
     releaseGates: {
       fixtures: [...GRAPH_RELEASE_FIXTURE_IDS],
@@ -1239,6 +1248,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       errors: releaseSuite.errors,
       results: releaseSuite.releaseResults,
       pathModelVersion: GRAPH_PATH_QUALITY_MODEL_VERSION,
+      guidanceConsistencyFailures: releaseSuite.releaseResults.filter((result) => !result.guidanceConsistency.ok).length,
     },
     pathQualityMeasured: {
       measuredOnly: true,
@@ -1262,8 +1272,14 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       version: relevanceBaseline.version,
       pathQualityPassRate: relevanceBaseline.pathQualityPassRate,
       queryModePassRate: relevanceBaseline.queryModePassRate,
+      codeModePassRate: relevanceBaseline.codeModePassRate,
+      docsModePassRate: relevanceBaseline.docsModePassRate,
+      balancedModePassRate: relevanceBaseline.balancedModePassRate,
       guidanceConsistencyFailures: relevanceBaseline.guidanceConsistencyFailures,
-      measuredOnly: true,
+      docRepairSuggestionCoverage: relevanceBaseline.docRepairSuggestionCoverage,
+      duplicateKernelScanCount: relevanceBaseline.duplicateKernelScanCount,
+      generatedArtifactBrokenLinkCount,
+      pathDetourFailures,
       passed: relevanceBaseline.ok,
       errors: relevanceBaseline.errors,
       results: relevanceBaseline.results,
@@ -1283,11 +1299,9 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     const readFirstGateFailures = releaseSuite.releaseResults.filter((result) => !result.readFirstQuality.ok).length;
     const hubStartGateFailures = releaseSuite.releaseResults.filter((result) => !result.hubStartQuality.ok).length;
     const docLinkGateFailures = releaseSuite.releaseResults.filter((result) => !result.docLinkHygiene.ok).length;
-    const pathDetourFailures = releaseSuite.releaseResults.flatMap((result) =>
-      result.pathBenchmarks.filter((benchmark) => !benchmark.passed && /forbidden node kind/i.test(benchmark.detail))
-    ).length;
+    const guidanceConsistencyGateFailures = releaseSuite.releaseResults.filter((result) => !result.guidanceConsistency.ok).length;
     console.log(
-      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% readFirstFails=${readFirstGateFailures} hubStartFails=${hubStartGateFailures} docLinkFails=${docLinkGateFailures} pathDetourFails=${pathDetourFailures} totalScanMs=${payload.releaseGates.totalScanMs}`
+      `Release gates: ${releaseSuite.ok ? "PASS" : "FAIL"} agentBenchmark=${Math.round(releaseSuite.agentBenchmarkSuccessRate * 100)}% query=${Math.round(releaseSuite.querySuccessRate * 100)}% path=${Math.round(releaseSuite.pathSuccessRate * 100)}% misleadingHandoff=${Math.round(releaseSuite.misleadingHandoffRate * 100)}% readFirstFails=${readFirstGateFailures} hubStartFails=${hubStartGateFailures} guidanceConsistencyFails=${guidanceConsistencyGateFailures} docLinkFails=${docLinkGateFailures} pathDetourFails=${pathDetourFailures} totalScanMs=${payload.releaseGates.totalScanMs}`
     );
     console.log(
       `Path quality (measured only): model=${GRAPH_PATH_QUALITY_MODEL_VERSION} directnessFails=${pathQualityFailures.pathDirectnessFailures} endpointFails=${pathQualityFailures.pathEndpointFidelityFailures} hubDetourFails=${pathQualityFailures.pathHubDetourFailures}`
@@ -1304,7 +1318,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       console.log(`  - ${error}`);
     }
     console.log(
-      `Relevance baseline (measured only): pathQuality=${Math.round(relevanceBaseline.pathQualityPassRate * 100)}% queryMode=${Math.round(relevanceBaseline.queryModePassRate * 100)}% guidanceConsistencyFails=${relevanceBaseline.guidanceConsistencyFailures}`
+      `Relevance baseline: ${relevanceBaseline.ok ? "PASS" : "FAIL"} pathQuality=${Math.round(relevanceBaseline.pathQualityPassRate * 100)}% codeMode=${Math.round(relevanceBaseline.codeModePassRate * 100)}% docsMode=${Math.round(relevanceBaseline.docsModePassRate * 100)}% docRepairCoverage=${Math.round(relevanceBaseline.docRepairSuggestionCoverage * 100)}% duplicateScans=${relevanceBaseline.duplicateKernelScanCount} brokenLinks=${generatedArtifactBrokenLinkCount}`
     );
     for (const error of relevanceBaseline.errors.slice(0, 8)) {
       console.log(`  - ${error}`);
@@ -1316,6 +1330,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     const failedNames = [
       ...failed.map((result) => result.fixture),
       ...(releaseSuite.ok ? [] : ["release-gates"]),
+      ...(relevanceBaseline.ok ? [] : ["relevance-baseline"]),
       ...(updateBenchmarkSuite.ok ? [] : ["update-benchmarks"]),
       ...(externalBenchmarkSuite.ok ? [] : ["external-benchmarks"]),
     ];

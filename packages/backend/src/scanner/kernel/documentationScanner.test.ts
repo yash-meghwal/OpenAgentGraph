@@ -224,6 +224,31 @@ describe("documentationScanner", () => {
     expect(indexed.symbolNodes[0]?.source?.line).toBe(5);
   });
 
+  it("records broken cross-file anchor diagnostics when the target file exists", () => {
+    const augmented = augmentDocumentationWorkspaceGraph({
+      scanId: "scan-1",
+      scannedAt: "2026-06-18T00:00:00.000Z",
+      files: [
+        { relativePath: "README.md", body: "See [API](docs/api.md#old-section).\n" },
+        { relativePath: "docs/api.md", body: "# Old Section Name\n\nBody.\n" },
+      ],
+      fileNodeIdsByPath: new Map([
+        ["README.md", "file:README.md"],
+        ["docs/api.md", "file:docs/api.md"],
+      ]),
+      docSectionNodeIdsByKey: new Map([
+        ["docs/api.md|old-section-name", "sec:old"],
+      ]),
+      symbolNodeIdsBySimpleName: new Map(),
+      stableId,
+      compactMetadata,
+      maxEdgeLabelLength: 180,
+    });
+    expect(augmented.diagnostics.some((line) => /Broken doc anchor in README\.md:1:/.test(line))).toBe(true);
+    expect(augmented.diagnostics.find((line) => /Broken doc anchor/i.test(line))).toContain("docs/api.md#old-section");
+    expect(augmented.edges.some((edge) => edge.metadata?.scannerDocLinkAnchor === "old-section")).toBe(false);
+  });
+
   it("records broken link diagnostics honestly", () => {
     const augmented = augmentDocumentationWorkspaceGraph({
       scanId: "scan-1",

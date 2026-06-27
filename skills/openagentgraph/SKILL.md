@@ -73,7 +73,7 @@ No AI provider is needed for:
 - Static workspace exports (`graph:export --offline-only`)
 - Bounded agent context packs (`graph:context`)
 - Retrieval by `oag:*` id (`graph:retrieve`)
-- Graph query/path/explain/check/scorecard CLIs
+- Graph doctor/dogfood/query/path/explain/check/docs/scorecard CLIs
 - MCP graph tools
 - Project Graph scans
 - Product Graph codebase scans
@@ -100,9 +100,18 @@ Supported provider modes:
 For agents opening any repository, prefer the static export first:
 
 ```powershell
+oag doctor --workspace .
 npm run graph:export -- --workspace . --offline-only --redact-root
 npm run graph:context -- --workspace . --goal "orient me" --json
 ```
+
+Query intent modes:
+
+- `--mode code` for implementation entry points
+- `--mode docs` for documentation/runbook entry points
+- `--mode balanced` for mixed orientation
+
+Docs repair guidance from `graph:docs:check --suggest` is proposal-only. Do not auto-apply edits to user Markdown.
 
 That writes `.oag/*` plus `GRAPH_REPORT.md` without a backend server, SQLite product graph DB, AI provider key, or source-body persistence.
 

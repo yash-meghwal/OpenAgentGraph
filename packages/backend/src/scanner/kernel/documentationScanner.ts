@@ -641,6 +641,10 @@ export function augmentDocumentationWorkspaceGraph(input: {
           localSectionSlugs: resolved.resolvedPath === file.relativePath ? sectionSlugToNodeId : undefined,
         })
         : undefined;
+      if (link.anchor && !anchoredSectionId) {
+        diagnostics.push(`Broken doc anchor in ${file.relativePath}:${link.line}: ${link.raw}`);
+        continue;
+      }
       const targetNodeId = anchoredSectionId ?? resolved.nodeId;
       appendDocLinkEdge({
         edges,
@@ -648,7 +652,7 @@ export function augmentDocumentationWorkspaceGraph(input: {
         link,
         targetNodeId,
         resolvedPath: resolved.resolvedPath,
-        trust: link.anchor && !anchoredSectionId ? "ambiguous" : "extracted",
+        trust: "extracted",
         stableId: input.stableId,
         compactMetadata: input.compactMetadata,
         maxEdgeLabelLength: input.maxEdgeLabelLength,

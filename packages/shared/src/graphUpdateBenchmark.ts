@@ -1,12 +1,16 @@
 import type { GraphUpdateMode } from "./graphIncremental.js";
+import type { GraphWorkflowTimingReport } from "./graphWorkflowTiming.js";
 
 export const GRAPH_UPDATE_BENCHMARK_DOGFOOD_MAX_WARM_MS = 30_000;
 export const GRAPH_UPDATE_BENCHMARK_FIXTURE_MAX_WARM_MS = 15_000;
+export const GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO = 0.5;
 
 export type GraphUpdateBenchmarkScenarioId =
   | "typescript-10"
   | "csharp-10"
   | "mixed-10"
+  | "docs-heavy-10"
+  | "unchanged-warm"
   | "generated-noop";
 
 export interface GraphUpdateBenchmarkScenario {
@@ -22,6 +26,8 @@ export const GRAPH_UPDATE_BENCHMARK_SCENARIO_IDS = [
   "typescript-10",
   "csharp-10",
   "mixed-10",
+  "docs-heavy-10",
+  "unchanged-warm",
   "generated-noop",
 ] as const satisfies readonly GraphUpdateBenchmarkScenarioId[];
 
@@ -63,6 +69,20 @@ export const GRAPH_UPDATE_BENCHMARK_SCENARIOS: GraphUpdateBenchmarkScenario[] = 
     expectMode: "incremental",
   },
   {
+    id: "docs-heavy-10",
+    label: "10 changed files in docs-heavy workspace",
+    baseFixture: "fixture-docs-mixed-code",
+    changedFiles: 10,
+    expectMode: "incremental",
+  },
+  {
+    id: "unchanged-warm",
+    label: "unchanged warm repeat",
+    baseFixture: "fixture-next-app",
+    changedFiles: 0,
+    expectMode: "noop",
+  },
+  {
     id: "generated-noop",
     label: "generated-only change noop",
     baseFixture: "fixture-csharp-wpf",
@@ -89,6 +109,9 @@ export interface GraphUpdateBenchmarkResult {
   updateMode: GraphUpdateMode;
   fallbackReasons: string[];
   touchedPaths: string[];
+  stageTimings?: GraphWorkflowTimingReport;
+  filesScanned?: number;
+  filesReused?: number;
 }
 
 export interface GraphUpdateBenchmarkSuiteResult {
@@ -140,6 +163,15 @@ export function evaluateGraphUpdateBenchmarkResult(
 
   if (result.scenarioId === "generated-noop" && result.changedFileCount > 0) {
     errors.push("Generated-only benchmark reported changed source files.");
+  }
+
+  if (result.scenarioId === "unchanged-warm" && result.coldScanMs > 0) {
+    const warmRatio = result.warmUpdateMs / result.coldScanMs;
+    if (warmRatio > GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO) {
+      errors.push(
+        `Warm repeat ${result.warmUpdateMs}ms exceeds ${Math.round(GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO * 100)}% of cold ${result.coldScanMs}ms (${warmRatio.toFixed(2)}x).`
+      );
+    }
   }
 
   return errors;
@@ -199,6 +231,18 @@ export function formatGraphUpdateBenchmarkReport(results: GraphUpdateBenchmarkRe
     }
     if (result.touchedPaths.length > 0) {
       lines.push(`- Touched paths: ${result.touchedPaths.join(", ")}`);
+    }
+    if (typeof result.filesScanned === "number") {
+      lines.push(`- Files scanned: ${result.filesScanned}`);
+    }
+    if (typeof result.filesReused === "number") {
+      lines.push(`- Files reused: ${result.filesReused}`);
+    }
+    if (result.stageTimings) {
+      lines.push(`- Stage timings: total ${result.stageTimings.totalMs}ms`);
+      for (const stage of result.stageTimings.stages.slice(0, 8)) {
+        lines.push(`  - ${stage.stage}: ${stage.durationMs}ms`);
+      }
     }
     if (result.errors.length > 0) {
       lines.push(`- Errors: ${result.errors.join("; ")}`);

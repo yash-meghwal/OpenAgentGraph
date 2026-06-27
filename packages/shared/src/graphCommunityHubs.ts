@@ -1,6 +1,9 @@
 import type { UnifiedCodeGraph, UnifiedCodeGraphEdge, UnifiedCodeGraphNode } from "./codeGraph.js";
 import type { GraphTaskLensId } from "./graphLenses.js";
-import { scoreReadFirstNode } from "./graphReadFirst.js";
+import {
+  buildCommunityStartGuidanceBuckets,
+  rankStartGuidanceNodes,
+} from "./graphStartGuidance.js";
 import {
   buildGraphCommunitySummaries,
   GRAPH_COMMUNITY_MIN_MERGE_FILES,
@@ -38,8 +41,11 @@ export interface GraphCommunityHubSummary extends GraphCommunitySummary {
   docLinks: string[];
   readFirstNodes: string[];
   startWithNodes: string[];
+  coreImplementationNodes?: string[];
+  publicContractNodes?: string[];
   relatedTests: string[];
   supportingDocs: string[];
+  operationalConfigNodes?: string[];
   interCommunityDegree: number;
   isThin: boolean;
   mergedFromLabels?: string[];
@@ -60,7 +66,7 @@ function normalizePath(filePath: string) {
   return filePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "");
 }
 
-function buildCommunityTopologyIndex(graph: UnifiedCodeGraph): CommunityTopologyIndex {
+export function buildCommunityTopologyIndex(graph: UnifiedCodeGraph): CommunityTopologyIndex {
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const communityIds = new Set(
     graph.nodes.filter((node) => node.kind === "community").map((node) => node.id)
@@ -133,10 +139,6 @@ function buildCommunityTopologyIndex(graph: UnifiedCodeGraph): CommunityTopology
 
 function nodeDisplayLabel(node: UnifiedCodeGraphNode) {
   return node.path ?? node.label;
-}
-
-function readFirstPriority(node: UnifiedCodeGraphNode) {
-  return scoreReadFirstNode(node);
 }
 
 function isTestNode(node: UnifiedCodeGraphNode) {
@@ -253,42 +255,20 @@ function enrichCommunityHub(
     .filter((node) => !(node.path ?? node.label).includes("/bin/"))
     .filter((node) => !(node.path ?? node.label).includes("/obj/"));
 
-  const topSymbols = memberNodes
-    .filter((node) => node.kind === "symbol" || node.kind === "test")
-    .filter((node) => !isTestNode(node) || node.kind === "symbol")
-    .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
+  const guidanceBuckets = buildCommunityStartGuidanceBuckets(memberNodes, graph);
+  const topSymbols = rankStartGuidanceNodes(
+    memberNodes.filter((node) => node.kind === "symbol" && !isTestNode(node))
+  )
     .map((node) => node.label)
     .filter((value, position, array) => array.indexOf(value) === position)
     .slice(0, 5);
 
-  const startWithNodes = memberNodes
-    .filter((node) => ["symbol", "code_file"].includes(node.kind))
-    .filter((node) => !isTestNode(node))
-    .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
-    .map(nodeDisplayLabel)
-    .filter((value, position, array) => array.indexOf(value) === position)
-    .slice(0, 3);
-
-  const relatedTests = memberNodes
-    .filter((node) => isTestNode(node))
-    .sort((left, right) => left.label.localeCompare(right.label))
-    .map(nodeDisplayLabel)
-    .filter((value, position, array) => array.indexOf(value) === position)
-    .slice(0, 3);
-
-  const supportingDocs = memberNodes
-    .filter((node) => node.kind === "doc_file" || node.kind === "doc_section")
-    .sort((left, right) => left.label.localeCompare(right.label))
-    .map(nodeDisplayLabel)
-    .filter((value, position, array) => array.indexOf(value) === position)
-    .slice(0, 3);
-
+  const startWithNodes = guidanceBuckets.startWith;
+  const relatedTests = guidanceBuckets.relatedTests;
+  const supportingDocs = guidanceBuckets.supportingDocs;
   const readFirstNodes = startWithNodes.length > 0
     ? startWithNodes
-    : memberNodes
-      .filter((node) => ["symbol", "code_file", "doc_file", "doc_section", "config_file"].includes(node.kind))
-      .sort((left, right) => readFirstPriority(left) - readFirstPriority(right) || left.label.localeCompare(right.label))
-      .map(nodeDisplayLabel)
+    : [...guidanceBuckets.startWith, ...guidanceBuckets.coreImplementation]
       .filter((value, position, array) => array.indexOf(value) === position)
       .slice(0, 5);
 
@@ -392,8 +372,11 @@ function enrichCommunityHub(
     docLinks: [...docLinks].sort((left, right) => left.localeCompare(right)).slice(0, 5),
     readFirstNodes,
     startWithNodes,
+    coreImplementationNodes: guidanceBuckets.coreImplementation,
+    publicContractNodes: guidanceBuckets.publicContracts,
     relatedTests,
     supportingDocs,
+    operationalConfigNodes: guidanceBuckets.operationalConfig,
     interCommunityDegree,
     isThin: summary.fileCount < GRAPH_COMMUNITY_HUB_PRESENTATION_MIN_FILES
       && summary.kind !== "generated"
@@ -471,6 +454,7 @@ function mergeHubInto(target: GraphCommunityHubSummary, source: GraphCommunityHu
     fileCount: target.fileCount,
     topFiles: target.topFiles,
     topSymbols: target.topSymbols,
+    startWithNodes: target.startWithNodes,
     incomingRelationships: target.incomingRelationships,
     outgoingRelationships: target.outgoingRelationships,
     provenanceMix: target.provenanceMix,

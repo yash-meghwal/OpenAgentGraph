@@ -10,6 +10,7 @@ import {
   GRAPH_QUERY_BENCHMARKS,
   GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
+  type GraphReleaseFixtureId,
 } from "./graphReleaseGates.js";
 import { renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 
@@ -164,5 +165,58 @@ describe("graph release gates", () => {
     expect(suite.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
     expect(suite.agentBenchmarkSuccessRate).toBeLessThan(1);
     expect(suite.errors.some((error) => error.includes("missing from benchmark suite input"))).toBe(true);
+  });
+
+  it("fails the query floor when path benchmarks mask low query success", () => {
+    const queryFailFixtures = new Set<GraphReleaseFixtureId>([
+      "fixture-next-app",
+      "fixture-python-django",
+      "fixture-go-module",
+      "fixture-rust-workspace",
+      "fixture-terraform",
+    ]);
+
+    function makeConnectedBenchmarkGraph(labels: string[]): UnifiedCodeGraph {
+      const graph = makeBenchmarkGraph(labels);
+      if (labels.length >= 2) {
+        graph.edges = [
+          {
+            id: "e1",
+            sourceNodeId: "node:0",
+            targetNodeId: "node:1",
+            kind: "references",
+            provenance: "inferred",
+          },
+        ];
+      }
+      return graph;
+    }
+
+    const suite = evaluateReleaseBenchmarkSuite({
+      results: GRAPH_RELEASE_FIXTURE_IDS.map((fixture) => {
+        const queryBenchmark = GRAPH_QUERY_BENCHMARKS.find((benchmark) => benchmark.fixture === fixture);
+        const pathBenchmarks = GRAPH_PATH_BENCHMARKS.filter((benchmark) => benchmark.fixture === fixture);
+        const labels = queryFailFixtures.has(fixture)
+          ? ["No expected query seed here"]
+          : pathBenchmarks.length > 0
+            ? [pathBenchmarks[0].from, pathBenchmarks[0].to, queryBenchmark?.query.split(" ")[0] ?? pathBenchmarks[0].from]
+            : queryBenchmark
+              ? [queryBenchmark.query]
+              : ["workspace"];
+
+        return {
+          fixture,
+          graph: makeConnectedBenchmarkGraph(labels),
+          scanMs: 1,
+        };
+      }),
+    });
+
+    expect(suite.querySuccessRate).toBeLessThan(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
+    expect(suite.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE);
+    expect(suite.ok).toBe(false);
+    expect(
+      suite.errors.some((error) => /Query benchmark success rate .* is below 90%/.test(error))
+    ).toBe(true);
   });
 });

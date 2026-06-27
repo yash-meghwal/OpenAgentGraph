@@ -31,6 +31,7 @@ export type GraphWorkspaceCliCommand = "query" | "path" | "explain" | "export" |
 export interface GraphWorkspaceCliOptions {
   workspace?: string;
   json: boolean;
+  suggest: boolean;
   refresh: boolean;
   dfs: boolean;
   budget: number;
@@ -103,6 +104,7 @@ export function readGraphWorkspaceCliValue(argv: string[], index: number) {
 export function parseGraphWorkspaceArgv(argv: string[], command?: GraphWorkspaceCliCommand) {
   const options: GraphWorkspaceCliOptions = {
     json: false,
+    suggest: false,
     refresh: false,
     dfs: false,
     budget: DEFAULT_GRAPH_CLI_BUDGET,
@@ -117,6 +119,8 @@ export function parseGraphWorkspaceArgv(argv: string[], command?: GraphWorkspace
       index += 1;
     } else if (arg === "--json") {
       options.json = true;
+    } else if (arg === "--suggest") {
+      options.suggest = true;
     } else if (arg === "--refresh") {
       options.refresh = true;
     } else if (arg === "--dfs") {
@@ -207,6 +211,9 @@ export function collectIgnoredGraphCliOptions(
   }
   if (command !== "query" && command !== "context" && command !== "path" && command !== "lens" && options.lens) {
     warnings.push("--lens is only used by graph:query, graph:path, and graph:lens; ignoring.");
+  }
+  if (command !== "docs-check" && options.suggest) {
+    warnings.push("--suggest is only used by graph:docs:check; ignoring.");
   }
   return warnings;
 }

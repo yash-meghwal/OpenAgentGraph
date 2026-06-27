@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { describe, expect, it, vi } from "vitest";
 import { OAG_CLI_COMMANDS, renderOagCliHelp } from "./backendCli.js";
 
-vi.setConfig({ testTimeout: 120_000 });
+vi.setConfig({ testTimeout: 240_000 });
 
 function spawnNode(args: string[], cwd: string) {
   const childEnv = { ...process.env };
@@ -74,7 +74,7 @@ describe("@openagentgraph/cli packaging", () => {
     expect(result.stdout).toContain("graph:export");
   });
 
-  it("smoke-tests packed install against a small fixture", () => {
+  it("smoke-tests packed install against a small fixture", { timeout: 240_000 }, () => {
     const packResult = runNpm(["pack", "--pack-destination", os.tmpdir(), "--json"], packageRoot);
     expect(packResult.status).toBe(0);
     const packed = JSON.parse(packResult.stdout) as Array<{ filename: string }>;
@@ -104,5 +104,39 @@ describe("@openagentgraph/cli packaging", () => {
 
     const routeResult = spawnNode([oagBin, "graph:export", "--workspace", fixtureRoot, "--offline-only"], installDir);
     expect(routeResult.status).toBe(0);
+
+    const doctorResult = spawnNode([oagBin, "doctor", "--workspace", fixtureRoot, "--json"], installDir);
+    expect(doctorResult.status).toBe(0);
+    const doctorPayload = JSON.parse(doctorResult.stdout) as { ok: boolean; providerKey: { requiredForGraphCommands: boolean } };
+    expect(doctorPayload.ok).toBe(true);
+    expect(doctorPayload.providerKey.requiredForGraphCommands).toBe(false);
+    expect(`${doctorResult.stdout}${doctorResult.stderr}`).not.toMatch(/sk-[A-Za-z0-9]/);
+
+    const queryResult = spawnNode([
+      oagBin,
+      "graph:query",
+      "--workspace",
+      fixtureRoot,
+      "--mode",
+      "code",
+      "--json",
+      "entry",
+    ], installDir);
+    expect(queryResult.status).toBe(0);
+    const queryPayload = JSON.parse(queryResult.stdout) as { status: string; queryMode: string };
+    expect(queryPayload.status).toBe("graph_query_complete");
+    expect(queryPayload.queryMode).toBe("code");
+
+    const dogfoodResult = spawnNode([
+      oagBin,
+      "dogfood",
+      "--workspace",
+      fixtureRoot,
+      "--no-export",
+      "--json",
+    ], installDir);
+    expect(dogfoodResult.status).toBe(0);
+    const dogfoodPayload = JSON.parse(dogfoodResult.stdout) as { status: string };
+    expect(dogfoodPayload.status).toBe("dogfood_complete");
   });
 });

@@ -76,7 +76,22 @@ No model provider or API key is required. This scans the target workspace, store
 npm run dogfood -- --workspace "C:\path with spaces\your-project"
 ```
 
+From the published npm CLI:
+
+```powershell
+oag doctor --workspace "C:\path with spaces\your-project"
+oag dogfood --workspace "C:\path with spaces\your-project"
+```
+
 Read `GRAPH_REPORT.md` first. Trust indexed areas, but inspect source directly when support tiers or analyzer warnings say a language is structural-only, semantic-lite, unavailable, or partial.
+
+## Query And Path Modes
+
+- `graph:query --mode code` ranks code symbols/files first.
+- `graph:query --mode docs` ranks documentation surfaces first.
+- `graph:query --mode balanced` keeps the default mixed intent ranking.
+- `graph:path --mode balanced|semantic|structural` changes how routes are scored; release path floors are measured on the pinned fixture suite only.
+- `graph:docs:check --suggest` reports safe repair proposals but never edits user-authored Markdown.
 
 ## Generate The Compact Handoff
 

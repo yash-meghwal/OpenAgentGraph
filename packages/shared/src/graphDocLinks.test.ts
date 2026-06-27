@@ -5,6 +5,7 @@ import {
   evaluateDocLinkHygieneGate,
   parseDocLinkDiagnostic,
   renderBrokenDocLinksMarkdown,
+  resolveRelativeDocTarget,
 } from "./graphDocLinks.js";
 
 function makeGraph(diagnostics: string[]): UnifiedCodeGraph {
@@ -44,6 +45,48 @@ describe("graphDocLinks", () => {
     const parsed = parseDocLinkDiagnostic("Broken doc link in README.md: ./missing.md");
     expect(parsed?.sourcePath).toBe("README.md");
     expect(parsed?.line).toBeUndefined();
+  });
+
+  it("classifies escaping relative traversal as outside_workspace", () => {
+    const parsed = parseDocLinkDiagnostic("Broken doc link in docs/guide.md:3: [escape](../../README.md)");
+    expect(parsed?.reason).toBe("outside_workspace");
+    expect(resolveRelativeDocTarget("docs/guide.md", "../../README.md").outsideWorkspace).toBe(true);
+  });
+
+  it("keeps one-level parent traversal inside the workspace", () => {
+    const parsed = parseDocLinkDiagnostic("Broken doc link in docs/guide.md:4: [root](../README.md)");
+    expect(parsed?.reason).toBe("missing_file");
+    expect(resolveRelativeDocTarget("docs/guide.md", "../README.md").resolvedPath).toBe("README.md");
+  });
+
+  it("classifies Windows-rooted and UNC targets as outside_workspace", () => {
+    expect(
+      parseDocLinkDiagnostic("Broken doc link in docs/guide.md:3: [unc](\\\\server\\share\\README.md)")?.reason
+    ).toBe("outside_workspace");
+    expect(
+      parseDocLinkDiagnostic("Broken doc link in docs/guide.md:3: [rooted](\\README.md)")?.reason
+    ).toBe("outside_workspace");
+    expect(resolveRelativeDocTarget("docs/guide.md", "\\\\server\\share\\README.md").outsideWorkspace).toBe(true);
+    expect(resolveRelativeDocTarget("docs/guide.md", "\\README.md").outsideWorkspace).toBe(true);
+    expect(resolveRelativeDocTarget("docs/guide.md", "//server/share/README.md").outsideWorkspace).toBe(true);
+    expect(resolveRelativeDocTarget("docs/guide.md", "/README.md").outsideWorkspace).toBe(true);
+    expect(resolveRelativeDocTarget("docs/guide.md", "C:\\README.md").outsideWorkspace).toBe(true);
+    expect(resolveRelativeDocTarget("docs/guide.md", "C:/README.md").outsideWorkspace).toBe(true);
+  });
+
+  it("preserves wikilink anchors in diagnostics", () => {
+    const plain = parseDocLinkDiagnostic("Broken doc anchor in README.md:2: [[docs/api.md#old-section]]");
+    expect(plain?.rawTarget).toBe("docs/api.md#old-section");
+    expect(plain?.reason).toBe("missing_anchor");
+
+    const aliased = parseDocLinkDiagnostic("Broken doc anchor in README.md:2: [[docs/api.md#old-section|API]]");
+    expect(aliased?.rawTarget).toBe("docs/api.md#old-section");
+
+    const symbol = parseDocLinkDiagnostic("Broken doc link in docs/playback.md:9: [[MainViewModel]]");
+    expect(symbol?.rawTarget).toBe("MainViewModel");
+
+    const pageAnchor = parseDocLinkDiagnostic("Broken doc anchor in README.md:5: [[architecture#Components]]");
+    expect(pageAnchor?.rawTarget).toBe("architecture#Components");
   });
 
   it("renders markdown and evaluates hygiene gates", () => {

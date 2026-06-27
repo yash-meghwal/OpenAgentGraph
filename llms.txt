@@ -23,7 +23,7 @@ npm run graph:query -- --workspace . "how does auth work?"
 npm run graph:check -- --workspace . --mode hard
 ```
 
-If the npm CLI is installed, use `oag graph:export --workspace . --offline-only --redact-root` and `oag graph:context --workspace . --goal "orient me" --json`.
+If the npm CLI is installed, use `oag doctor --workspace .`, `oag graph:export --workspace . --offline-only --redact-root`, `oag dogfood --workspace .`, and `oag graph:context --workspace . --goal "orient me" --json`.
 
 ## Read these files first
 
@@ -53,25 +53,36 @@ If the npm CLI is installed, use `oag graph:export --workspace . --offline-only 
 
 | Command | When |
 | --- | --- |
+| `doctor` | Check versions, workspace access, optional .NET/Roslyn, cache, and next commands |
+| `dogfood` | Full Base dogfood pass on an external workspace (no provider key) |
 | `graph:export` | Create or refresh static artifacts |
 | `graph:context` | Bounded agent context pack for a goal |
-| `graph:query` | Neighborhood search from a question |
+| `graph:query` | Neighborhood search; use `--mode code`, `--mode docs`, or `--mode balanced` |
 | `graph:path` | Ranked route between two targets |
 | `graph:explain` | Node/file neighborhood summary |
 | `graph:check` | Hard/warn quality gates |
-| `graph:docs:check` | Broken Markdown link and anchor diagnostics for a target workspace |
+| `graph:docs:check` | Broken link diagnostics; `--suggest` adds non-mutating repair proposals |
 | `graph:update` | Incremental `.oag/graph.json` refresh |
 | `graph:retrieve` | Deeper lookup by `oag:*` retrieval id |
 | `graph:scorecard` | Reproducible public benchmark proof |
+
+Published npm entry point: `oag <command>`. Repo scripts mirror the same backend CLIs.
 
 ## MCP tools
 
 Run `npm run oag:mcp` for stdio MCP with: `oag_export`, `oag_query`, `oag_path`, `oag_explain`, `oag_check`, `oag_context`, `oag_retrieve`.
 
+## Release proof
+
+- Regenerate measured gates with `npm run verify:graph` and `npm run graph:scorecard`.
+- See `docs/BENCHMARKS.md` for the full v1.6 public scorecard table.
+- Performance and warm/cold numbers are benchmark-specific, not universal latency claims.
+
 ## Do not
 
 - Read or copy from OpenAgentGraphPro or scratch export folders.
 - Claim semantic support beyond what `graph:check` and fixtures prove.
+- Auto-edit user-authored Markdown from `graph:docs:check --suggest` proposals.
 - Auto-edit `AGENTS.md`, `README.md`, or `LLMS.md` from generated proposals.
 
 ## More docs

@@ -14,22 +14,132 @@ export interface DocLinkDiagnostic {
   severity: "warn" | "fail";
 }
 
+export interface ResolvedDocLinkTarget {
+  fileTarget: string;
+  anchor?: string;
+  resolvedPath?: string;
+  outsideWorkspace: boolean;
+}
+
 const BROKEN_DOC_DIAGNOSTIC_RE = /^Broken doc (link|anchor) in ([^:]+?)(?::(\d+))?:\s*(.+)$/;
 
-function extractBrokenDocTarget(raw: string) {
+export function extractBrokenDocTarget(raw: string) {
   const trimmed = raw.trim();
   const markdown = trimmed.match(/^\[[^\]]+\]\(([^)]+)\)$/);
   if (markdown) return markdown[1]!.trim();
-  const wikilink = trimmed.match(/^\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]$/);
+  const wikilink = trimmed.match(/^\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/);
   if (wikilink) return wikilink[1]!.trim();
   return trimmed;
 }
 
-function classifyBrokenDocTarget(rawTarget: string, kind: "link" | "anchor"): DocLinkFailureReason {
-  if (kind === "anchor") return "missing_anchor";
+function isRootedDocTarget(fileTarget: string) {
+  const trimmed = fileTarget.trim();
+  if (!trimmed) return false;
+  if (/^[a-zA-Z]:[\\/]/.test(trimmed)) return true;
+  if (trimmed.startsWith("//")) return true;
+  if (trimmed.startsWith("\\")) return true;
+  if (trimmed.startsWith("/")) return true;
+  return false;
+}
+
+export function splitDocLinkTarget(rawTarget: string) {
   const trimmed = rawTarget.trim();
-  if (/^(?:https?:|mailto:)/i.test(trimmed)) return "unsupported_scheme";
-  if (trimmed.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(trimmed)) return "outside_workspace";
+  if (trimmed.startsWith("#")) {
+    return { fileTarget: "", anchor: trimmed.slice(1) };
+  }
+  const hashIndex = trimmed.indexOf("#");
+  if (hashIndex >= 0) {
+    return {
+      fileTarget: trimmed.slice(0, hashIndex),
+      anchor: trimmed.slice(hashIndex + 1),
+    };
+  }
+  return { fileTarget: trimmed, anchor: undefined };
+}
+
+function normalizeWorkspacePath(value: string) {
+  return value.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "");
+}
+
+function posixDirname(filePath: string) {
+  const normalized = normalizeWorkspacePath(filePath);
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(0, index) : "";
+}
+
+function posixNormalize(value: string) {
+  const segments = value.replace(/\\/g, "/").split("/");
+  const stack: string[] = [];
+  for (const segment of segments) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (stack.length > 0) stack.pop();
+      else stack.push("..");
+      continue;
+    }
+    stack.push(segment);
+  }
+  return stack.join("/");
+}
+
+function joinsWorkspaceRelativePath(sourceDir: string, fileTarget: string) {
+  const cleaned = fileTarget.replace(/\\/g, "/").trim();
+  if (!cleaned) return "";
+  const joined = cleaned.startsWith("./")
+    ? `${sourceDir ? `${sourceDir}/` : ""}${cleaned.slice(2)}`
+    : sourceDir
+      ? `${sourceDir}/${cleaned}`
+      : cleaned;
+  return posixNormalize(joined);
+}
+
+function pathEscapesWorkspace(normalizedPath: string) {
+  return normalizedPath === ".." || normalizedPath.startsWith("../");
+}
+
+export function resolveRelativeDocTarget(sourceFilePath: string, rawTarget: string): ResolvedDocLinkTarget {
+  const extracted = extractBrokenDocTarget(rawTarget);
+  const { fileTarget, anchor } = splitDocLinkTarget(extracted);
+
+  if (!fileTarget) {
+    return { fileTarget: "", anchor, outsideWorkspace: false };
+  }
+
+  const trimmed = fileTarget.trim();
+  if (/^(?:https?:|mailto:)/i.test(trimmed)) {
+    return { fileTarget: trimmed, anchor, outsideWorkspace: false };
+  }
+  if (isRootedDocTarget(trimmed)) {
+    return { fileTarget: trimmed, anchor, outsideWorkspace: true };
+  }
+
+  const sourceDir = posixDirname(sourceFilePath);
+  const resolvedPath = joinsWorkspaceRelativePath(sourceDir, trimmed);
+  const outsideWorkspace = pathEscapesWorkspace(resolvedPath);
+
+  return {
+    fileTarget: trimmed,
+    anchor,
+    resolvedPath: outsideWorkspace ? undefined : normalizeWorkspacePath(resolvedPath),
+    outsideWorkspace,
+  };
+}
+
+function classifyBrokenDocTarget(
+  rawTarget: string,
+  kind: "link" | "anchor",
+  sourcePath: string
+): DocLinkFailureReason {
+  const target = extractBrokenDocTarget(rawTarget);
+  if (kind === "anchor") {
+    const resolution = resolveRelativeDocTarget(sourcePath, target);
+    if (resolution.outsideWorkspace) return "outside_workspace";
+    return "missing_anchor";
+  }
+  if (/^(?:https?:|mailto:)/i.test(target)) return "unsupported_scheme";
+  const { fileTarget } = splitDocLinkTarget(target);
+  if (isRootedDocTarget(fileTarget)) return "outside_workspace";
+  if (resolveRelativeDocTarget(sourcePath, target).outsideWorkspace) return "outside_workspace";
   return "missing_file";
 }
 
@@ -39,11 +149,12 @@ export function parseDocLinkDiagnostic(line: string): DocLinkDiagnostic | undefi
   const [, kind, sourcePath, lineText, rawTarget] = match;
   const target = extractBrokenDocTarget(rawTarget);
   const parsedLine = lineText ? Number.parseInt(lineText, 10) : undefined;
+  const normalizedSourcePath = sourcePath.trim();
   return {
-    sourcePath: sourcePath.trim(),
+    sourcePath: normalizedSourcePath,
     line: Number.isFinite(parsedLine) ? parsedLine : undefined,
     rawTarget: target,
-    reason: classifyBrokenDocTarget(target, kind as "link" | "anchor"),
+    reason: classifyBrokenDocTarget(rawTarget, kind as "link" | "anchor", normalizedSourcePath),
     severity: "warn",
   };
 }

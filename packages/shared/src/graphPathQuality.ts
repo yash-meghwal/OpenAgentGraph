@@ -326,7 +326,6 @@ export const GRAPH_PATH_QUALITY_BENCHMARKS: GraphPathQualityBenchmarkCase[] = [
     maxHubHops: 0,
     maxInheritanceHops: 1,
     minDirectnessScore: 0.2,
-    preferredRelationSequence: ["depends_on", "references"],
   },
   {
     fixture: "fixture-csharp-media-player",

@@ -8,6 +8,7 @@ import type {
 } from "@openagentgraph/shared";
 import {
   evaluateGraphUpdateBenchmarkResult,
+  GraphWorkflowTimingCollector,
   GRAPH_UPDATE_BENCHMARK_DOGFOOD_MAX_WARM_MS,
   GRAPH_UPDATE_BENCHMARK_FIXTURE_MAX_WARM_MS,
   GRAPH_UPDATE_BENCHMARK_SCENARIOS,
@@ -161,7 +162,7 @@ function ensureBenchmarkCorpusPadding(
   workspaceRoot: string,
   scenario: GraphUpdateBenchmarkScenario
 ) {
-  if (scenario.generatedOnly) return;
+  if (scenario.generatedOnly || scenario.changedFiles === 0) return;
 
   const targetCount = minimumIndexedFilesForChangedCount(scenario.changedFiles);
   if (scenario.id === "mixed-10") {
@@ -176,11 +177,17 @@ function ensureBenchmarkCorpusPadding(
     return;
   }
 
-  const extensions = scenario.id === "typescript-10" ? [".ts", ".tsx"] : [".cs"];
+  const extensions = scenario.id === "docs-heavy-10"
+    ? [".ts", ".tsx", ".md"]
+    : scenario.id === "typescript-10"
+      ? [".ts", ".tsx"]
+      : [".cs"];
   const paths = listWorkspaceSourceFiles(workspaceRoot, extensions);
-  const writer = scenario.id === "typescript-10"
-    ? (index: number) => writeSyntheticTypeScriptFile(workspaceRoot, index)
-    : (index: number) => writeSyntheticCSharpFile(workspaceRoot, index);
+  const writer = scenario.id === "docs-heavy-10"
+    ? (index: number) => writeSyntheticTypeScriptFile(workspaceRoot, index, "docs/benchmark")
+    : scenario.id === "typescript-10"
+      ? (index: number) => writeSyntheticTypeScriptFile(workspaceRoot, index)
+      : (index: number) => writeSyntheticCSharpFile(workspaceRoot, index);
 
   while (paths.length < targetCount) {
     paths.push(writer(paths.length));
@@ -191,7 +198,7 @@ function ensureChangedFilePaths(
   workspaceRoot: string,
   scenario: GraphUpdateBenchmarkScenario
 ): string[] {
-  if (scenario.generatedOnly) return [];
+  if (scenario.generatedOnly || scenario.id === "unchanged-warm") return [];
 
   if (scenario.id === "mixed-10") {
     const typescriptPaths = listWorkspaceSourceFiles(workspaceRoot, [".ts", ".tsx"]);
@@ -208,11 +215,17 @@ function ensureChangedFilePaths(
     ];
   }
 
-  const extensions = scenario.id === "typescript-10" ? [".ts", ".tsx"] : [".cs"];
+  const extensions = scenario.id === "docs-heavy-10"
+    ? [".ts", ".tsx", ".md"]
+    : scenario.id === "typescript-10"
+      ? [".ts", ".tsx"]
+      : [".cs"];
   const paths = listWorkspaceSourceFiles(workspaceRoot, extensions);
-  const writer = scenario.id === "typescript-10"
-    ? writeSyntheticTypeScriptFile
-    : writeSyntheticCSharpFile;
+  const writer = scenario.id === "docs-heavy-10"
+    ? (workspace: string, index: number) => writeSyntheticTypeScriptFile(workspace, index, "docs/benchmark")
+    : scenario.id === "typescript-10"
+      ? writeSyntheticTypeScriptFile
+      : writeSyntheticCSharpFile;
 
   while (paths.length < scenario.changedFiles) {
     paths.push(writer(workspaceRoot, paths.length));
@@ -267,22 +280,25 @@ export async function runGraphUpdateBenchmarkScenario(input: {
     : ensureChangedFilePaths(workspaceRoot, input.scenario);
 
   try {
+    const coldTiming = new GraphWorkflowTimingCollector();
     const coldStartedAt = Date.now();
-    await seedGraphWorkspaceForUpdate(workspaceRoot);
+    await seedGraphWorkspaceForUpdate(workspaceRoot, { workflowTiming: coldTiming });
     const coldScanMs = Date.now() - coldStartedAt;
 
     if (input.scenario.generatedOnly) {
       touchGeneratedOnlyPath(workspaceRoot);
-    } else {
+    } else if (touchedPaths.length > 0) {
       touchPaths(workspaceRoot, touchedPaths, `// oag-benchmark-${input.scenario.id}`);
     }
 
     const cachedGraph = await loadCachedGraph(workspaceRoot);
     const cachedManifest = await loadCachedManifest(workspaceRoot);
+    const warmTiming = new GraphWorkflowTimingCollector();
     const warmStartedAt = Date.now();
     const update = await runGraphWorkspaceUpdate(workspaceRoot, {
       cachedGraph,
       manifest: cachedManifest,
+      workflowTiming: warmTiming,
     });
     const warmUpdateMs = Date.now() - warmStartedAt;
 
@@ -299,7 +315,12 @@ export async function runGraphUpdateBenchmarkScenario(input: {
       neighborExpansionCount: update.plan.neighborPaths.length,
       updateMode: update.plan.mode,
       fallbackReasons: update.plan.mode === "full" ? [...update.plan.reasons] : [],
-      touchedPaths: input.scenario.generatedOnly ? [] : touchedPaths,
+      touchedPaths: input.scenario.generatedOnly || input.scenario.id === "unchanged-warm" ? [] : touchedPaths,
+      stageTimings: warmTiming.buildReport(),
+      filesScanned: update.plan.scanPaths.length,
+      filesReused: input.scenario.id === "unchanged-warm"
+        ? Math.max(0, (cachedGraph?.nodes.filter((node: { kind: string }) => node.kind === "code_file").length ?? 0) - update.plan.scanPaths.length)
+        : undefined,
     };
     result.errors = evaluateGraphUpdateBenchmarkResult(result, {
       maxWarmMs: input.maxWarmMs ?? GRAPH_UPDATE_BENCHMARK_FIXTURE_MAX_WARM_MS,

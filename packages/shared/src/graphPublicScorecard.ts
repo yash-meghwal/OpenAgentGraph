@@ -5,6 +5,7 @@ import {
   evaluateGraphExternalBenchmarkSuite,
   type GraphExternalBenchmarkScorecard,
 } from "./graphExternalBenchmark.js";
+import type { GraphPathQualityFailureCounts } from "./graphPathQuality.js";
 import {
   GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
@@ -12,8 +13,15 @@ import {
   evaluateReleaseBenchmarkSuite,
 } from "./graphReleaseGates.js";
 import {
+  evaluateGraphRelevanceBaselineSuite,
+  GRAPH_QUERY_MODE_CODE_MIN_SUCCESS_RATE,
+  GRAPH_QUERY_MODE_DOCS_MIN_SUCCESS_RATE,
+} from "./graphRelevanceBaseline.js";
+import {
   evaluateGraphUpdateBenchmarkSuite,
   formatGraphUpdateBenchmarkSummaryLine,
+  GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO,
+  type GraphUpdateBenchmarkResult,
 } from "./graphUpdateBenchmark.js";
 import { sanitizeOperationalText } from "./safeText.js";
 
@@ -25,8 +33,12 @@ export interface GraphPublicScorecardInput {
     scanMs: number;
   }>;
   externalResults?: GraphExternalBenchmarkScorecard[];
+  updateBenchmarkResults?: GraphUpdateBenchmarkResult[];
   updateBenchmarkOk?: boolean;
   updateBenchmarkSummary?: string;
+  relevanceBaseline?: ReturnType<typeof evaluateGraphRelevanceBaselineSuite>;
+  pathDetourFailures?: number;
+  cliCleanInstallSmokeStatus?: "pass" | "fail" | "not_run";
 }
 
 export interface GraphPublicScorecard {
@@ -34,7 +46,21 @@ export interface GraphPublicScorecard {
   fixtureCount: number;
   releaseGateStatus: "pass" | "fail";
   querySuccessRate: number;
+  codeModeQuerySuccessRate: number;
+  docsModeQuerySuccessRate: number;
+  balancedModeQuerySuccessRate: number;
   pathSuccessRate: number;
+  pathDetourFailures: number;
+  pathDirectnessFailures: number;
+  pathEndpointFidelityFailures: number;
+  guidanceConsistencyFailures: number;
+  readFirstFailures: number;
+  hubStartFailures: number;
+  docRepairSuggestionCoverage: number;
+  generatedArtifactBrokenLinkCount: number;
+  duplicateKernelScanCount: number;
+  warmColdPerformanceRatio: string;
+  cliCleanInstallSmokeStatus: string;
   misleadingHandoffRate: number;
   provenanceCoverage: number;
   externalCategories: number;
@@ -80,23 +106,72 @@ function summarizeEcosystemTiers(graphs: UnifiedCodeGraph[]) {
   return tiers;
 }
 
+function summarizeGeneratedArtifactBrokenLinks(
+  releaseResults: ReturnType<typeof evaluateReleaseBenchmarkSuite>["releaseResults"]
+) {
+  return releaseResults
+    .filter((result) => result.fixture !== "fixture-docs-broken-links")
+    .reduce((sum, result) => sum + result.docLinkHygiene.brokenCount, 0);
+}
+
+function summarizeWarmColdPerformanceRatio(updateResults: GraphUpdateBenchmarkResult[] | undefined) {
+  const unchangedWarm = updateResults?.find((result) => result.scenarioId === "unchanged-warm");
+  if (!unchangedWarm || unchangedWarm.coldScanMs <= 0) {
+    return "not_measured";
+  }
+  const ratio = unchangedWarm.warmUpdateMs / unchangedWarm.coldScanMs;
+  return `${ratio.toFixed(2)}x (max ${GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO}x)`;
+}
+
+function pathQualityFailuresFromBaseline(
+  relevanceBaseline?: GraphPublicScorecardInput["relevanceBaseline"]
+): GraphPathQualityFailureCounts {
+  return relevanceBaseline?.pathQualityFailures ?? {
+    pathDirectnessFailures: 0,
+    pathEndpointFidelityFailures: 0,
+    pathHubDetourFailures: 0,
+  };
+}
+
 export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): GraphPublicScorecard {
   const releaseSuite = evaluateReleaseBenchmarkSuite({ results: input.releaseResults });
   const externalSuite = input.externalResults
     ? evaluateGraphExternalBenchmarkSuite(input.externalResults)
     : undefined;
+  const updateSuite = input.updateBenchmarkResults
+    ? evaluateGraphUpdateBenchmarkSuite(input.updateBenchmarkResults)
+    : undefined;
   const provenanceCoverage = computeAverageProvenance(input.releaseResults.map((result) => result.graph));
   const ecosystemTiers = summarizeEcosystemTiers(input.releaseResults.map((result) => result.graph));
+  const relevance = input.relevanceBaseline;
+  const pathQualityFailures = pathQualityFailuresFromBaseline(relevance);
+  const pathDetourFailures = input.pathDetourFailures ?? releaseSuite.releaseResults.flatMap((result) =>
+    result.pathBenchmarks.filter((benchmark) => !benchmark.passed && /forbidden node kind/i.test(benchmark.detail))
+  ).length;
+  const readFirstFailures = releaseSuite.releaseResults.filter((result) => !result.readFirstQuality.ok).length;
+  const hubStartFailures = releaseSuite.releaseResults.filter((result) => !result.hubStartQuality.ok).length;
+  const generatedArtifactBrokenLinkCount = summarizeGeneratedArtifactBrokenLinks(releaseSuite.releaseResults);
+  const warmColdPerformanceRatio = summarizeWarmColdPerformanceRatio(input.updateBenchmarkResults);
+  const cliCleanInstallSmokeStatus = input.cliCleanInstallSmokeStatus ?? "not_run";
 
   const knownGaps: string[] = [];
   if (!releaseSuite.ok) {
     knownGaps.push(...releaseSuite.errors.slice(0, 6).map((error) => sanitizeOperationalText(error, { maxLength: 220 })));
+  }
+  if (relevance && !relevance.ok) {
+    knownGaps.push(...relevance.errors.slice(0, 6).map((error) => sanitizeOperationalText(error, { maxLength: 220 })));
   }
   if (externalSuite && !externalSuite.ok) {
     knownGaps.push(...externalSuite.errors.slice(0, 4).map((error) => sanitizeOperationalText(error, { maxLength: 220 })));
   }
   if (releaseSuite.misleadingHandoffRate > 0) {
     knownGaps.push("Misleading handoff guidance detected in release fixtures.");
+  }
+  if (pathQualityFailures.pathDirectnessFailures > 0) {
+    knownGaps.push("Path directness benchmarks still have measured failures; see verify:graph path-quality output.");
+  }
+  if (cliCleanInstallSmokeStatus === "fail") {
+    knownGaps.push("CLI clean-install smoke test failed; see npm test --workspace=packages/cli.");
   }
 
   const rows = [
@@ -107,12 +182,22 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
     },
     {
       metric: "Release gate status",
-      value: releaseSuite.ok ? "PASS" : "FAIL",
+      value: releaseSuite.ok && (relevance?.ok ?? true) ? "PASS" : "FAIL",
       reproducible: "npm run verify:graph",
     },
     {
-      metric: "Query success rate",
+      metric: "Balanced query success rate",
       value: `${Math.round(releaseSuite.querySuccessRate * 100)}% (min ${Math.round(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE * 100)}%)`,
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Code-mode query success rate",
+      value: `${Math.round((relevance?.codeModePassRate ?? 1) * 100)}% (min ${Math.round(GRAPH_QUERY_MODE_CODE_MIN_SUCCESS_RATE * 100)}%)`,
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Docs-mode query success rate",
+      value: `${Math.round((relevance?.docsModePassRate ?? 1) * 100)}% (min ${Math.round(GRAPH_QUERY_MODE_DOCS_MIN_SUCCESS_RATE * 100)}%)`,
       reproducible: "npm run verify:graph",
     },
     {
@@ -121,33 +206,59 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
       reproducible: "npm run verify:graph",
     },
     {
-      metric: "Path detour gate (no doc_section on code-to-code)",
-      value: releaseSuite.releaseResults.every((result) =>
-        result.pathBenchmarks.every((benchmark) =>
-          benchmark.passed || !/forbidden node kind 'doc_section'/i.test(benchmark.detail)
-        )
-      ) ? "PASS" : "FAIL",
+      metric: "Path detour failures",
+      value: String(pathDetourFailures),
       reproducible: "npm run verify:graph",
     },
     {
-      metric: "Read-first quality gate",
-      value: releaseSuite.releaseResults.every((result) => result.readFirstQuality.ok) ? "PASS" : "FAIL",
+      metric: "Path directness failures",
+      value: String(pathQualityFailures.pathDirectnessFailures),
       reproducible: "npm run verify:graph",
     },
     {
-      metric: "Hub start quality gate",
-      value: releaseSuite.releaseResults.every((result) => result.hubStartQuality.ok) ? "PASS" : "FAIL",
+      metric: "Path endpoint fidelity failures",
+      value: String(pathQualityFailures.pathEndpointFidelityFailures),
       reproducible: "npm run verify:graph",
     },
     {
-      metric: "Docs link hygiene gate",
-      value: releaseSuite.releaseResults.every((result) => result.docLinkHygiene.ok) ? "PASS" : "FAIL",
-      reproducible: "npm run graph:docs:check",
+      metric: "Guidance consistency failures",
+      value: String(relevance?.guidanceConsistencyFailures ?? releaseSuite.releaseResults.filter((result) => !result.guidanceConsistency.ok).length),
+      reproducible: "npm run verify:graph",
     },
     {
-      metric: "npm CLI packaging",
-      value: "see @openagentgraph/cli pack/smoke tests",
-      reproducible: "npm run build --workspace=packages/cli && npm test --workspace=packages/cli",
+      metric: "Read-first failures",
+      value: String(readFirstFailures),
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Hub-start failures",
+      value: String(hubStartFailures),
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Docs repair suggestion coverage",
+      value: `${Math.round((relevance?.docRepairSuggestionCoverage ?? 1) * 100)}%`,
+      reproducible: "npm run graph:docs:check -- --suggest",
+    },
+    {
+      metric: "Generated artifact broken links",
+      value: String(generatedArtifactBrokenLinkCount),
+      reproducible: "npm run verify:graph",
+    },
+    {
+      metric: "Duplicate kernel scans (max per workflow)",
+      value: String(relevance?.duplicateKernelScanCount ?? 0),
+      reproducible: "npm run graph:benchmark:update",
+    },
+    {
+      metric: "Warm/cold performance ratio",
+      value: warmColdPerformanceRatio,
+      reproducible: "npm run graph:benchmark:update",
+    },
+    {
+      metric: "CLI clean-install smoke",
+      value: cliCleanInstallSmokeStatus === "pass" ? "PASS" : cliCleanInstallSmokeStatus === "fail" ? "FAIL" : "not_run",
+      reproducible: "npm test --workspace=packages/cli",
     },
     {
       metric: "Misleading handoff rate",
@@ -161,12 +272,12 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
     },
     {
       metric: "External benchmark categories",
-      value: String(GRAPH_EXTERNAL_BENCHMARK_CATEGORY_IDS.length),
+      value: `${externalSuite?.results.filter((result) => result.passed).length ?? 0}/${GRAPH_EXTERNAL_BENCHMARK_CATEGORY_IDS.length}`,
       reproducible: "npm run graph:benchmark:external -- --catalog --report",
     },
     {
       metric: "Update benchmark status",
-      value: input.updateBenchmarkSummary ?? (input.updateBenchmarkOk === false ? "FAIL" : "see verify:graph"),
+      value: input.updateBenchmarkSummary ?? (updateSuite ? (updateSuite.ok ? "PASS" : "FAIL") : "not_run"),
       reproducible: "npm run graph:benchmark:update",
     },
   ];
@@ -174,14 +285,33 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
   return {
     generatedAt: new Date().toISOString(),
     fixtureCount: GRAPH_RELEASE_FIXTURE_IDS.length,
-    releaseGateStatus: releaseSuite.ok ? "pass" : "fail",
+    releaseGateStatus: releaseSuite.ok && (relevance?.ok ?? true) ? "pass" : "fail",
     querySuccessRate: releaseSuite.querySuccessRate,
+    codeModeQuerySuccessRate: relevance?.codeModePassRate ?? 1,
+    docsModeQuerySuccessRate: relevance?.docsModePassRate ?? 1,
+    balancedModeQuerySuccessRate: relevance?.balancedModePassRate ?? releaseSuite.querySuccessRate,
     pathSuccessRate: releaseSuite.pathSuccessRate,
+    pathDetourFailures,
+    pathDirectnessFailures: pathQualityFailures.pathDirectnessFailures,
+    pathEndpointFidelityFailures: pathQualityFailures.pathEndpointFidelityFailures,
+    guidanceConsistencyFailures: relevance?.guidanceConsistencyFailures
+      ?? releaseSuite.releaseResults.filter((result) => !result.guidanceConsistency.ok).length,
+    readFirstFailures,
+    hubStartFailures,
+    docRepairSuggestionCoverage: relevance?.docRepairSuggestionCoverage ?? 1,
+    generatedArtifactBrokenLinkCount,
+    duplicateKernelScanCount: relevance?.duplicateKernelScanCount ?? 0,
+    warmColdPerformanceRatio,
+    cliCleanInstallSmokeStatus: cliCleanInstallSmokeStatus === "pass"
+      ? "PASS"
+      : cliCleanInstallSmokeStatus === "fail"
+        ? "FAIL"
+        : "not_run",
     misleadingHandoffRate: releaseSuite.misleadingHandoffRate,
     provenanceCoverage,
     externalCategories: GRAPH_EXTERNAL_BENCHMARK_CATALOG.length,
     externalPassCount: externalSuite?.results.filter((result) => result.passed).length ?? 0,
-    updateBenchmarkStatus: input.updateBenchmarkSummary ?? "not_run",
+    updateBenchmarkStatus: input.updateBenchmarkSummary ?? (updateSuite ? (updateSuite.ok ? "PASS" : "FAIL") : "not_run"),
     ecosystemTiers,
     knownGaps,
     rows,
@@ -215,7 +345,6 @@ export function formatGraphPublicScorecardMarkdown(scorecard: GraphPublicScoreca
     for (const [scanner, count] of Object.entries(scorecard.ecosystemTiers).sort((a, b) => b[1] - a[1])) {
       lines.push(`- ${scanner}: seen in ${count} fixture scan(s)`);
     }
-    lines.push("");
   }
 
   return `${lines.join("\n")}\n`;

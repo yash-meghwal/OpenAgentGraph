@@ -55,6 +55,7 @@ function makeGraph(): UnifiedCodeGraph {
         },
       },
       { id: "file:orphan", kind: "code_file", label: "orphan-lib/util.ts", path: "orphan-lib/util.ts" },
+      { id: "sym:orphan", kind: "symbol", label: "OrphanGatewayService (class)", path: "orphan-lib/util.ts", metadata: { scannerSymbolKind: "class" } },
       {
         id: "comm:thin",
         kind: "community",
@@ -83,6 +84,7 @@ function makeGraph(): UnifiedCodeGraph {
       { id: "e6", sourceNodeId: "doc:guide", targetNodeId: "sym:svc", kind: "documents", provenance: "inferred", confidence: 0.8 },
       { id: "e7", sourceNodeId: "file:orphan", targetNodeId: "comm:thin", kind: "belongs_to", provenance: "extracted" },
       { id: "e8", sourceNodeId: "file:orphan", targetNodeId: "sym:svc", kind: "depends_on", provenance: "inferred", confidence: 0.7 },
+      { id: "e13", sourceNodeId: "sym:orphan", targetNodeId: "file:orphan", kind: "belongs_to", provenance: "extracted" },
     ],
   };
 }
@@ -111,6 +113,10 @@ describe("graph community hubs", () => {
     expect(mergedHub?.provenanceMix.total).toBeGreaterThanOrEqual(2);
     expect(mergedHub?.incomingRelationships.some((rel) => rel.targetLabel === "SampleMediaPlayer.App")).toBe(true);
     expect(mergedHub?.interCommunityDegree).toBeGreaterThan(0);
+    expect(mergedHub?.startWithNodes?.some((entry) => /orphan-lib\/util\.ts/i.test(entry))).toBe(true);
+    const mergedStartLead = mergedHub?.startWithNodes?.slice(0, 2).join(", ") ?? "";
+    expect(mergedHub?.hubSummary).toContain(`start ${mergedStartLead}`);
+    expect(mergedHub?.hubSummary).not.toMatch(/start .*orphan-lib\/util\.ts, orphan-lib\/util\.ts/);
   });
 
   it("renders markdown sections for hubs, read-first, and high-degree warnings", () => {

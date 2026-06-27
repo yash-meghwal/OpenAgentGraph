@@ -1,4 +1,8 @@
 import path from "path";
+import {
+  GraphWorkflowTimingCollector,
+  summarizeGraphWorkflowTiming,
+} from "@openagentgraph/shared";
 import { buildGraphIncrementalManifest } from "@openagentgraph/shared/graphIncremental";
 import { collectWorkspaceFileFingerprints } from "../scanner/kernel/graphFingerprints.js";
 import { GRAPH_INCREMENTAL_TOOL_VERSION, runGraphWorkspaceUpdate } from "../scanner/kernel/graphIncrementalScan.js";
@@ -59,11 +63,13 @@ export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
   const cachedGraph = graphOptions.refresh ? undefined : await tryLoadCachedWorkspaceGraph(workspaceRoot);
   const cachedManifest = graphOptions.refresh ? undefined : await tryLoadCachedGraphManifest(workspaceRoot);
 
+  const workflowTiming = new GraphWorkflowTimingCollector();
   const result = await runGraphWorkspaceUpdate(workspaceRoot, {
     cachedGraph,
     manifest: cachedManifest,
     refresh: graphOptions.refresh,
     dryRun: updateOptions.dryRun,
+    workflowTiming,
   });
 
   let writtenPaths: string[] = [];
@@ -82,6 +88,7 @@ export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
     result.plan.reasons.push("Full scan fallback reason was not recorded.");
   }
 
+  const stageTimings = workflowTiming.buildReport();
   const payload = {
     status: result.plan.mode === "noop" ? "graph_update_noop" : "graph_update_complete",
     workspaceRoot,
@@ -99,6 +106,7 @@ export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
     edgeCount: result.graph.edges.length,
     writtenPaths,
     diagnostics: result.graph.diagnostics.slice(-8),
+    stageTimings,
   };
 
   if (graphOptions.json) {
@@ -120,14 +128,21 @@ export async function runGraphUpdateCli(argv = process.argv.slice(2)) {
         console.log(`Wrote ${outputPath}`);
       }
     }
+    console.log(summarizeGraphWorkflowTiming(stageTimings).join("\n"));
   }
 
   return payload;
 }
 
-export async function seedGraphWorkspaceForUpdate(workspaceRoot: string) {
-  const scanResult = await runKernelWorkspaceScan(workspaceRoot);
-  const fingerprintResult = await collectWorkspaceFileFingerprints(workspaceRoot);
+export async function seedGraphWorkspaceForUpdate(
+  workspaceRoot: string,
+  input: { workflowTiming?: GraphWorkflowTimingCollector } = {}
+) {
+  const timing = input.workflowTiming;
+  const scanResult = await runKernelWorkspaceScan(workspaceRoot, { workflowTiming: timing });
+  const fingerprintResult = timing
+    ? await timing.measure("fingerprint_cache_load", () => collectWorkspaceFileFingerprints(workspaceRoot))
+    : await collectWorkspaceFileFingerprints(workspaceRoot);
   const manifest = buildGraphIncrementalManifest({
     graph: scanResult.unifiedGraph,
     kernelProfile: scanResult.kernelProfile,
@@ -135,12 +150,21 @@ export async function seedGraphWorkspaceForUpdate(workspaceRoot: string) {
     ignoreRuleFingerprint: fingerprintResult.ignoreRuleFingerprint,
     files: fingerprintResult.files,
   });
-  await writeGraphArtifacts(workspaceRoot, scanResult.unifiedGraph, {
-    writeJson: true,
-    writeWiki: true,
-    manifest,
-    kernelProfile: scanResult.kernelProfile,
-  });
+  if (timing) {
+    await timing.measure("static_artifact_rendering", () => writeGraphArtifacts(workspaceRoot, scanResult.unifiedGraph, {
+      writeJson: true,
+      writeWiki: true,
+      manifest,
+      kernelProfile: scanResult.kernelProfile,
+    }));
+  } else {
+    await writeGraphArtifacts(workspaceRoot, scanResult.unifiedGraph, {
+      writeJson: true,
+      writeWiki: true,
+      manifest,
+      kernelProfile: scanResult.kernelProfile,
+    });
+  }
   return { graph: scanResult.unifiedGraph, manifest };
 }
 

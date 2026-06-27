@@ -5,6 +5,8 @@ import {
   evaluateGraphUpdateBenchmarkSuite,
   formatGraphUpdateBenchmarkReport,
   GRAPH_UPDATE_BENCHMARK_FIXTURE_MAX_WARM_MS,
+  GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO,
+  GRAPH_UPDATE_BENCHMARK_SCENARIOS,
   parseGraphUpdateBenchmarkScenarioId,
 } from "./graphUpdateBenchmark.js";
 
@@ -54,6 +56,49 @@ describe("graph update benchmark", () => {
       touchedPaths: [],
     }, { expectMode: "noop" });
     expect(noopErrors.some((error) => error.includes("rescanned"))).toBe(true);
+  });
+
+  it("enforces the unchanged warm-repeat ratio gate", () => {
+    const coldScanMs = 1000;
+    const passing = evaluateGraphUpdateBenchmarkResult({
+      scenarioId: "unchanged-warm",
+      label: "unchanged warm repeat",
+      workspaceRoot: "/tmp",
+      passed: false,
+      errors: [],
+      coldScanMs,
+      warmUpdateMs: Math.floor(coldScanMs * GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO),
+      changedFileCount: 0,
+      rescannedFileCount: 0,
+      neighborExpansionCount: 0,
+      updateMode: "noop",
+      fallbackReasons: [],
+      touchedPaths: [],
+    }, { expectMode: "noop" });
+    expect(passing).toEqual([]);
+
+    const failing = evaluateGraphUpdateBenchmarkResult({
+      scenarioId: "unchanged-warm",
+      label: "unchanged warm repeat",
+      workspaceRoot: "/tmp",
+      passed: false,
+      errors: [],
+      coldScanMs,
+      warmUpdateMs: Math.floor(coldScanMs * GRAPH_UPDATE_BENCHMARK_WARM_REPEAT_MAX_RATIO) + 1,
+      changedFileCount: 0,
+      rescannedFileCount: 0,
+      neighborExpansionCount: 0,
+      updateMode: "noop",
+      fallbackReasons: [],
+      touchedPaths: [],
+    }, { expectMode: "noop" });
+    expect(failing.some((error) => error.includes("50%"))).toBe(true);
+  });
+
+  it("includes docs-heavy and unchanged-warm benchmark scenarios", () => {
+    expect(GRAPH_UPDATE_BENCHMARK_SCENARIOS.map((scenario) => scenario.id)).toEqual(
+      expect.arrayContaining(["docs-heavy-10", "unchanged-warm"])
+    );
   });
 
   it("formats a copyable benchmark report", () => {

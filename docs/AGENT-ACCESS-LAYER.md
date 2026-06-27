@@ -5,7 +5,7 @@ OpenAgentGraph 1.4 adds adoption surfaces on top of the existing deterministic g
 ## Adoption paths
 
 1. **Static artifacts** — `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, `GRAPH_REPORT.md`
-2. **CLI** — `graph:context`, `graph:query`, `graph:path`, `graph:explain`, `graph:check`, `graph:retrieve`, `graph:scorecard`
+2. **CLI** — `doctor`, `dogfood`, `graph:context`, `graph:query`, `graph:path`, `graph:explain`, `graph:check`, `graph:docs:check`, `graph:retrieve`, `graph:scorecard` (repo scripts and `oag` npm facade)
 3. **MCP** — `npm run oag:mcp` exposes `oag_*` tools for Claude Desktop, Cursor, Codex, and other MCP clients
 4. **Wrapper** — `npm run oag:wrap -- --goal "<task>" --workspace "<path>" --print`
 5. **llms.txt** — compact agent orientation at repo root
@@ -17,6 +17,8 @@ OpenAgentGraph 1.4 adds adoption surfaces on top of the existing deterministic g
 - Redacted roots by default in shareable fields (`--redact-root`)
 - Support tier honesty and provenance in every context pack
 - Learn proposals are review-only (`graph:learn` never auto-edits instructions)
+- Docs repair suggestions are review-only (`graph:docs:check --suggest` never mutates user Markdown)
+- Query modes (`code`, `docs`, `balanced`) and path-quality floors are release-gated via `verify:graph`
 
 ## Local memory contract
 

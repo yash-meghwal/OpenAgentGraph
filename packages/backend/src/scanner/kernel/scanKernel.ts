@@ -45,11 +45,16 @@ export async function runKernelWorkspaceScan(
   input: {
     projection?: ProductGraphProjection;
     scanLimits?: Parameters<typeof scanWorkspaceCodebase>[0]["scanLimits"];
+    semanticScanLimits?: Parameters<typeof scanWorkspaceCodebase>[0]["semanticScanLimits"];
+    semanticAnalysisBudget?: Parameters<typeof scanWorkspaceCodebase>[0]["semanticAnalysisBudget"];
     captureStageTimings?: boolean;
+    workflowTiming?: GraphWorkflowTimingCollector;
   } = {}
 ): Promise<KernelScanResult> {
   const resolvedRoot = path.resolve(workspaceRoot);
-  const timing = input.captureStageTimings ? new GraphWorkflowTimingCollector() : undefined;
+  const timing = input.workflowTiming
+    ?? (input.captureStageTimings ? new GraphWorkflowTimingCollector() : undefined);
+  timing?.recordKernelScanStart();
   const ignoreEngine = timing
     ? await timing.measure("workspace_detection", () => IgnoreEngine.load(resolvedRoot))
     : await IgnoreEngine.load(resolvedRoot);
@@ -57,6 +62,8 @@ export async function runKernelWorkspaceScan(
     workspaceRoot: resolvedRoot,
     projection: input.projection ?? emptyProjection(),
     scanLimits: input.scanLimits,
+    semanticScanLimits: input.semanticScanLimits,
+    semanticAnalysisBudget: input.semanticAnalysisBudget,
     workflowTiming: timing,
   });
 

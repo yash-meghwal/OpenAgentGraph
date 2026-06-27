@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 const require = createRequire(import.meta.url);
 
 export const OAG_CLI_COMMANDS = [
+  "doctor",
+  "dogfood",
   "graph:export",
   "graph:query",
   "graph:path",
@@ -17,6 +19,8 @@ export const OAG_CLI_COMMANDS = [
 export type OagCliCommand = (typeof OAG_CLI_COMMANDS)[number];
 
 const COMMAND_ENTRY: Record<OagCliCommand, string> = {
+  doctor: "doctor.js",
+  dogfood: "dogfood.js",
   "graph:export": "graphExport.js",
   "graph:query": "graphQuery.js",
   "graph:path": "graphPath.js",
@@ -46,9 +50,12 @@ export function renderOagCliHelp() {
     "All graph commands require --workspace <path>.",
     "",
     "Examples:",
+    '  oag doctor --workspace "./my-app"',
+    '  oag dogfood --workspace "./my-app"',
     '  oag graph:export --workspace "./my-app" --offline-only --redact-root',
+    '  oag graph:query --workspace "./my-app" --mode code "entry point"',
     '  oag graph:path --workspace "./my-app" "MainViewModel" "PlaybackService"',
-    '  oag graph:docs:check --workspace "./my-app" --json',
+    '  oag graph:docs:check --workspace "./my-app" --json --suggest',
   ];
   return lines.join("\n");
 }

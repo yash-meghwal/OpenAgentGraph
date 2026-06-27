@@ -11,6 +11,7 @@ import {
   scoreDocSectionForQuery,
 } from "./graphDocs.js";
 import { summarizeDocLinkHygiene } from "./graphDocLinks.js";
+import { summarizeDocLinkRepair } from "./graphDocRepair.js";
 import {
   buildGraphGodNodeSummaries,
   filterUnifiedGraphByLens,
@@ -18,7 +19,8 @@ import {
   type GraphTaskLensId,
 } from "./graphLenses.js";
 import { buildWorkspaceGraphQueryEntryPoints } from "./graphOperational.js";
-import { findGraphSeedNodes, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
+import { getStartGuidanceReadFirstNodes, rankStartGuidanceNodes } from "./graphStartGuidance.js";
+import { queryUnifiedCodeGraph } from "./graphQueryEngine.js";
 import {
   isGraphCodeSurfaceKind,
   isGraphDocSurfaceKind,
@@ -195,7 +197,13 @@ export function buildGraphAgentContextPack(
 
   const seedNodes = queryResult.seeds.length > 0
     ? queryResult.seeds
-    : findGraphSeedNodes(graph, focusQuery, 6, queryMode);
+    : rankStartGuidanceNodes(graph.nodes, { queryMode }).slice(0, 6);
+  const guidanceEntries = getStartGuidanceReadFirstNodes(graph, 12, { queryMode }).map((node) => ({
+    id: node.id,
+    kind: node.kind,
+    label: safeText(node.label, graph.workspaceRoot, 240),
+    path: node.path ? safeText(node.path, graph.workspaceRoot, 500) : undefined,
+  }));
   const seedEntries = seedNodes.map((node) => ({
     id: node.id,
     kind: node.kind,
@@ -203,7 +211,7 @@ export function buildGraphAgentContextPack(
     path: node.path ? safeText(node.path, graph.workspaceRoot, 500) : undefined,
   }));
   const readFirst = attachRetrievalIdsToNodes(
-    orderReadFirstNodesByQueryMode(queryMode, seedEntries, codeContext.readTheseFirst).slice(0, 12)
+    orderReadFirstNodesByQueryMode(queryMode, seedEntries, guidanceEntries).slice(0, 12)
   );
 
   const risks: string[] = [];
@@ -219,9 +227,27 @@ export function buildGraphAgentContextPack(
     }
   }
   const docLinkHygiene = summarizeDocLinkHygiene(graph);
-  for (const entry of docLinkHygiene.diagnostics.slice(0, 4)) {
-    const location = entry.line ? `${entry.sourcePath}:${entry.line}` : entry.sourcePath;
-    risks.push(`Broken doc link at ${location}: ${entry.rawTarget}`);
+  const docLinkRepair = summarizeDocLinkRepair(graph);
+  if (docLinkHygiene.brokenCount > 0) {
+    const reasonSummary = Object.entries(docLinkRepair.byReason)
+      .filter(([, count]) => count > 0)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(", ");
+    risks.push(`Broken doc links: ${docLinkHygiene.brokenCount}${reasonSummary ? ` (${reasonSummary})` : ""}`);
+    risks.push(`Reproduce doc repairs: npm run graph:docs:check -- --workspace "<workspace>" --suggest`);
+  }
+  for (const proposal of docLinkRepair.topSuggestions.slice(0, 3)) {
+    const location = proposal.line ? `${proposal.sourcePath}:${proposal.line}` : proposal.sourcePath;
+    const target = proposal.recommended?.targetPath
+      ? `${proposal.recommended.targetPath}${proposal.recommended.anchor ? `#${proposal.recommended.anchor}` : ""}`
+      : proposal.explanation;
+    risks.push(`Doc repair ${location}: ${target}`);
+  }
+  if (docLinkRepair.topSuggestions.length === 0) {
+    for (const entry of docLinkHygiene.diagnostics.slice(0, 2)) {
+      const location = entry.line ? `${entry.sourcePath}:${entry.line}` : entry.sourcePath;
+      risks.push(`Broken doc link at ${location}: ${entry.rawTarget}`);
+    }
   }
 
   const seedLabels = readFirst.map((node) => node.label);
@@ -271,9 +297,10 @@ export function buildGraphAgentContextPack(
         retrievalId: encodeOagRetrievalId("node", link.targetLabel),
       })),
     ].slice(0, 8),
-    likelyEntrypoints: buildGraphGodNodeSummaries(graph, 4).map((godNode) =>
-      safeText(godNode.label, graph.workspaceRoot, 240)
-    ),
+    likelyEntrypoints: buildGraphGodNodeSummaries(graph, 4).flatMap((godNode) =>
+      [...godNode.topSymbols.slice(0, 1), ...godNode.topFiles.slice(0, 1)]
+        .map((entry) => safeText(entry, graph.workspaceRoot, 240))
+    ).filter((value, index, array) => array.indexOf(value) === index).slice(0, 4),
     suggestedQueries: buildSuggestedQueries(goal, lens, seedLabels),
     suggestedPaths: buildSuggestedPaths(seedLabels),
     provenanceSummary: {

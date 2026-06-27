@@ -7,7 +7,9 @@ import { evaluateStaticExportReleaseGates } from "./graphExportBundle.js";
 import { evaluateCommunityReleaseGates, GRAPH_COMMUNITY_LARGE_REPO_FILE_THRESHOLD } from "./graphCommunities.js";
 import { buildGraphCommunityHubSummaries, evaluateCommunityHubReleaseGates } from "./graphCommunityHubs.js";
 import { evaluateDocLinkHygieneGate } from "./graphDocLinks.js";
+import { evaluateDocRepairReleaseGate } from "./graphDocRepair.js";
 import { evaluateScriptReleaseGates } from "./graphScriptGates.js";
+import { evaluateGraphGuidanceConsistency } from "./graphGuidanceConsistency.js";
 import { evaluateOagFusionChecks } from "./graphFusion.js";
 import { findGraphPath, queryUnifiedCodeGraph } from "./graphQueryEngine.js";
 
@@ -58,7 +60,7 @@ export const GRAPH_RELEASE_FIXTURE_IDS = [
 export type GraphReleaseFixtureId = (typeof GRAPH_RELEASE_FIXTURE_IDS)[number];
 
 export const GRAPH_RELEASE_MAX_SCAN_MS = 5 * 60 * 1000;
-export const GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE = 0.8;
+export const GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE = 0.9;
 export const GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE = 0.95;
 
 const READ_FIRST_JUNK_PATTERNS = [
@@ -553,11 +555,18 @@ export interface GraphDocLinkHygieneGateResult {
   errors: string[];
 }
 
+export interface GraphGuidanceConsistencyGateResult {
+  ok: boolean;
+  disagreements: string[];
+  errors: string[];
+}
+
 export interface GraphReleaseGateResult {
   ok: boolean;
   handoffHygiene: GraphHandoffHygieneResult;
   readFirstQuality: GraphReadFirstQualityGateResult;
   hubStartQuality: GraphHubStartQualityGateResult;
+  guidanceConsistency: GraphGuidanceConsistencyGateResult;
   docLinkHygiene: GraphDocLinkHygieneGateResult;
   communityGates: GraphCommunityGateResult;
   ecosystemMatrixGate: EcosystemSupportMatrixGateResult;
@@ -773,6 +782,19 @@ export function evaluateGraphPathBenchmark(
   };
 }
 
+export function evaluateGuidanceConsistencyGate(
+  graph: UnifiedCodeGraph,
+  fixture: string
+): GraphGuidanceConsistencyGateResult {
+  const result = evaluateGraphGuidanceConsistency(graph);
+  const errors = result.disagreements.map((detail) => `${fixture}: ${detail}`);
+  return {
+    ok: result.ok,
+    disagreements: result.disagreements,
+    errors,
+  };
+}
+
 export function evaluateGraphReleaseGates(input: {
   graph: UnifiedCodeGraph;
   kernelProfile?: WorkspaceKernelProfile;
@@ -784,7 +806,13 @@ export function evaluateGraphReleaseGates(input: {
   const handoffHygiene = evaluateHandoffReadFirstHygiene(input.graph);
   const readFirstQuality = evaluateReadFirstQualityGate(input.graph, input.fixture);
   const hubStartQuality = evaluateHubStartQualityGate(input.graph, input.fixture);
+  const guidanceConsistency = evaluateGuidanceConsistencyGate(input.graph, input.fixture);
   const docLinkHygiene = evaluateDocLinkHygieneGate({
+    graph: input.graph,
+    fixture: input.fixture,
+    expectBrokenLinks: input.fixture === "fixture-docs-broken-links",
+  });
+  const docRepairGate = evaluateDocRepairReleaseGate({
     graph: input.graph,
     fixture: input.fixture,
     expectBrokenLinks: input.fixture === "fixture-docs-broken-links",
@@ -799,8 +827,14 @@ export function evaluateGraphReleaseGates(input: {
   if (!hubStartQuality.ok) {
     errors.push(...hubStartQuality.errors);
   }
+  if (!guidanceConsistency.ok) {
+    errors.push(...guidanceConsistency.errors);
+  }
   if (!docLinkHygiene.ok) {
     errors.push(...docLinkHygiene.errors);
+  }
+  if (!docRepairGate.ok) {
+    errors.push(...docRepairGate.errors);
   }
   if (!communityGates.ok) {
     errors.push(...communityGates.errors);
@@ -962,6 +996,7 @@ export function evaluateGraphReleaseGates(input: {
     handoffHygiene,
     readFirstQuality,
     hubStartQuality,
+    guidanceConsistency,
     docLinkHygiene,
     communityGates,
     ecosystemMatrixGate,
@@ -1047,6 +1082,11 @@ export function evaluateReleaseBenchmarkSuite(input: {
   if (pathSuccessRate < GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE) {
     errors.push(
       `Path benchmark success rate ${Math.round(pathSuccessRate * 100)}% is below ${Math.round(GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE * 100)}%.`
+    );
+  }
+  if (querySuccessRate < GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE) {
+    errors.push(
+      `Query benchmark success rate ${Math.round(querySuccessRate * 100)}% is below ${Math.round(GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE * 100)}%.`
     );
   }
   if (agentBenchmarkSuccessRate < GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE) {

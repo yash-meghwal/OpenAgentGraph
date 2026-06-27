@@ -83,7 +83,7 @@ describe("graph relevance baseline contracts", () => {
     expect(hasOrderedRelationSubsequence(["depends_on", "references"], ["depends_on", "references"])).toBe(true);
   });
 
-  it("detects guidance disagreement between god nodes and read-first", () => {
+  it("reports guidance agreement when god nodes and read-first align", () => {
     const graph: UnifiedCodeGraph = {
       ...makeGraph(),
       nodes: [
@@ -94,12 +94,43 @@ describe("graph relevance baseline contracts", () => {
     expect(getReadTheseFirstNodes(graph, 3)[0]?.label).toMatch(/MainViewModel/i);
     expect(buildGraphGodNodeSummaries(graph, 3).length).toBeGreaterThan(0);
     const consistency = evaluateGraphGuidanceConsistency(graph);
-    expect(consistency.ok).toBe(false);
+    expect(consistency.ok).toBe(true);
     expect(consistency.globalTopLabels[0]).toMatch(/MainViewModel/i);
-    expect(consistency.godNodeTopLabels.length + consistency.hubStartLabels.length).toBeGreaterThan(0);
-    expect(consistency.disagreements).toContain(
-      "God-node guidance does not include global read-first primary 'App/ViewModels/MainViewModel.cs'."
-    );
+    expect(consistency.godNodeTopLabels.some((label) => /MainViewModel/i.test(label))).toBe(true);
+  });
+
+  it("detects guidance disagreement when hub starts omit the global primary", () => {
+    const graph: UnifiedCodeGraph = {
+      schemaVersion: "1",
+      workspaceRoot: "/workspace",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      activeScannerIds: ["dotnet"],
+      diagnostics: [],
+      nodes: [
+        { id: "sym:entry", kind: "symbol", label: "CheckoutService (class)", path: "src/checkout/service.ts", metadata: { scannerSymbolKind: "class" } },
+        { id: "file:entry", kind: "code_file", label: "src/checkout/service.ts", path: "src/checkout/service.ts" },
+        { id: "sym:helper", kind: "symbol", label: "AlphaHelper (class)", path: "src/checkout/helper.ts", metadata: { scannerSymbolKind: "class" } },
+        { id: "file:helper", kind: "code_file", label: "src/checkout/helper.ts", path: "src/checkout/helper.ts" },
+        {
+          id: "comm:checkout",
+          kind: "community",
+          label: "checkout",
+          path: "src/checkout",
+          metadata: { scannerCommunityLabel: "checkout", scannerCommunityFileCount: 1 },
+        },
+      ],
+      edges: [
+        { id: "e1", sourceNodeId: "file:helper", targetNodeId: "comm:checkout", kind: "belongs_to", provenance: "extracted" },
+        { id: "e2", sourceNodeId: "sym:helper", targetNodeId: "file:helper", kind: "belongs_to", provenance: "extracted" },
+        { id: "e4", sourceNodeId: "sym:entry", targetNodeId: "file:entry", kind: "belongs_to", provenance: "extracted" },
+      ],
+    };
+    const consistency = evaluateGraphGuidanceConsistency(graph);
+    expect(consistency.globalTopLabels[0]).toMatch(/CheckoutService|service\.ts/i);
+    expect(consistency.hubStartLabels.some((label) => /AlphaHelper|helper\.ts/i.test(label))).toBe(true);
+    expect(consistency.hubStartLabels.some((label) => /CheckoutService|service\.ts/i.test(label))).toBe(false);
+    expect(consistency.ok).toBe(false);
+    expect(consistency.disagreements.length).toBeGreaterThan(0);
   });
 
   it("fails path quality when resolved endpoints do not match required patterns", () => {

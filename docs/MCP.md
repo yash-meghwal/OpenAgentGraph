@@ -27,7 +27,7 @@ npm run oag:mcp
 | Tool | Purpose |
 | --- | --- |
 | `oag_export` | Export or refresh `.oag/*` and `GRAPH_REPORT.md` |
-| `oag_query` | Bounded graph query |
+| `oag_query` | Bounded graph query (`mode`: `code`, `docs`, or `balanced`) |
 | `oag_path` | Ranked path between targets |
 | `oag_explain` | Node/file explanation |
 | `oag_check` | Fusion gates and support matrix |

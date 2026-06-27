@@ -3,7 +3,10 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GRAPH_UPDATE_BENCHMARK_SCENARIOS } from "@openagentgraph/shared";
+import {
+  GRAPH_UPDATE_BENCHMARK_SCENARIO_IDS,
+  GRAPH_UPDATE_BENCHMARK_SCENARIOS,
+} from "@openagentgraph/shared";
 
 vi.setConfig({ testTimeout: 120_000 });
 
@@ -156,7 +159,11 @@ describe.sequential("graph:benchmark:update", () => {
     ]);
 
     expect(payload.ok).toBe(true);
-    expect(payload.results.length).toBe(4);
+
+    const resultScenarioIds = payload.results.map((result) => result.scenarioId).sort();
+    const configuredScenarioIds = [...GRAPH_UPDATE_BENCHMARK_SCENARIO_IDS].sort();
+    expect(resultScenarioIds).toEqual(configuredScenarioIds);
+    expect(new Set(resultScenarioIds).size).toBe(resultScenarioIds.length);
     expect(payload.results.every((result) => result.passed)).toBe(true);
   });
 });

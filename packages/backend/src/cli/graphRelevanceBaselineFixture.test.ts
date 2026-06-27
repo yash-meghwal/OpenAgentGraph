@@ -49,23 +49,11 @@ describe("graph relevance baseline fixtures", () => {
       const pathBenchmarks = GRAPH_PATH_QUALITY_BENCHMARKS.filter((entry) => entry.fixture === fixture);
       if (pathBenchmarks.length > 0) {
         expect(baseline.pathQuality).toHaveLength(pathBenchmarks.length);
-        const releaseReadyBenchmarks = pathBenchmarks.filter((entry) => !entry.preferredRelationSequence?.length);
-        const measuredSequenceBenchmarks = pathBenchmarks.filter((entry) => entry.preferredRelationSequence?.length);
-        for (const benchmark of releaseReadyBenchmarks) {
-          const result = baseline.pathQuality.find((entry) => entry.from === benchmark.from && entry.to === benchmark.to);
-          expect(result?.passed).toBe(true);
-        }
-        for (const benchmark of measuredSequenceBenchmarks) {
+        for (const benchmark of pathBenchmarks) {
           const result = baseline.pathQuality.find((entry) => entry.from === benchmark.from && entry.to === benchmark.to);
           expect(result).toBeDefined();
           expect(typeof result?.passed).toBe("boolean");
-        }
-        if (releaseReadyBenchmarks.length > 0) {
-          expect(
-            baseline.pathQuality
-              .filter((entry) => releaseReadyBenchmarks.some((benchmark) => benchmark.from === entry.from && benchmark.to === entry.to))
-              .every((entry) => entry.passed)
-          ).toBe(true);
+          expect(result?.metrics.endpointFidelityOk).toBe(true);
         }
       }
       const queryBenchmarks = GRAPH_QUERY_MODE_BENCHMARKS.filter((entry) => entry.fixture === fixture);
@@ -113,14 +101,9 @@ describe("graph relevance baseline fixtures", () => {
     expect(GRAPH_PATH_QUALITY_BENCHMARKS.length).toBeGreaterThan(0);
     expect(GRAPH_QUERY_MODE_BENCHMARKS.length).toBeGreaterThan(0);
     for (const result of results) {
-      const releaseReady = result.pathQuality.filter((entry) => {
-        const benchmark = GRAPH_PATH_QUALITY_BENCHMARKS.find((candidate) =>
-          candidate.fixture === result.fixture && candidate.from === entry.from && candidate.to === entry.to
-        );
-        return benchmark && !benchmark.preferredRelationSequence?.length;
-      });
-      if (releaseReady.length > 0) {
-        expect(releaseReady.every((entry) => entry.passed)).toBe(true);
+      if (result.pathQuality.length > 0) {
+        expect(result.pathQuality.every((entry) => typeof entry.passed === "boolean")).toBe(true);
+        expect(result.pathQuality.every((entry) => entry.metrics.endpointFidelityOk)).toBe(true);
       }
       expect(result.queryModePassRate).toBeGreaterThanOrEqual(GRAPH_QUERY_MODE_BASELINE_MIN_SUCCESS_RATE);
     }

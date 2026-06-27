@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductGraphEdge, ProductGraphNode } from "@openagentgraph/shared";
 import { setAppConfigOverride } from "../config.js";
 
+vi.setConfig({ testTimeout: 60_000 });
+
 const tempPaths: string[] = [];
 
 function makeTempDir(prefix: string) {

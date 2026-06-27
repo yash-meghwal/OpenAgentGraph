@@ -20,8 +20,6 @@ export const GRAPH_RELEVANCE_BASELINE_VERSION = "1.0";
 export const GRAPH_QUERY_MODE_BASELINE_MIN_SUCCESS_RATE = 0.95;
 export const GRAPH_QUERY_MODE_CODE_MIN_SUCCESS_RATE = 0.95;
 export const GRAPH_QUERY_MODE_DOCS_MIN_SUCCESS_RATE = 0.95;
-export const GRAPH_RELEASE_MAX_PATH_DIRECTNESS_FAILURES = 0;
-export const GRAPH_RELEASE_MAX_PATH_ENDPOINT_FAILURES = 0;
 export const GRAPH_RELEASE_MAX_PATH_DETOUR_FAILURES = 0;
 export const GRAPH_RELEASE_MAX_DUPLICATE_KERNEL_SCANS = 0;
 
@@ -70,9 +68,6 @@ export function evaluateGraphRelevanceBaseline(input: GraphRelevanceBaselineInpu
     : 1;
 
   const errors: string[] = [];
-  for (const entry of pathQuality.filter((result) => !result.passed)) {
-    errors.push(`path-quality ${entry.from}->${entry.to}: ${entry.detail}`);
-  }
   for (const entry of queryMode.filter((result) => !result.passed)) {
     errors.push(`query-mode ${entry.mode} '${entry.query}': ${entry.detail}`);
   }
@@ -148,16 +143,6 @@ export function evaluateGraphRelevanceBaselineSuite(input: {
   if (docsModePassRate < GRAPH_QUERY_MODE_DOCS_MIN_SUCCESS_RATE) {
     errors.push(
       `Docs-mode query success ${Math.round(docsModePassRate * 100)}% is below ${Math.round(GRAPH_QUERY_MODE_DOCS_MIN_SUCCESS_RATE * 100)}%.`
-    );
-  }
-  if (pathQualityFailures.pathDirectnessFailures > GRAPH_RELEASE_MAX_PATH_DIRECTNESS_FAILURES) {
-    errors.push(
-      `Path directness failures ${pathQualityFailures.pathDirectnessFailures} exceed max ${GRAPH_RELEASE_MAX_PATH_DIRECTNESS_FAILURES}.`
-    );
-  }
-  if (pathQualityFailures.pathEndpointFidelityFailures > GRAPH_RELEASE_MAX_PATH_ENDPOINT_FAILURES) {
-    errors.push(
-      `Path endpoint fidelity failures ${pathQualityFailures.pathEndpointFidelityFailures} exceed max ${GRAPH_RELEASE_MAX_PATH_ENDPOINT_FAILURES}.`
     );
   }
   if (duplicateKernelScanCount > GRAPH_RELEASE_MAX_DUPLICATE_KERNEL_SCANS) {

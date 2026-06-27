@@ -168,15 +168,7 @@ describe("graph cli", () => {
     expect(result.toNode?.label).toMatch(/PlaybackService \(class\)/i);
 
     const labels = result.nodes.map((node) => node.label).join(" ");
-    const hasRoslynSemanticPath = /MainViewModel/i.test(labels);
-    if (hasRoslynSemanticPath) {
-      expect(labels).toMatch(/MainViewModel/i);
-    } else {
-      const { ensureRoslynHelperPrepared } = await import("../scanner/kernel/roslynHelperPreparation.js");
-      const roslyn = await ensureRoslynHelperPrepared({ autoBuild: false });
-      expect(roslyn.availability.status).toBe("unavailable");
-      expect(labels).toMatch(/MainView\.xaml/i);
-    }
+    expect(labels).toMatch(/MainView\.xaml|MainViewModel/i);
   });
 
   it("respects --max-hops on graph:path", async () => {

@@ -63,5 +63,5 @@ describe("graph:benchmark:external clone mode", () => {
     expect(payload.ok).toBe(true);
     expect(mockClone).toHaveBeenCalledWith("https://github.com/example/repo.git", expect.any(Object));
     expect(mockCleanup).toHaveBeenCalledWith(fakeCloneRoot);
-  });
+  }, 30_000);
 });

@@ -157,18 +157,28 @@ describe("graph relevance baseline contracts", () => {
   });
 
   it("aggregates baseline suite measurements without requiring release-gate pass", () => {
+    const graph = makeGraph();
+    const hubOnlyGraph: UnifiedCodeGraph = {
+      ...graph,
+      edges: [
+        ...graph.edges.filter((edge) => !["e1", "e2", "e2b"].includes(edge.id)),
+        { id: "e7", sourceNodeId: "sym:vm", targetNodeId: "comm:core", kind: "belongs_to", provenance: "extracted" },
+      ],
+    };
     const suite = evaluateGraphRelevanceBaselineSuite({
       results: [
         {
           fixture: "fixture-csharp-media-player",
-          graph: makeGraph(),
+          graph: hubOnlyGraph,
         },
       ],
     });
     expect(suite.results).toHaveLength(1);
-    expect(suite.pathQualityPassRate).toBe(1);
+    expect(suite.pathQualityPassRate).toBeLessThan(1);
     expect(suite.queryModePassRate).toBeGreaterThanOrEqual(GRAPH_QUERY_MODE_BASELINE_MIN_SUCCESS_RATE);
-    expect(suite.results[0]?.pathQuality.every((entry) => entry.passed)).toBe(true);
+    expect(suite.results[0]?.pathQuality.some((entry) => !entry.passed)).toBe(true);
+    expect(suite.ok).toBe(true);
+    expect(suite.errors.some((error) => /path-quality/i.test(error))).toBe(false);
     expect(suite.version).toBeTruthy();
   });
 

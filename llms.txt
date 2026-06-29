@@ -6,31 +6,41 @@
 
 - Deterministic codebase intelligence: file/symbol graph, communities, docs links, provenance, support tiers.
 - Local-first static exports: `.oag/graph.json`, `.oag/graph.html`, `.oag/wiki/index.md`, `GRAPH_REPORT.md`.
+- Agentic SDLC harness (1.7): readiness scorecard, context noise, verification map, bounded context packs.
 - Agent context without source-body persistence or provider keys.
 
 ## What OAG is not
 
-- Not a token compressor, hosted cloud service, provider-key runner, or multi-agent scheduler.
-- Not OpenAgentGraphPro. Base OAG does not require Pro folders or hosted coordination.
+- Not a coding agent, hosted agent platform, or token compressor.
+- Not a paid coordination tier. Base OAG does not require extra product folders or hosted services.
+
+## 60-second npm path
+
+```bash
+npx @openagentgraph/cli@1.7.0 doctor --workspace .
+npx @openagentgraph/cli@1.7.0 graph:export --workspace . --offline-only --redact-root
+npx @openagentgraph/cli@1.7.0 graph:context --workspace . --goal "understand this repo" --include-verification --json
+```
 
 ## Safe first commands
 
 ```bash
 npm ci
 npm run graph:export -- --workspace . --offline-only --redact-root
-npm run graph:context -- --workspace . --goal "orient me" --json
+npm run graph:context -- --workspace . --goal "orient me" --include-verification --json
 npm run graph:query -- --workspace . "how does auth work?"
 npm run graph:check -- --workspace . --mode hard
 ```
 
-If the npm CLI is installed, use `oag doctor --workspace .`, `oag graph:export --workspace . --offline-only --redact-root`, `oag dogfood --workspace .`, and `oag graph:context --workspace . --goal "orient me" --json`.
+If the npm CLI is installed, use `oag doctor --workspace .`, `oag graph:export --workspace . --offline-only --redact-root`, `oag dogfood --workspace .`, and `oag graph:context --workspace . --goal "orient me" --include-verification --json`.
 
 ## Read these files first
 
 1. `GRAPH_REPORT.md` (generated per workspace; gitignored)
 2. `llms.txt` (this file)
 3. `LLMS.md` (agent workflow)
-4. `.oag/graph.json` and `.oag/wiki/index.md` after export
+4. `docs/OAG-FOR-AGENTIC-SDLC.md` (agentic SDLC positioning)
+5. `.oag/graph.json` and `.oag/wiki/index.md` after export
 
 ## Privacy and trust rules
 
@@ -53,18 +63,19 @@ If the npm CLI is installed, use `oag doctor --workspace .`, `oag graph:export -
 
 | Command | When |
 | --- | --- |
-| `doctor` | Check versions, workspace access, optional .NET/Roslyn, cache, and next commands |
+| `doctor` | Versions, workspace access, agentic readiness summary, next commands |
 | `dogfood` | Full Base dogfood pass on an external workspace (no provider key) |
 | `graph:export` | Create or refresh static artifacts |
-| `graph:context` | Bounded agent context pack for a goal |
+| `graph:context` | Bounded agent context pack for a goal; add `--include-verification` for verify plan |
 | `graph:query` | Neighborhood search; use `--mode code`, `--mode docs`, or `--mode balanced` |
 | `graph:path` | Ranked route between two targets |
 | `graph:explain` | Node/file neighborhood summary |
-| `graph:check` | Hard/warn quality gates |
+| `graph:check` | Hard/warn quality gates plus harness report and agentic scorecard (`--json`) |
 | `graph:docs:check` | Broken link diagnostics; `--suggest` adds non-mutating repair proposals |
+| `graph:learn` | Harness improvement proposals from workspace and/or agent logs (`--json`) |
 | `graph:update` | Incremental `.oag/graph.json` refresh |
 | `graph:retrieve` | Deeper lookup by `oag:*` retrieval id |
-| `graph:scorecard` | Reproducible public benchmark proof |
+| `graph:scorecard` | Reproducible public benchmark proof; `--agentic-sdlc` for harness scorecard |
 
 Published npm entry point: `oag <command>`. Repo scripts mirror the same backend CLIs.
 
@@ -75,18 +86,20 @@ Run `npm run oag:mcp` for stdio MCP with: `oag_export`, `oag_query`, `oag_path`,
 ## Release proof
 
 - Regenerate measured gates with `npm run verify:graph` and `npm run graph:scorecard`.
-- See `docs/BENCHMARKS.md` for the full v1.6 public scorecard table.
+- See `docs/BENCHMARKS.md` for the full v1.7 public scorecard table.
 - Performance and warm/cold numbers are benchmark-specific, not universal latency claims.
 
 ## Do not
 
-- Read or copy from OpenAgentGraphPro or scratch export folders.
+- Read or copy from paid-tier or scratch export folders bundled outside Base OAG.
 - Claim semantic support beyond what `graph:check` and fixtures prove.
 - Auto-edit user-authored Markdown from `graph:docs:check --suggest` proposals.
 - Auto-edit `AGENTS.md`, `README.md`, or `LLMS.md` from generated proposals.
 
 ## More docs
 
+- `docs/OAG-FOR-AGENTIC-SDLC.md`
+- `docs/AGENTIC-SDLC-HARNESS.md`
 - `docs/AGENT-ACCESS-LAYER.md`
 - `docs/MCP.md`
 - `docs/GRAPH-CONTEXT.md`

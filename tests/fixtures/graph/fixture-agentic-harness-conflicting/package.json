@@ -1,0 +1,8 @@
+{
+  "name": "fixture-agentic-harness-conflicting",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:integration",
+    "test:integration": "node scripts/run-integration.js"
+  }
+}

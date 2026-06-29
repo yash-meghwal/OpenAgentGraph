@@ -14,6 +14,10 @@ export const OAG_CLI_COMMANDS = [
   "graph:check",
   "graph:docs:check",
   "graph:context",
+  "graph:scorecard",
+  "graph:learn",
+  "graph:retrieve",
+  "graph:update",
 ] as const;
 
 export type OagCliCommand = (typeof OAG_CLI_COMMANDS)[number];
@@ -28,6 +32,10 @@ const COMMAND_ENTRY: Record<OagCliCommand, string> = {
   "graph:check": "graphCheck.js",
   "graph:docs:check": "graphDocsCheck.js",
   "graph:context": "graphContext.js",
+  "graph:scorecard": "graphScorecard.js",
+  "graph:learn": "graphLearn.js",
+  "graph:retrieve": "graphRetrieve.js",
+  "graph:update": "graphUpdate.js",
 };
 
 export function resolveBackendCliEntry(command: string) {
@@ -56,6 +64,11 @@ export function renderOagCliHelp() {
     '  oag graph:query --workspace "./my-app" --mode code "entry point"',
     '  oag graph:path --workspace "./my-app" "MainViewModel" "PlaybackService"',
     '  oag graph:docs:check --workspace "./my-app" --json --suggest',
+    '  oag graph:context --workspace "./my-app" --goal "orient me" --include-verification --json',
+    '  oag graph:scorecard --workspace "./my-app" --agentic-sdlc --json',
+    '  oag graph:learn --workspace "./my-app" --json',
+    '  oag graph:retrieve --workspace "./my-app" --id "oag:node:<id>" --json',
+    '  oag graph:update --workspace "./my-app"',
   ];
   return lines.join("\n");
 }

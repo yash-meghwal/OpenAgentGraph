@@ -1,4 +1,15 @@
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import type { HarnessWorkspaceMetadata } from "./graphHarnessReadiness.js";
+import {
+  evaluateContextNoise,
+  formatGraphContextNoiseMarkdown,
+  type ContextNoiseDiagnostics,
+  type GraphContextNoiseSummary,
+} from "./graphContextNoise.js";
+import {
+  buildTaskVerificationPlan,
+  type GraphTaskVerificationSummary,
+} from "./graphVerificationPlan.js";
 import {
   buildAgentCodeContextSlice,
   evaluateOagFusionChecks,
@@ -40,6 +51,9 @@ export interface GraphAgentContextPackOptions {
   redactRoot?: boolean;
   kernelProfile?: WorkspaceKernelProfile;
   handoffFreshness?: GraphHandoffFreshnessResult;
+  includeVerification?: boolean;
+  harnessMetadata?: HarnessWorkspaceMetadata;
+  contextNoiseDiagnostics?: ContextNoiseDiagnostics;
 }
 
 export interface GraphAgentContextPack {
@@ -91,6 +105,8 @@ export interface GraphAgentContextPack {
   retrievalHints: string[];
   queryEntryPoints: ReturnType<typeof buildWorkspaceGraphQueryEntryPoints>;
   queryIntent?: GraphQueryIntentSummary;
+  taskVerification?: GraphTaskVerificationSummary;
+  contextNoise: GraphContextNoiseSummary;
 }
 
 const DEFAULT_CONTEXT_BUDGET = 12_000;
@@ -129,8 +145,31 @@ function enforceBudget(pack: GraphAgentContextPack, budget: number): { pack: Gra
   }
 
   const mutable = structuredClone(pack) as GraphAgentContextPack;
-  const listKeys = ["readFirstNodes", "communities", "relevantDocs", "risks", "retrievalHints", "suggestedQueries"] as const;
   let truncated = false;
+  const listKeys = [
+    "readFirstNodes",
+    "communities",
+    "relevantDocs",
+    "risks",
+    "retrievalHints",
+    "suggestedQueries",
+  ] as const;
+  if (mutable.taskVerification) {
+    for (const key of ["likelyFiles", "likelyTests", "suggestedCommands", "docsToCheck", "riskNotes", "unsupportedAssumptions"] as const) {
+      const list = mutable.taskVerification[key];
+      while (JSON.stringify(mutable).length > budget && Array.isArray(list) && list.length > 1) {
+        list.pop();
+        truncated = true;
+      }
+    }
+    for (const key of ["beforeEditing", "afterEditing", "fallback"] as const) {
+      const list = mutable.taskVerification.verificationPlan[key];
+      while (JSON.stringify(mutable).length > budget && list.length > 1) {
+        list.pop();
+        truncated = true;
+      }
+    }
+  }
 
   while (JSON.stringify(mutable).length > budget) {
     let reduced = false;
@@ -251,6 +290,22 @@ export function buildGraphAgentContextPack(
   }
 
   const seedLabels = readFirst.map((node) => node.label);
+  const relevantDocPaths = [
+    ...docSections.map((section) => section.path ?? section.label),
+    ...docsHubs.slice(0, 3).map((hub) => hub.path),
+    ...docsLinked.slice(0, 2).map((link) => link.docPath ?? link.docLabel),
+  ].filter((path): path is string => Boolean(path));
+  const contextNoise = evaluateContextNoise(graph, options.contextNoiseDiagnostics ?? {});
+  const taskVerification = options.includeVerification
+    ? buildTaskVerificationPlan({
+      graph,
+      goal,
+      queryMode,
+      metadata: options.harnessMetadata,
+      readFirstPaths: readFirst.map((node) => node.path).filter((path): path is string => Boolean(path)),
+      relevantDocPaths,
+    })
+    : undefined;
   const pack: GraphAgentContextPack = {
     status: "graph_context_ready",
     workspaceRoot: safeText(workspaceRoot, graph.workspaceRoot, 500),
@@ -319,6 +374,8 @@ export function buildGraphAgentContextPack(
       lens,
     }),
     queryIntent: queryResult.intent,
+    taskVerification,
+    contextNoise,
   };
 
   const bounded = enforceBudget(pack, budget);
@@ -398,6 +455,38 @@ export function renderGraphAgentContextMarkdown(pack: GraphAgentContextPack): st
     "## Retrieval",
     ...pack.retrievalHints.map((hint) => `- ${hint}`),
     "",
+    ...formatGraphContextNoiseMarkdown(pack.contextNoise),
+    ...(pack.taskVerification
+      ? [
+        "## Verification plan",
+        `- Goal intent: ${pack.taskVerification.goalIntent}`,
+        `- Confidence: ${pack.taskVerification.verificationPlan.confidence}`,
+        "",
+        "### Before editing",
+        ...(pack.taskVerification.verificationPlan.beforeEditing.length > 0
+          ? pack.taskVerification.verificationPlan.beforeEditing.map((command) => `- \`${command}\``)
+          : ["- No before-editing commands matched this goal."]),
+        "",
+        "### After editing",
+        ...(pack.taskVerification.verificationPlan.afterEditing.length > 0
+          ? pack.taskVerification.verificationPlan.afterEditing.map((command) => `- \`${command}\``)
+          : ["- No after-editing commands matched this goal."]),
+        "",
+        "### Fallback",
+        ...(pack.taskVerification.verificationPlan.fallback.length > 0
+          ? pack.taskVerification.verificationPlan.fallback.map((command) => `- \`${command}\``)
+          : ["- No fallback commands discovered."]),
+        "",
+        "### Likely files and tests",
+        ...(pack.taskVerification.likelyFiles.length > 0
+          ? pack.taskVerification.likelyFiles.map((file) => `- \`${file}\``)
+          : ["- No goal-matched files indexed."]),
+        ...(pack.taskVerification.likelyTests.length > 0
+          ? pack.taskVerification.likelyTests.map((file) => `- test: \`${file}\``)
+          : []),
+        "",
+      ]
+      : []),
   ].filter((line): line is string => line !== undefined);
 
   return `${lines.join("\n")}\n`;

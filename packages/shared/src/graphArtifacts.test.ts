@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UnifiedCodeGraph } from "./codeGraph.js";
+import { buildAgentHarnessReport } from "./graphAgentHarnessReport.js";
 import { renderUnifiedGraphHandoffReport, renderUnifiedGraphWiki } from "./graphArtifacts.js";
 
 function makeGraph(): UnifiedCodeGraph {
@@ -20,6 +21,16 @@ function makeGraph(): UnifiedCodeGraph {
     ],
   };
 }
+
+const HARNESS_HEADINGS = [
+  "## Agentic SDLC harness",
+  "### Read before coding",
+  "### Verify before claiming done",
+  "### Guardrails and risky commands",
+  "### Missing or conflicting instructions",
+  "### Context noise",
+  "### Agent setup checklist",
+] as const;
 
 describe("graph artifacts", () => {
   it("renders wiki and handoff reports with read-these-first guidance", () => {
@@ -52,6 +63,29 @@ describe("graph artifacts", () => {
     expect(handoff).not.toContain("/bin/");
   });
 
+  it("renders agentic SDLC harness sections in handoff and wiki output", () => {
+    const graph = makeGraph();
+    const agentHarnessReport = buildAgentHarnessReport({
+      graph,
+      metadata: {
+        readmeText: "# App\n\nRun `npm test`.",
+        packageScripts: { test: "vitest run", build: "tsc", clean: "rm -rf dist" },
+      },
+    });
+    const handoff = renderUnifiedGraphHandoffReport(graph, {
+      handoffPath: "GRAPH_REPORT.md",
+      agentHarnessReport,
+    });
+    const wiki = renderUnifiedGraphWiki(graph, { agentHarnessReport });
+
+    for (const heading of HARNESS_HEADINGS) {
+      expect(handoff).toContain(heading);
+      expect(wiki).toContain(heading);
+    }
+    expect(handoff).not.toContain("## Agentic SDLC spec quality");
+    expect(handoff).not.toContain("## Verification map");
+  });
+
   it("renders optional analyzer status in handoff output", () => {
     const graph: UnifiedCodeGraph = {
       ...makeGraph(),
@@ -65,7 +99,10 @@ describe("graph artifacts", () => {
       }],
     };
 
-    const handoff = renderUnifiedGraphHandoffReport(graph, { handoffPath: "GRAPH_REPORT.md" });
+    const handoff = renderUnifiedGraphHandoffReport(graph, {
+      handoffPath: "GRAPH_REPORT.md",
+      agentHarnessReport: buildAgentHarnessReport({ graph }),
+    });
     expect(handoff).toContain("## Optional analyzers");
     expect(handoff).toContain("C# Roslyn semantic analyzer: unavailable (dotnet CLI unavailable.)");
   });

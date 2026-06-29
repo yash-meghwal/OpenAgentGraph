@@ -1,10 +1,35 @@
 # OpenAgentGraph
 
+[![npm](https://img.shields.io/npm/v/@openagentgraph/cli)](https://www.npmjs.com/package/@openagentgraph/cli)
+[![CI](https://github.com/yash-meghwal/OpenAgentGraph/actions/workflows/ci.yml/badge.svg)](https://github.com/yash-meghwal/OpenAgentGraph/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/yash-meghwal/OpenAgentGraph)](https://github.com/yash-meghwal/OpenAgentGraph/releases)
+[![license](https://img.shields.io/npm/l/@openagentgraph/cli)](https://www.npmjs.com/package/@openagentgraph/cli)
+
 OpenAgentGraph turns any codebase into a deterministic, agent-ready graph with paths, handoffs, benchmarks, and no provider key.
 
 OpenAgentGraph is also an event-sourced execution graph and universal static code graph for supervised autonomous software work. Replay, reports, alerts, lineage, operational views, code maps, agent handoffs, and offline workspace exports are derived from append-only graph events or deterministic scans rather than mutable graph-state tables.
 
-## 60-second local demo
+## From vibe coding to agentic engineering
+
+Coding agents need more than chat: they need a repo they can orient in, verify against, and trust not to leak noise or secrets. OpenAgentGraph 1.7 adds a deterministic **agentic SDLC harness** — readiness scoring, context noise checks, verification maps, and bounded context packs — on top of the static graph export.
+
+OAG is the **deterministic harness, context, and verification layer** for agentic SDLC. It is **not** a coding agent, a hosted agent platform, or a token compressor. Install it once, run it locally, and point any agent at the outputs.
+
+See [docs/OAG-FOR-AGENTIC-SDLC.md](docs/OAG-FOR-AGENTIC-SDLC.md) for positioning and [docs/AGENTIC-SDLC-HARNESS.md](docs/AGENTIC-SDLC-HARNESS.md) for scorecard details.
+
+## 60-second npm path
+
+No clone required — run the published CLI against any workspace:
+
+```bash
+npx @openagentgraph/cli@1.7.0 doctor --workspace .
+npx @openagentgraph/cli@1.7.0 graph:export --workspace . --offline-only --redact-root
+npx @openagentgraph/cli@1.7.0 graph:context --workspace . --goal "understand this repo" --include-verification --json
+```
+
+Read `GRAPH_REPORT.md`, then use `graph:check --json` for harness readiness or `graph:scorecard --agentic-sdlc --json` for the full scorecard.
+
+## 60-second local demo (from source)
 
 ```bash
 npm ci
@@ -12,19 +37,13 @@ npm run graph:export -- --workspace . --offline-only --redact-root
 # open .oag/graph.html and read GRAPH_REPORT.md
 ```
 
-After installing the published CLI, the same static-export path is:
+After installing the published CLI globally:
 
 ```bash
 npm install -g @openagentgraph/cli
 oag doctor --workspace .
 oag graph:export --workspace . --offline-only --redact-root
-oag graph:context --workspace . --goal "orient me" --json
-```
-
-Agent context in one command:
-
-```bash
-npm run graph:context -- --workspace . --goal "orient me" --json
+oag graph:context --workspace . --goal "orient me" --include-verification --json
 ```
 
 ## Proof scorecard
@@ -50,7 +69,7 @@ See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for the full public scorecard.
 
 **Is:** deterministic codebase intelligence, bounded agent context, static exports, local-first trust, and provenance-backed graph navigation.
 
-**Is not:** a token compressor, hosted cloud service, provider-key runner, or Pro multi-agent scheduler. Base OAG does not require OpenAgentGraphPro.
+**Is not:** a coding agent, hosted agent platform, token compressor, provider-key runner, or paid coordination tier. Base OAG works from npm with no extra products or folders.
 
 Agents should read [`llms.txt`](llms.txt) before the full README. MCP clients can use `npm run oag:mcp`.
 

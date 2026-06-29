@@ -1,6 +1,7 @@
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 import type { UnifiedCodeGraph, WorkspaceKernelProfile } from "./codeGraph.js";
+import { buildAgentHarnessReport } from "./graphAgentHarnessReport.js";
 import { renderUnifiedGraphHandoffReport } from "./graphArtifacts.js";
 import {
   buildGraphExportDocument,
@@ -429,6 +430,34 @@ describe("graph export bundle", () => {
     const result = vm.runInNewContext(script) as Array<{ id: string; label: string }>;
     expect(result.some((node) => node.label.includes("MainViewModelTests"))).toBe(false);
     expect(result.some((node) => node.label.includes("Play (method)"))).toBe(true);
+  });
+
+  it("renders the agentic SDLC harness summary in explorer sidebar html", () => {
+    const graph = sanitizeGraphForExport({
+      ...makeGraph(),
+      nodes: [
+        ...makeGraph().nodes,
+        { id: "file:pkg", kind: "config_file", label: "package.json", path: "package.json" },
+      ],
+    });
+    const agentHarnessReport = buildAgentHarnessReport({
+      graph,
+      kernelProfile: makeProfile(),
+      metadata: {
+        readmeText: "# App\n\nRun `npm test`.",
+        packageScripts: { test: "vitest run", build: "tsc", clean: "rm -rf dist" },
+      },
+    });
+    expect(agentHarnessReport.verifyBeforeDone.length).toBeGreaterThan(0);
+    expect(agentHarnessReport.guardrailCommands.length).toBeGreaterThan(0);
+    const html = renderGraphExplorerHtml(graph, { kernelProfile: makeProfile(), agentHarnessReport });
+
+    expect(html).toContain("Agentic SDLC harness");
+    expect(html).toContain("Read before coding");
+    expect(html).toContain("Verify before claiming done");
+    expect(html).toContain("Guardrails");
+    expect(html).toContain("npm run clean");
+    expect(html).not.toContain("sk-");
   });
 
   it("advertises the shared path model version and in-browser cost computation in explorer html", () => {

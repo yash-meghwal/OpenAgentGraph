@@ -1,0 +1,7 @@
+{
+  "name": "fixture-agentic-harness-noisy",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit"
+  }
+}

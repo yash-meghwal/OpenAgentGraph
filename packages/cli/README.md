@@ -25,7 +25,11 @@ oag graph:path --workspace "<path>" "<from>" "<to>"
 oag graph:explain --workspace "<path>" "<node-or-file>"
 oag graph:check --workspace "<path>"
 oag graph:docs:check --workspace "<path>" --json --suggest
-oag graph:context --workspace "<path>" --goal "<goal>"
+oag graph:context --workspace "<path>" --goal "<goal>" --include-verification --json
+oag graph:scorecard --workspace "<path>" --agentic-sdlc --json
+oag graph:learn --workspace "<path>" --json
+oag graph:retrieve --workspace "<path>" --id "oag:node:<id>" --json
+oag graph:update --workspace "<path>"
 ```
 
 `graph:query --mode` accepts `code`, `docs`, or `balanced`. No provider key is required for any graph command.

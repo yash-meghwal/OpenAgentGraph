@@ -30,6 +30,10 @@ import { renderDocsGraphMarkdown } from "./graphDocs.js";
 import { renderBrokenDocLinksMarkdown, summarizeDocLinkHygiene } from "./graphDocLinks.js";
 import { renderEdgeProvenanceMarkdown } from "./graphEdgeProvenance.js";
 import {
+  formatAgentHarnessReportMarkdown,
+  type GraphAgentHarnessReportSummary,
+} from "./graphAgentHarnessReport.js";
+import {
   buildGraphExportRisks,
   buildGraphRefreshCommands,
   formatExportWorkspaceRoot,
@@ -43,14 +47,22 @@ export { getReadTheseFirstNodes } from "./graphReadFirst.js";
 
 export function renderUnifiedGraphHtml(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
+  options: {
+    kernelProfile?: WorkspaceKernelProfile;
+    redactRoot?: boolean;
+    agentHarnessReport?: GraphAgentHarnessReportSummary;
+  } = {}
 ) {
   return renderGraphExplorerHtml(graph, options);
 }
 
 export function renderUnifiedGraphWiki(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
+  options: {
+    kernelProfile?: WorkspaceKernelProfile;
+    redactRoot?: boolean;
+    agentHarnessReport?: GraphAgentHarnessReportSummary;
+  } = {}
 ) {
   const readFirst = getReadTheseFirstNodes(graph);
   const godNodes = buildGraphGodNodeSummaries(graph);
@@ -151,8 +163,17 @@ export function renderUnifiedGraphWiki(
     "- `npm run graph:lens -- --workspace \"<path>\" --lens frontend --json`",
     "- `npm run graph:export -- --workspace \"<path>\" --json --html --wiki`",
     "",
-  ].filter((line) => line !== undefined);
-  return `${lines.join("\n")}\n`;
+  ];
+  const withHarness = appendAgentHarnessMarkdown(lines, options.agentHarnessReport);
+  return `${withHarness.filter((line) => line !== undefined).join("\n")}\n`;
+}
+
+function appendAgentHarnessMarkdown(
+  lines: string[],
+  agentHarnessReport?: GraphAgentHarnessReportSummary
+) {
+  if (!agentHarnessReport) return lines;
+  return [...lines, ...formatAgentHarnessReportMarkdown(agentHarnessReport)];
 }
 
 export function renderUnifiedGraphHandoffReport(
@@ -163,6 +184,7 @@ export function renderUnifiedGraphHandoffReport(
     handoffFreshness?: GraphHandoffFreshnessResult;
     previousSymbolCount?: number;
     redactRoot?: boolean;
+    agentHarnessReport?: GraphAgentHarnessReportSummary;
   } = {}
 ) {
   const readFirst = getReadTheseFirstNodes(graph);
@@ -237,6 +259,7 @@ export function renderUnifiedGraphHandoffReport(
     "- No OpenAI, Anthropic, or other model provider key is required to read or navigate these files.",
     "- Optional analyzers may require local runtimes (for example .NET SDK), but exported artifacts remain usable when analyzers are unavailable.",
     "",
+    ...(options.agentHarnessReport ? formatAgentHarnessReportMarkdown(options.agentHarnessReport) : []),
     "## Detected project types",
     ...(projectTypes.length > 0
       ? projectTypes.map((typeId) => `- ${typeId}`)

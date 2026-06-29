@@ -1,8 +1,21 @@
 import {
+  buildAgentHarnessReport,
+  buildAgenticSdlcScorecard,
+  buildVerificationMap,
+  evaluateContextNoise,
+  evaluateGraphSpecQuality,
   evaluateOagFusionChecks,
+  summarizeAgenticSdlcScorecardHuman,
   summarizeDocLinkHygiene,
   summarizeEcosystemSupportForAgents,
+  summarizeGraphContextNoiseHuman,
+  summarizeHarnessImprovementProposalsHuman,
 } from "@openagentgraph/shared";
+import {
+  buildHarnessContextNoiseDiagnostics,
+  loadHarnessWorkspaceMetadata,
+} from "./graphHarnessMetadata.js";
+import { buildWorkspaceHarnessImprovementProposals } from "./graphHarnessSnapshot.js";
 import { applyProductGraphCliDataDir, readRequiredCliValue } from "./productGraphDataDir.js";
 import {
   loadWorkspaceUnifiedGraph,
@@ -106,6 +119,36 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
   });
 
   const docLinkHygiene = summarizeDocLinkHygiene(loaded.graph);
+  const harnessMetadata = loadHarnessWorkspaceMetadata(workspaceRoot);
+  const specQuality = evaluateGraphSpecQuality(loaded.graph, { metadata: harnessMetadata });
+  const verificationMap = buildVerificationMap(loaded.graph, harnessMetadata);
+  const contextNoiseDiagnostics = buildHarnessContextNoiseDiagnostics(workspaceRoot, loaded.graph, {
+    metadata: harnessMetadata,
+    kernelProfile,
+  });
+  const contextNoise = evaluateContextNoise(loaded.graph, contextNoiseDiagnostics);
+  const agentHarnessReport = buildAgentHarnessReport({
+    graph: loaded.graph,
+    kernelProfile,
+    metadata: harnessMetadata,
+    handoffFreshness,
+    contextNoise,
+    contextNoiseDiagnostics,
+    specQuality,
+    verificationMap,
+  });
+  const agenticSdlcScorecard = buildAgenticSdlcScorecard({
+    workspaceRoot,
+    graph: loaded.graph,
+    kernelProfile,
+    metadata: harnessMetadata,
+    handoffFreshness,
+    fusion,
+    specQuality,
+    verificationMap,
+    contextNoise,
+  });
+  const harnessImprovementProposals = await buildWorkspaceHarnessImprovementProposals(workspaceRoot, loaded);
   const payload = {
     status: fusion.ok ? "graph_check_passed" : "graph_check_failed",
     workspaceRoot,
@@ -121,6 +164,12 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
     analyzers: loaded.graph.analyzers ?? [],
     symbolCount: loaded.graph.nodes.filter((node) => node.kind === "symbol").length,
     docLinkHygiene,
+    specQuality,
+    contextNoise,
+    agentHarnessReport,
+    agenticSdlcScorecard,
+    verificationMap,
+    harnessImprovementProposals,
   };
 
   if (graphOptions.json) {
@@ -166,6 +215,29 @@ export async function runGraphCheckCli(argv = process.argv.slice(2)) {
         const location = entry.line ? `${entry.sourcePath}:${entry.line}` : entry.sourcePath;
         console.log(`- ${location} — ${entry.reason}: ${entry.rawTarget}`);
       }
+    }
+    for (const line of summarizeGraphContextNoiseHuman(contextNoise)) {
+      console.log(line);
+    }
+    console.log(`Agent harness: ${agentHarnessReport.ok ? "READY" : "NEEDS ATTENTION"} (spec ${agentHarnessReport.specQualityScore}/100, noise ${agentHarnessReport.contextNoiseScore}/100)`);
+    for (const line of summarizeAgenticSdlcScorecardHuman(agenticSdlcScorecard)) {
+      console.log(line);
+    }
+    console.log(`Graph handoff: ${agentHarnessReport.graphFreshness.isStale ? "stale" : "current"} — ${agentHarnessReport.graphFreshness.detail}`);
+    if (agentHarnessReport.readBeforeCoding.length > 0) {
+      console.log(`Read before coding: ${agentHarnessReport.readBeforeCoding.slice(0, 4).join(", ")}`);
+    }
+    if (agentHarnessReport.verifyBeforeDone.length > 0) {
+      console.log(`Verify before done: ${agentHarnessReport.verifyBeforeDone.slice(0, 4).join(", ")}`);
+    }
+    if (agentHarnessReport.missingInstructions.length > 0) {
+      console.log(`Harness missing: ${agentHarnessReport.missingInstructions.slice(0, 4).join(", ")}`);
+    }
+    if (agentHarnessReport.conflictingInstructions.length > 0) {
+      console.log(`Harness conflicts: ${agentHarnessReport.conflictingInstructions.length}`);
+    }
+    for (const line of summarizeHarnessImprovementProposalsHuman(harnessImprovementProposals)) {
+      console.log(line);
     }
     console.log(fusion.ok ? "Result: PASS" : "Result: FAIL");
   }

@@ -336,6 +336,27 @@ describe("graph cli", () => {
     expect(result.checks.some((check) => check.code === "marker_sln_without_csharp")).toBe(false);
     expect(result.handoffFreshness.isStale).toBe(false);
     expect(result.ecosystemSupport?.some((row: { scannerId: string; tier: string }) => row.scannerId === "dotnet")).toBe(true);
+    expect(result.specQuality).toBeDefined();
+    expect(typeof result.specQuality?.score).toBe("number");
+    expect(Array.isArray(result.specQuality?.missing)).toBe(true);
+    expect(result.verificationMap).toBeDefined();
+    expect(Array.isArray(result.verificationMap?.commands)).toBe(true);
+    expect(Array.isArray(result.verificationMap?.recommendedDefault)).toBe(true);
+    expect(result.verificationMap?.commands.every((entry: { command: string; confidence: string }) => entry.command.length > 0)).toBe(true);
+    expect(result.agentHarnessReport).toBeDefined();
+    expect(Array.isArray(result.agentHarnessReport?.readBeforeCoding)).toBe(true);
+    expect(Array.isArray(result.agentHarnessReport?.verifyBeforeDone)).toBe(true);
+    expect(typeof result.agentHarnessReport?.specQualityScore).toBe("number");
+    expect(result.contextNoise).toBeDefined();
+    expect(typeof result.contextNoise?.score).toBe("number");
+    expect(result.contextNoise?.score).toBeGreaterThanOrEqual(0);
+    expect(result.agenticSdlcScorecard).toBeDefined();
+    expect(typeof result.agenticSdlcScorecard?.overallScore).toBe("number");
+    expect(Array.isArray(result.agenticSdlcScorecard?.categories)).toBe(true);
+    expect(result.agenticSdlcScorecard?.categories.length).toBe(9);
+    expect(result.harnessImprovementProposals).toBeDefined();
+    expect(result.harnessImprovementProposals?.reviewOnlyDisclaimer).toContain("does not auto-edit");
+    expect(result.harnessImprovementProposals?.proposals.every((proposal) => proposal.safeForAgentAutoApply === false)).toBe(true);
   });
 
   it("recovers kernel profile gates when graph:check loads a cached graph", async () => {
@@ -389,6 +410,16 @@ describe("graph cli", () => {
     expect(report).toContain("## Static OAG artifacts");
     expect(report).toContain("## How an agent should use these files");
     expect(report).toContain("## No provider key required");
+    expect(report).toContain("## Agentic SDLC harness");
+    expect(report).toMatch(/Graph handoff: current/);
+    expect(report).not.toMatch(/Graph handoff: stale/);
+    expect(report).not.toMatch(/GRAPH_REPORT\.md is missing/);
+    expect(report).toContain("### Read before coding");
+    expect(report).toContain("### Verify before claiming done");
+    expect(report).toContain("### Guardrails and risky commands");
+    expect(report).toContain("### Missing or conflicting instructions");
+    expect(report).toContain("### Context noise");
+    expect(report).toContain("### Agent setup checklist");
     expect(report).toContain("## Ecosystem support matrix");
     expect(report).toContain("## Ecosystem tier legend");
   });

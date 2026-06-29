@@ -1,23 +1,40 @@
 import fs from "fs/promises";
 import path from "path";
 import {
+  AGENTIC_HARNESS_FIXTURE_IDS,
+  buildAgenticSdlcScorecard,
+  buildVerificationMap,
+  evaluateAgenticSdlcReleaseGateSuite,
+  evaluateContextNoise,
   evaluateGraphExternalBenchmarkSuite,
+  evaluateGraphSpecQuality,
   evaluateGraphUpdateBenchmarkSuite,
   evaluateGraphRelevanceBaselineSuite,
+  evaluateHarnessReadiness,
   evaluateReleaseBenchmarkSuite,
+  formatAgenticSdlcReleaseGateSummaryLine,
   formatGraphExternalBenchmarkSummaryLine,
   formatGraphUpdateBenchmarkSummaryLine,
   GRAPH_PATH_QUALITY_MODEL_VERSION,
   GRAPH_RELEASE_FIXTURE_IDS,
   GRAPH_RELEASE_MIN_PATH_SUCCESS_RATE,
   GRAPH_RELEASE_MIN_QUERY_SUCCESS_RATE,
+  type AgenticHarnessFixtureId,
 } from "@openagentgraph/shared";
+import {
+  buildHarnessContextNoiseDiagnostics,
+  loadHarnessWorkspaceMetadata,
+} from "./graphHarnessMetadata.js";
 import { runGraphExternalBenchmarkCatalog } from "../scanner/kernel/graphExternalBenchmarkRunner.js";
 import { runGraphUpdateBenchmarkSuite } from "../scanner/kernel/graphUpdateBenchmarkRunner.js";
 import { runKernelWorkspaceScan, type KernelScanResult } from "../scanner/kernel/scanKernel.js";
 import { resolvePackageWorkspaceRoot } from "./productGraphDataDir.js";
 
 const DEFAULT_FIXTURES_DIR = "tests/fixtures/graph";
+const AGENTIC_SDLC_MEASURED_FIXTURE_IDS = [
+  "fixture-python-app",
+  "fixture-empty",
+] as const;
 
 interface VerifyGraphCliOptions {
   fixtures?: string;
@@ -1134,6 +1151,56 @@ function verifyFixture(bundle: FixtureScanBundle): FixtureCheckResult {
         errors.push("Expected src/index.ts to remain indexed.");
       }
       break;
+    case "fixture-agentic-harness-good":
+      if (!indexedPaths.includes("README.md")) {
+        errors.push("Expected README.md to be indexed.");
+      }
+      if (!indexedPaths.includes("AGENTS.md")) {
+        errors.push("Expected AGENTS.md to be indexed.");
+      }
+      if (!indexedPaths.includes("llms.txt")) {
+        errors.push("Expected llms.txt to be indexed.");
+      }
+      if (!indexedPaths.includes("docs/architecture.md")) {
+        errors.push("Expected docs/architecture.md to be indexed.");
+      }
+      if (!indexedPaths.includes("src/index.ts")) {
+        errors.push("Expected src/index.ts to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-agentic-harness-missing":
+      if (!indexedPaths.includes("README.md")) {
+        errors.push("Expected README.md to be indexed.");
+      }
+      if (!indexedPaths.includes("src/index.ts")) {
+        errors.push("Expected src/index.ts to be indexed.");
+      }
+      if (indexedPaths.includes("AGENTS.md")) {
+        errors.push("Missing harness fixture should not include AGENTS.md.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-agentic-harness-conflicting":
+      if (!indexedPaths.includes("AGENTS.md") || !indexedPaths.includes("CLAUDE.md")) {
+        errors.push("Expected conflicting agent instruction files to be indexed.");
+      }
+      if (!indexedPaths.includes("README.md")) {
+        errors.push("Expected README.md to be indexed.");
+      }
+      assertNoGeneratedPaths(indexedPaths, errors);
+      break;
+    case "fixture-agentic-harness-noisy":
+      if (!indexedPaths.includes("generated-output.js")) {
+        errors.push("Expected tracked generated-output.js to be indexed for noise measurement.");
+      }
+      if (!indexedPaths.includes("PLAN-STALE-1.5.md")) {
+        errors.push("Expected stale plan file to be indexed.");
+      }
+      if (!result.unifiedGraph.diagnostics.some((line) => /Broken doc link/i.test(line))) {
+        errors.push("Expected broken-link diagnostics in noisy harness fixture.");
+      }
+      break;
     default:
       assertNoGeneratedPaths(indexedPaths, errors);
       break;
@@ -1224,6 +1291,79 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
   const externalBenchmarkResults = await runGraphExternalBenchmarkCatalog({ fixturesRoot });
   const externalBenchmarkSuite = evaluateGraphExternalBenchmarkSuite(externalBenchmarkResults);
 
+  const harnessBundles = bundles.filter((bundle) =>
+    (AGENTIC_HARNESS_FIXTURE_IDS as readonly string[]).includes(bundle.fixture)
+  );
+  const harnessFixtures = harnessBundles.map((bundle) => {
+    const workspaceRoot = path.join(fixturesRoot, bundle.fixture);
+    const metadata = loadHarnessWorkspaceMetadata(workspaceRoot);
+    const contextNoiseDiagnostics = buildHarnessContextNoiseDiagnostics(workspaceRoot, bundle.scan.unifiedGraph, {
+      metadata,
+      kernelProfile: bundle.scan.kernelProfile,
+    });
+    const contextNoise = evaluateContextNoise(bundle.scan.unifiedGraph, contextNoiseDiagnostics);
+    const harnessReadiness = evaluateHarnessReadiness(bundle.scan.unifiedGraph, {
+      metadata,
+      profile: bundle.scan.kernelProfile,
+    });
+    const specQuality = evaluateGraphSpecQuality(bundle.scan.unifiedGraph, { metadata });
+    const verificationMap = buildVerificationMap(bundle.scan.unifiedGraph, metadata);
+    const scorecard = buildAgenticSdlcScorecard({
+      workspaceRoot,
+      graph: bundle.scan.unifiedGraph,
+      kernelProfile: bundle.scan.kernelProfile,
+      metadata,
+      contextNoise,
+      harnessReadiness,
+      specQuality,
+      verificationMap,
+    });
+
+    return {
+      fixture: bundle.fixture as AgenticHarnessFixtureId,
+      workspaceRoot,
+      graph: bundle.scan.unifiedGraph,
+      kernelProfile: bundle.scan.kernelProfile,
+      metadata,
+      scorecard,
+      harnessReadiness,
+      specQuality,
+      verificationMap,
+      contextNoise,
+    };
+  });
+
+  const measuredFixtures = bundles
+    .filter((bundle) => (AGENTIC_SDLC_MEASURED_FIXTURE_IDS as readonly string[]).includes(bundle.fixture))
+    .map((bundle) => {
+      const workspaceRoot = path.join(fixturesRoot, bundle.fixture);
+      const metadata = loadHarnessWorkspaceMetadata(workspaceRoot);
+      const contextNoiseDiagnostics = buildHarnessContextNoiseDiagnostics(workspaceRoot, bundle.scan.unifiedGraph, {
+        metadata,
+        kernelProfile: bundle.scan.kernelProfile,
+      });
+      const contextNoise = evaluateContextNoise(bundle.scan.unifiedGraph, contextNoiseDiagnostics);
+      const verificationMap = buildVerificationMap(bundle.scan.unifiedGraph, metadata);
+      const scorecard = buildAgenticSdlcScorecard({
+        workspaceRoot,
+        graph: bundle.scan.unifiedGraph,
+        kernelProfile: bundle.scan.kernelProfile,
+        metadata,
+        contextNoise,
+      });
+      return {
+        fixture: bundle.fixture,
+        scorecard,
+        contextNoise,
+        verificationMap,
+      };
+    });
+
+  const agenticSdlcGates = evaluateAgenticSdlcReleaseGateSuite({
+    harnessFixtures,
+    measuredFixtures,
+  });
+
   const payload = {
     fixturesRoot,
     fixtureCount: results.length,
@@ -1231,7 +1371,8 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       && releaseSuite.ok
       && relevanceBaseline.ok
       && updateBenchmarkSuite.ok
-      && externalBenchmarkSuite.ok,
+      && externalBenchmarkSuite.ok
+      && agenticSdlcGates.ok,
     results,
     releaseGates: {
       fixtures: [...GRAPH_RELEASE_FIXTURE_IDS],
@@ -1284,6 +1425,14 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       errors: relevanceBaseline.errors,
       results: relevanceBaseline.results,
     },
+    agenticSdlcGates: {
+      passed: agenticSdlcGates.ok,
+      errors: agenticSdlcGates.errors,
+      summary: agenticSdlcGates.summary,
+      fixtureResults: agenticSdlcGates.fixtureResults,
+      measuredSamples: agenticSdlcGates.measuredSamples,
+      commandConfidenceCounts: agenticSdlcGates.commandConfidenceCounts,
+    },
   };
 
   if (parsed.json) {
@@ -1323,6 +1472,16 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
     for (const error of relevanceBaseline.errors.slice(0, 8)) {
       console.log(`  - ${error}`);
     }
+    console.log(formatAgenticSdlcReleaseGateSummaryLine(agenticSdlcGates));
+    for (const error of agenticSdlcGates.errors.slice(0, 8)) {
+      console.log(`  - ${error}`);
+    }
+    if (agenticSdlcGates.measuredSamples.length > 0) {
+      const measuredSummary = agenticSdlcGates.measuredSamples
+        .map((sample) => `${sample.fixture}=${sample.overallScore}`)
+        .join(" ");
+      console.log(`Agentic SDLC measured (non-gated): ${measuredSummary}`);
+    }
     console.log(`Graph fixture verification: ${payload.passed ? "PASS" : "FAIL"} (${results.length} fixtures)`);
   }
 
@@ -1333,6 +1492,7 @@ export async function runVerifyGraphCli(argv = process.argv.slice(2)) {
       ...(relevanceBaseline.ok ? [] : ["relevance-baseline"]),
       ...(updateBenchmarkSuite.ok ? [] : ["update-benchmarks"]),
       ...(externalBenchmarkSuite.ok ? [] : ["external-benchmarks"]),
+      ...(agenticSdlcGates.ok ? [] : ["agentic-sdlc-gates"]),
     ];
     throw new Error(`Graph fixture verification failed for: ${failedNames.join(", ")}`);
   }

@@ -39,6 +39,8 @@ describe("graph:context cli", () => {
     expect(result.status).toBe("graph_context_ready");
     expect(result.estimatedSize).toBeLessThanOrEqual(10000);
     expect(result.readFirstNodes.length).toBeGreaterThan(0);
+    expect(result.contextNoise).toBeDefined();
+    expect(typeof result.contextNoise.score).toBe("number");
   });
 
   it("does not warn that --mode docs is ignored", async () => {
@@ -71,5 +73,49 @@ describe("graph:context cli", () => {
     ]);
 
     expect(result.goal).toBe("MainViewModel playback");
+  });
+
+  it("includes verification plan with --include-verification", async () => {
+    const { runGraphContextCli } = await import("./graphContext.js");
+    const workspaceRoot = fixtureRoot("fixture-agentic-harness-good");
+    const result = await runGraphContextCli([
+      "--workspace",
+      workspaceRoot,
+      "--goal",
+      "fix auth service",
+      "--include-verification",
+      "--json",
+      "--budget",
+      "20000",
+    ]);
+
+    expect(result.taskVerification).toBeDefined();
+    expect(result.taskVerification?.verificationPlan.beforeEditing.length).toBeGreaterThanOrEqual(0);
+    expect(result.taskVerification?.suggestedCommands.length).toBeGreaterThan(0);
+    expect(result.taskVerification?.suggestedCommands.every((command) =>
+      result.taskVerification?.verificationPlan.beforeEditing.includes(command)
+      || result.taskVerification?.verificationPlan.afterEditing.includes(command)
+      || result.taskVerification?.verificationPlan.fallback.includes(command)
+    )).toBe(true);
+  });
+
+  it("recommends docs checks for documentation goals with --include-verification", async () => {
+    const { runGraphContextCli } = await import("./graphContext.js");
+    const workspaceRoot = fixtureRoot("fixture-agentic-harness-good");
+    const result = await runGraphContextCli([
+      "--workspace",
+      workspaceRoot,
+      "--mode",
+      "docs",
+      "--goal",
+      "update architecture documentation",
+      "--include-verification",
+      "--json",
+      "--budget",
+      "20000",
+    ]);
+
+    expect(result.taskVerification?.goalIntent).toBe("docs");
+    expect(result.taskVerification?.docsToCheck.length).toBeGreaterThan(0);
   });
 });

@@ -39,6 +39,8 @@ export interface GraphPublicScorecardInput {
   relevanceBaseline?: ReturnType<typeof evaluateGraphRelevanceBaselineSuite>;
   pathDetourFailures?: number;
   cliCleanInstallSmokeStatus?: "pass" | "fail" | "not_run";
+  harnessContextNoiseSamples?: Array<{ fixture: string; score: number }>;
+  agenticSdlcFixtureSamples?: Array<{ fixture: string; overallScore: number; ok: boolean }>;
 }
 
 export interface GraphPublicScorecard {
@@ -67,6 +69,12 @@ export interface GraphPublicScorecard {
   externalPassCount: number;
   updateBenchmarkStatus: string;
   ecosystemTiers: Record<string, number>;
+  harnessContextNoiseGoodScore?: number;
+  harnessContextNoiseNoisyScore?: number;
+  agenticSdlcGoodScore?: number;
+  agenticSdlcMissingScore?: number;
+  agenticSdlcConflictingScore?: number;
+  agenticSdlcNoisyScore?: number;
   knownGaps: string[];
   rows: Array<{ metric: string; value: string; reproducible: string }>;
 }
@@ -174,6 +182,19 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
     knownGaps.push("CLI clean-install smoke test failed; see npm test --workspace=packages/cli.");
   }
 
+  const harnessGoodScore = input.harnessContextNoiseSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-good")?.score;
+  const harnessNoisyScore = input.harnessContextNoiseSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-noisy")?.score;
+  const agenticGoodScore = input.agenticSdlcFixtureSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-good")?.overallScore;
+  const agenticMissingScore = input.agenticSdlcFixtureSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-missing")?.overallScore;
+  const agenticConflictingScore = input.agenticSdlcFixtureSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-conflicting")?.overallScore;
+  const agenticNoisyScore = input.agenticSdlcFixtureSamples
+    ?.find((sample) => sample.fixture === "fixture-agentic-harness-noisy")?.overallScore;
+
   const rows = [
     {
       metric: "Release benchmark fixtures",
@@ -280,6 +301,48 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
       value: input.updateBenchmarkSummary ?? (updateSuite ? (updateSuite.ok ? "PASS" : "FAIL") : "not_run"),
       reproducible: "npm run graph:benchmark:update",
     },
+    ...(typeof harnessGoodScore === "number"
+      ? [{
+        metric: "Harness context noise (good fixture)",
+        value: `${harnessGoodScore}/100`,
+        reproducible: "npm run graph:check -- --workspace tests/fixtures/graph/fixture-agentic-harness-good --json",
+      }]
+      : []),
+    ...(typeof harnessNoisyScore === "number"
+      ? [{
+        metric: "Harness context noise (noisy fixture)",
+        value: `${harnessNoisyScore}/100`,
+        reproducible: "npm run graph:check -- --workspace tests/fixtures/graph/fixture-agentic-harness-noisy --json",
+      }]
+      : []),
+    ...(typeof agenticGoodScore === "number"
+      ? [{
+        metric: "Agentic SDLC readiness (good fixture)",
+        value: `${agenticGoodScore}/100`,
+        reproducible: "npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-good --agentic-sdlc --json",
+      }]
+      : []),
+    ...(typeof agenticMissingScore === "number"
+      ? [{
+        metric: "Agentic SDLC readiness (missing fixture)",
+        value: `${agenticMissingScore}/100`,
+        reproducible: "npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-missing --agentic-sdlc --json",
+      }]
+      : []),
+    ...(typeof agenticConflictingScore === "number"
+      ? [{
+        metric: "Agentic SDLC readiness (conflicting fixture)",
+        value: `${agenticConflictingScore}/100`,
+        reproducible: "npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-conflicting --agentic-sdlc --json",
+      }]
+      : []),
+    ...(typeof agenticNoisyScore === "number"
+      ? [{
+        metric: "Agentic SDLC readiness (noisy fixture)",
+        value: `${agenticNoisyScore}/100`,
+        reproducible: "npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-noisy --agentic-sdlc --json",
+      }]
+      : []),
   ];
 
   return {
@@ -313,6 +376,12 @@ export function buildGraphPublicScorecard(input: GraphPublicScorecardInput): Gra
     externalPassCount: externalSuite?.results.filter((result) => result.passed).length ?? 0,
     updateBenchmarkStatus: input.updateBenchmarkSummary ?? (updateSuite ? (updateSuite.ok ? "PASS" : "FAIL") : "not_run"),
     ecosystemTiers,
+    harnessContextNoiseGoodScore: harnessGoodScore,
+    harnessContextNoiseNoisyScore: harnessNoisyScore,
+    agenticSdlcGoodScore: agenticGoodScore,
+    agenticSdlcMissingScore: agenticMissingScore,
+    agenticSdlcConflictingScore: agenticConflictingScore,
+    agenticSdlcNoisyScore: agenticNoisyScore,
     knownGaps,
     rows,
   };

@@ -1,0 +1,1 @@
+Use vitest for all unit tests in this repository.

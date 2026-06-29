@@ -4,12 +4,23 @@ import fs from "fs/promises";
 import path from "path";
 import { createRequire } from "module";
 import {
+  buildAgentHarnessReport,
+  buildDoctorAgenticReadinessSummary,
   CODE_GRAPH_SCHEMA_VERSION,
+  evaluateContextNoise,
+  formatDoctorAgenticReadinessHuman,
+  type DoctorAgenticReadinessSummary,
+  type GraphContextNoiseSummary,
   type GraphIncrementalManifest,
 } from "@openagentgraph/shared";
 import {
+  buildHarnessContextNoiseDiagnostics,
+  loadHarnessWorkspaceMetadata,
+} from "./graphHarnessMetadata.js";
+import {
   GRAPH_EXPORT_DIR_NAME,
   readGraphWorkspaceCliValue,
+  readHandoffFreshness,
   tryLoadCachedGraphManifest,
   tryLoadCachedWorkspaceGraph,
 } from "./graphWorkspace.js";
@@ -209,18 +220,16 @@ function buildNextCommands(workspaceRoot: string, input: {
 }) {
   const quotedWorkspace = `"${workspaceRoot}"`;
   const commands = [
-    `oag doctor --workspace ${quotedWorkspace}`,
     `oag graph:export --workspace ${quotedWorkspace} --offline-only --redact-root`,
-    `oag graph:check --workspace ${quotedWorkspace}`,
+    `oag graph:check --workspace ${quotedWorkspace} --json`,
     `oag graph:docs:check --workspace ${quotedWorkspace} --json --suggest`,
+    `oag graph:context --workspace ${quotedWorkspace} --goal "understand this repo" --include-verification --json`,
   ];
 
   if (input.graphPresent && input.graphValid) {
     commands.push(`oag graph:query --workspace ${quotedWorkspace} --mode code "entry point"`);
     commands.push(`oag graph:path --workspace ${quotedWorkspace} "source" "target"`);
     commands.push(`oag dogfood --workspace ${quotedWorkspace}`);
-  } else if (input.primaryType === "dotnet") {
-    commands.push(`oag graph:export --workspace ${quotedWorkspace} --offline-only --redact-root`);
   }
 
   return commands;
@@ -297,26 +306,31 @@ export async function runDoctorCli(argv = process.argv.slice(2)) {
       }
     | undefined;
 
+  let agentHarnessReport;
+  let agenticReadiness: DoctorAgenticReadinessSummary | undefined;
+  let contextNoise: GraphContextNoiseSummary | undefined;
+  let cachedGraph;
+
   if (workspaceAccessible) {
     const manifest = await tryLoadCachedGraphManifest(workspaceRoot);
-    const graph = await tryLoadCachedWorkspaceGraph(workspaceRoot);
+    cachedGraph = await tryLoadCachedWorkspaceGraph(workspaceRoot);
     const manifestValidation = manifest ? validateGraphManifest(manifest) : undefined;
 
     graphCache = {
       manifestPresent: Boolean(manifest),
       manifestValid: manifestValidation?.valid ?? false,
       manifestReason: manifestValidation && !manifestValidation.valid ? manifestValidation.reason : undefined,
-      graphPresent: Boolean(graph),
-      graphValid: Boolean(graph),
-      graphReason: graph ? undefined : "graph.json missing or invalid for this workspace.",
-      schemaVersion: graph?.schemaVersion ?? manifest?.graphSchemaVersion,
+      graphPresent: Boolean(cachedGraph),
+      graphValid: Boolean(cachedGraph),
+      graphReason: cachedGraph ? undefined : "graph.json missing or invalid for this workspace.",
+      schemaVersion: cachedGraph?.schemaVersion ?? manifest?.graphSchemaVersion,
       fileCount: manifest?.files.length,
     };
 
     if (manifest && !manifestValidation?.valid) {
       warnings.push(manifestValidation?.reason ?? "Cached graph manifest is invalid.");
     }
-    if (!graph) {
+    if (!cachedGraph) {
       warnings.push("No cached graph export found. Run graph:export or dogfood to create .oag/graph.json.");
     }
 
@@ -330,6 +344,31 @@ export async function runDoctorCli(argv = process.argv.slice(2)) {
           ...kernelProfile.secondaryTypes,
         ],
       };
+      if (cachedGraph) {
+        const harnessMetadata = loadHarnessWorkspaceMetadata(workspaceRoot);
+        const handoffFreshness = await readHandoffFreshness(workspaceRoot, cachedGraph.generatedAt);
+        const contextNoiseDiagnostics = buildHarnessContextNoiseDiagnostics(workspaceRoot, cachedGraph, {
+          metadata: harnessMetadata,
+          kernelProfile,
+        });
+        contextNoise = evaluateContextNoise(cachedGraph, contextNoiseDiagnostics);
+        agentHarnessReport = buildAgentHarnessReport({
+          graph: cachedGraph,
+          kernelProfile,
+          metadata: harnessMetadata,
+          handoffFreshness,
+          contextNoise,
+          contextNoiseDiagnostics,
+        });
+        agenticReadiness = buildDoctorAgenticReadinessSummary({
+          workspaceRoot,
+          graph: cachedGraph,
+          metadata: harnessMetadata,
+          kernelProfile,
+          handoffFreshness,
+          contextNoise,
+        });
+      }
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : String(error));
     }
@@ -375,6 +414,9 @@ export async function runDoctorCli(argv = process.argv.slice(2)) {
       configuredProviderKeys,
     },
     nextCommands,
+    agentHarnessReport,
+    agenticReadiness,
+    contextNoise,
     warnings,
     errors,
   };
@@ -407,6 +449,21 @@ export async function runDoctorCli(argv = process.argv.slice(2)) {
     );
   }
   console.log("Provider key for graph commands: not required");
+  if (agenticReadiness) {
+    for (const line of formatDoctorAgenticReadinessHuman(agenticReadiness)) {
+      console.log(line);
+    }
+    if (agenticReadiness.supportTiers.structuralOnlyCount > 0) {
+      console.log(`Support tiers: ${agenticReadiness.supportTiers.summary}`);
+    }
+  } else if (cachedGraph) {
+    console.log("Agentic readiness: unavailable (cached graph could not be summarized)");
+  } else {
+    console.log("Agentic readiness: unavailable (run graph:export to score harness readiness)");
+  }
+  if (nextCommands.length > 0) {
+    console.log(`Next: ${nextCommands[0]}`);
+  }
   if (configuredProviderKeys.length > 0) {
     console.log(`Configured provider keys (names only): ${configuredProviderKeys.join(", ")}`);
   }
@@ -422,9 +479,11 @@ export async function runDoctorCli(argv = process.argv.slice(2)) {
       console.log(`- ${error}`);
     }
   }
-  console.log("Next commands:");
-  for (const command of nextCommands) {
-    console.log(`- ${command}`);
+  if (nextCommands.length > 1) {
+    console.log("More commands:");
+    for (const command of nextCommands.slice(1)) {
+      console.log(`- ${command}`);
+    }
   }
 
   if (!ok) {

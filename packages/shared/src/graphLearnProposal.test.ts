@@ -17,4 +17,14 @@ describe("graphLearnProposal", () => {
     expect(result.markdown).not.toContain("C:\\\\Users");
     expect(result.markdown).toContain("does not auto-edit");
   });
+
+  it("detects path and query misses as model-oriented findings", () => {
+    const result = analyzeGraphLearnLog(
+      [
+        "graph_query_complete seeds: []",
+        "No matching seed for graph:path",
+      ].join("\n")
+    );
+    expect(result.findings.some((finding) => finding.code === "bad_path_query")).toBe(true);
+  });
 });

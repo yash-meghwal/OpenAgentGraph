@@ -59,7 +59,7 @@ Optional .NET SDK enables Roslyn-backed C# semantic edges; structural indexing r
 
 ## Base vs Pro
 
-These changes apply to OpenAgentGraph Base only. OpenAgentGraphPro coordination, hosted execution, and scratch export folders are out of scope.
+These changes apply to OpenAgentGraph Base only. Paid-tier coordination, hosted execution, and scratch export folders are out of scope.
 
 ## Verification
 
@@ -75,5 +75,5 @@ See `docs/BENCHMARKS.md` for measured gate values.
 
 ## Not included in this draft
 
-- Version bump to `1.6.0`
+- Version bump to v1.6 release
 - npm publish, git tag, or GitHub release (Codex/user-controlled after review)

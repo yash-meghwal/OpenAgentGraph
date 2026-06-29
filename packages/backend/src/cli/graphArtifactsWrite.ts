@@ -2,12 +2,17 @@ import fs from "fs/promises";
 import path from "path";
 import type { GraphIncrementalManifest, UnifiedCodeGraph, WorkspaceKernelProfile } from "@openagentgraph/shared";
 import {
+  buildAgentHarnessReport,
   buildGraphExportDocument,
   renderUnifiedGraphHandoffReport,
   renderUnifiedGraphHtml,
   renderUnifiedGraphWiki,
   type GraphWorkflowTimingCollector,
 } from "@openagentgraph/shared";
+import {
+  buildHarnessContextNoiseDiagnostics,
+  loadHarnessWorkspaceMetadata,
+} from "./graphHarnessMetadata.js";
 import {
   GRAPH_EXPORT_DIR_NAME,
   GRAPH_HANDOFF_FILE_NAME,
@@ -71,17 +76,51 @@ export async function writeGraphArtifacts(
     writtenPaths.push(outputPath);
   }
 
+  const harnessMetadata = (writeWiki || writeReport || writeHtml)
+    ? loadHarnessWorkspaceMetadata(workspaceRoot)
+    : undefined;
+  const harnessHandoffFreshness = writeReport
+    ? {
+      isStale: false as const,
+      handoffPath,
+      graphGeneratedAt: graph.generatedAt,
+      handoffUpdatedAt,
+      detail: "Handoff written during graph artifact update.",
+    }
+    : undefined;
+  const agentHarnessReport = harnessMetadata
+    ? buildAgentHarnessReport({
+      graph: exportGraph,
+      kernelProfile,
+      metadata: harnessMetadata,
+      handoffPath,
+      handoffFreshness: harnessHandoffFreshness,
+      contextNoiseDiagnostics: buildHarnessContextNoiseDiagnostics(workspaceRoot, exportGraph, {
+        metadata: harnessMetadata,
+        kernelProfile,
+      }),
+    })
+    : undefined;
+
   if (writeHtml && kernelProfile) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_HTML_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphHtml(exportGraph, { kernelProfile, redactRoot }), "utf8");
+    await fs.writeFile(
+      outputPath,
+      renderUnifiedGraphHtml(exportGraph, { kernelProfile, redactRoot, agentHarnessReport }),
+      "utf8"
+    );
     writtenPaths.push(outputPath);
   }
 
   if (writeWiki) {
     const outputPath = resolveGraphArtifactPath(workspaceRoot, path.join(GRAPH_EXPORT_DIR_NAME, GRAPH_WIKI_INDEX_FILE_NAME));
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, renderUnifiedGraphWiki(exportGraph, { kernelProfile, redactRoot }), "utf8");
+    await fs.writeFile(
+      outputPath,
+      renderUnifiedGraphWiki(exportGraph, { kernelProfile, redactRoot, agentHarnessReport }),
+      "utf8"
+    );
     writtenPaths.push(outputPath);
   }
 
@@ -94,7 +133,8 @@ export async function writeGraphArtifacts(
         kernelProfile,
         handoffPath,
         redactRoot,
-        handoffFreshness: {
+        agentHarnessReport,
+        handoffFreshness: agentHarnessReport?.graphFreshness ?? {
           isStale: false,
           handoffPath,
           graphGeneratedAt: graph.generatedAt,

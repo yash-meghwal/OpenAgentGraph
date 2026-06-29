@@ -68,4 +68,29 @@ describe("graphAgentContextPack", () => {
     const kinds = pack.readFirstNodes.map((node) => node.kind);
     expect(new Set(kinds).size).toBeGreaterThan(0);
   });
+
+  it("includes context noise summary in every context pack", () => {
+    const pack = buildGraphAgentContextPack(makeGraph(), { goal: "auth" });
+    expect(pack.contextNoise).toBeDefined();
+    expect(typeof pack.contextNoise.score).toBe("number");
+    expect(Array.isArray(pack.contextNoise.noiseItems)).toBe(true);
+  });
+
+  it("includes task verification plan when includeVerification is enabled", () => {
+    const pack = buildGraphAgentContextPack(makeGraph(), {
+      goal: "fix auth bug",
+      includeVerification: true,
+      harnessMetadata: {
+        packageScripts: {
+          test: "vitest run",
+          "verify:graph": "node scripts/verify-graph.js",
+        },
+      },
+    });
+
+    expect(pack.taskVerification).toBeDefined();
+    expect(pack.taskVerification?.verificationPlan).toBeDefined();
+    expect(pack.taskVerification?.suggestedCommands.length).toBeGreaterThan(0);
+    expect(pack.taskVerification?.suggestedCommands.every((command) => command.length > 0)).toBe(true);
+  });
 });

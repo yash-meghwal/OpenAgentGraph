@@ -8,6 +8,10 @@ import type {
   WorkspaceKernelProfile,
 } from "./codeGraph.js";
 import { CODE_GRAPH_SCHEMA_VERSION } from "./codeGraph.js";
+import {
+  formatAgentHarnessReportHtml,
+  type GraphAgentHarnessReportSummary,
+} from "./graphAgentHarnessReport.js";
 import { formatGraphAnalyzerDiagnostics } from "./graphAnalyzers.js";
 import { findGraphCommunityForNode } from "./graphCommunities.js";
 import {
@@ -780,7 +784,11 @@ ${pathModelRuntime}
 
 export function renderGraphExplorerHtml(
   graph: UnifiedCodeGraph,
-  options: { kernelProfile?: WorkspaceKernelProfile; redactRoot?: boolean } = {}
+  options: {
+    kernelProfile?: WorkspaceKernelProfile;
+    redactRoot?: boolean;
+    agentHarnessReport?: GraphAgentHarnessReportSummary;
+  } = {}
 ) {
   const payload = buildGraphExplorerPayload(graph, options.kernelProfile, {
     redactRoot: options.redactRoot,
@@ -851,6 +859,10 @@ export function renderGraphExplorerHtml(
     : "<p>None recorded.</p>";
 
   const refreshList = `<ul>${payload.refreshCommands.map((command) => `<li><code>${escapeHtml(command)}</code></li>`).join("")}</ul>`;
+
+  const harnessPanel = options.agentHarnessReport
+    ? `<section><h2>Agentic SDLC harness</h2>${formatAgentHarnessReportHtml(options.agentHarnessReport)}</section>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -925,6 +937,7 @@ export function renderGraphExplorerHtml(
         <p class="meta">Path model v${GRAPH_EXPLORER_PATH_MODEL_VERSION} (costs computed in-browser per mode, path intent, and lens from exported edge metadata; includes test-context penalties, hub detection, node penalties, lens filtering, and rank-vector tie-breaking).</p>
         <div id="oag-path-panel" class="meta" style="margin-top:12px"></div>
       </section>
+      ${harnessPanel}
       <section>
         <h2>Ecosystem support</h2>
         ${supportMatrixList}

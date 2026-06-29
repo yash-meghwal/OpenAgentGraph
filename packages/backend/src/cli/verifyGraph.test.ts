@@ -15,7 +15,7 @@ describe("verifyGraph cli", () => {
       "--json",
     ]);
     expect(payload.passed).toBe(true);
-    expect(payload.fixtureCount).toBeGreaterThanOrEqual(48);
+    expect(payload.fixtureCount).toBeGreaterThanOrEqual(55);
     expect(payload.results.map((result) => result.fixture)).toEqual(expect.arrayContaining([
       "mixed-dotnet-node",
       "wrapper-layout",
@@ -46,7 +46,16 @@ describe("verifyGraph cli", () => {
       "fixture-mixed-game-native",
       "fixture-php-symfony-lite",
       "fixture-ruby-sinatra-lite",
+      "fixture-agentic-harness-good",
+      "fixture-agentic-harness-missing",
+      "fixture-agentic-harness-conflicting",
+      "fixture-agentic-harness-noisy",
     ]));
+    expect(payload.agenticSdlcGates.passed).toBe(true);
+    expect(payload.agenticSdlcGates.summary.goodScore).toBeGreaterThanOrEqual(70);
+    expect(payload.agenticSdlcGates.summary.goodScore).toBeGreaterThan(payload.agenticSdlcGates.summary.noisyScore);
+    expect(payload.agenticSdlcGates.fixtureResults).toHaveLength(4);
+    expect(payload.agenticSdlcGates.measuredSamples.length).toBeGreaterThan(0);
     expect(payload.releaseGates.passed).toBe(true);
     expect(payload.releaseGates.agentBenchmarkSuccessRate).toBeGreaterThanOrEqual(0.8);
     expect(payload.releaseGates.querySuccessRate).toBeGreaterThanOrEqual(0.8);

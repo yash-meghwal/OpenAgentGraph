@@ -64,14 +64,14 @@ Dashboard setup:
 
 ```text
 Provider: OpenAI API key
-API key: sk-your-openai-key
+API key: your-openai-api-key
 ```
 
 Environment startup example:
 
 ```powershell
 $env:OPENAGENTGRAPH_AI_PROVIDER="openai"
-$env:OPENAI_API_KEY="sk-your-openai-key"
+$env:OPENAI_API_KEY="your-openai-api-key"
 $env:OPENAGENTGRAPH_AI_MODEL="gpt-4o"
 npm run dev
 ```

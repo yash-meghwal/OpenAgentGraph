@@ -1,0 +1,9 @@
+{
+  "name": "fixture-agentic-harness-good",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src"
+  }
+}

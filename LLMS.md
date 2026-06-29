@@ -11,6 +11,8 @@ If `GRAPH_REPORT.md` exists in the repo root, read it before broad codebase expl
 
 - `GRAPH_REPORT.md`: compact generated orientation for the current workspace.
 - `llms.txt`: compact model-facing orientation contract.
+- `docs/OAG-FOR-AGENTIC-SDLC.md`: agentic SDLC positioning and npm-first workflow.
+- `docs/AGENTIC-SDLC-HARNESS.md`: harness scorecard categories and fixture expectations.
 - `docs/AGENT-ACCESS-LAYER.md`: CLI/MCP/context access overview.
 - `docs/GRAPH-CONTEXT.md`: bounded `graph:context` pack contract.
 - `docs/MCP.md`: stdio MCP server setup and tool list.
@@ -68,19 +70,40 @@ $g = Invoke-RestMethod http://127.0.0.1:3001/product-graph
 $g.summary | ConvertTo-Json -Depth 6
 ```
 
+## Agentic SDLC Harness (1.7)
+
+OAG is the deterministic harness, context, and verification layer — not a coding agent, hosted platform, or token compressor.
+
+60-second npm path for any workspace:
+
+```bash
+npx @openagentgraph/cli@1.7.0 doctor --workspace .
+npx @openagentgraph/cli@1.7.0 graph:export --workspace . --offline-only --redact-root
+npx @openagentgraph/cli@1.7.0 graph:context --workspace . --goal "understand this repo" --include-verification --json
+```
+
+Harness checks:
+
+```bash
+npx @openagentgraph/cli@1.7.0 graph:check --workspace . --json
+npx @openagentgraph/cli@1.7.0 graph:scorecard --workspace . --agentic-sdlc --json
+```
+
+See `docs/OAG-FOR-AGENTIC-SDLC.md` for the full workflow.
+
 ## Dogfood An External Workspace
 
 No model provider or API key is required. This scans the target workspace, stores graph data under `.tmp-dogfood-data/<workspace-hash>` inside the OpenAgentGraph repo, and writes `GRAPH_REPORT.md` into the target workspace root.
 
 ```powershell
-npm run dogfood -- --workspace "C:\path with spaces\your-project"
+npm run dogfood -- --workspace "<absolute-path-to-your-project>"
 ```
 
 From the published npm CLI:
 
 ```powershell
-oag doctor --workspace "C:\path with spaces\your-project"
-oag dogfood --workspace "C:\path with spaces\your-project"
+oag doctor --workspace "<absolute-path-to-your-project>"
+oag dogfood --workspace "<absolute-path-to-your-project>"
 ```
 
 Read `GRAPH_REPORT.md` first. Trust indexed areas, but inspect source directly when support tiers or analyzer warnings say a language is structural-only, semantic-lite, unavailable, or partial.
@@ -142,8 +165,8 @@ Invoke-WebRequest `
 Stop the dev server, then restart with a workspace root:
 
 ```powershell
-$env:OPENAGENTGRAPH_WORKSPACE_ROOT="C:\Path\To\Other\Project"
-$env:DATA_DIR="C:\Users\yashm\Desktop\openagentgraph-dogfood-data"
+$env:OPENAGENTGRAPH_WORKSPACE_ROOT="<absolute-path-to-other-project>"
+$env:DATA_DIR="<absolute-path-to-separate-dogfood-data>"
 npm run dev
 ```
 
@@ -307,7 +330,7 @@ OpenAI environment setup:
 
 ```powershell
 $env:OPENAGENTGRAPH_AI_PROVIDER="openai"
-$env:OPENAI_API_KEY="sk-your-key"
+$env:OPENAI_API_KEY="your-openai-api-key"
 npm run dev
 ```
 

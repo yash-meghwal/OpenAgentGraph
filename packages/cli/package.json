@@ -1,6 +1,6 @@
 {
   "name": "@openagentgraph/cli",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Public CLI for OpenAgentGraph static graph workflows.",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -22,8 +22,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@openagentgraph/backend": "1.6.0",
-    "@openagentgraph/shared": "1.6.0"
+    "@openagentgraph/backend": "1.7.0",
+    "@openagentgraph/shared": "1.7.0"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

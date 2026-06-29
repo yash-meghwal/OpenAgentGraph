@@ -1,0 +1,1 @@
+Use jest for all unit tests in this repository.

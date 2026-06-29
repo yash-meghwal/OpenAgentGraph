@@ -138,5 +138,28 @@ describe("@openagentgraph/cli packaging", () => {
     expect(dogfoodResult.status).toBe(0);
     const dogfoodPayload = JSON.parse(dogfoodResult.stdout) as { status: string };
     expect(dogfoodPayload.status).toBe("dogfood_complete");
+
+    const scorecardResult = spawnNode([
+      oagBin,
+      "graph:scorecard",
+      "--workspace",
+      fixtureRoot,
+      "--agentic-sdlc",
+      "--json",
+    ], installDir);
+    expect(scorecardResult.status).toBe(0);
+    const scorecardPayload = JSON.parse(scorecardResult.stdout) as { overallScore: number };
+    expect(typeof scorecardPayload.overallScore).toBe("number");
+
+    const learnResult = spawnNode([
+      oagBin,
+      "graph:learn",
+      "--workspace",
+      fixtureRoot,
+      "--json",
+    ], installDir);
+    expect(learnResult.status).toBe(0);
+    const learnPayload = JSON.parse(learnResult.stdout) as { status: string };
+    expect(learnPayload.status).toBe("graph_learn_complete");
   });
 });

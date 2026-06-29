@@ -1,6 +1,6 @@
 # OAG Public Benchmark Scorecard
 
-Generated: 2026-06-26T16:06:42.592Z
+Generated: 2026-06-29T03:41:12.361Z
 
 Reproduce with `npm run graph:scorecard`. Source bodies and private paths are intentionally omitted.
 
@@ -21,12 +21,18 @@ Reproduce with `npm run graph:scorecard`. Source bodies and private paths are in
 | Docs repair suggestion coverage | 100% | `npm run graph:docs:check -- --suggest` |
 | Generated artifact broken links | 0 | `npm run verify:graph` |
 | Duplicate kernel scans (max per workflow) | 0 | `npm run graph:benchmark:update` |
-| Warm/cold performance ratio | 0.03x (max 0.5x) | `npm run graph:benchmark:update` |
+| Warm/cold performance ratio | not_measured | `npm run graph:benchmark:update` |
 | CLI clean-install smoke | not_run | `npm test --workspace=packages/cli` |
 | Misleading handoff rate | 0% | `npm run verify:graph` |
 | Provenance coverage | 100% | `npm run graph:scorecard` |
-| External benchmark categories | 10/10 | `npm run graph:benchmark:external -- --catalog --report` |
-| Update benchmark status | PASS | `npm run graph:benchmark:update` |
+| External benchmark categories | 0/10 | `npm run graph:benchmark:external -- --catalog --report` |
+| Update benchmark status | not_run | `npm run graph:benchmark:update` |
+| Harness context noise (good fixture) | 100/100 | `npm run graph:check -- --workspace tests/fixtures/graph/fixture-agentic-harness-good --json` |
+| Harness context noise (noisy fixture) | 76/100 | `npm run graph:check -- --workspace tests/fixtures/graph/fixture-agentic-harness-noisy --json` |
+| Agentic SDLC readiness (good fixture) | 88/100 | `npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-good --agentic-sdlc --json` |
+| Agentic SDLC readiness (missing fixture) | 62/100 | `npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-missing --agentic-sdlc --json` |
+| Agentic SDLC readiness (conflicting fixture) | 67/100 | `npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-conflicting --agentic-sdlc --json` |
+| Agentic SDLC readiness (noisy fixture) | 67/100 | `npm run graph:scorecard -- --workspace tests/fixtures/graph/fixture-agentic-harness-noisy --agentic-sdlc --json` |
 
 ## Active scanners (fixture sample)
 

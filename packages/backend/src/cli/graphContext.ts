@@ -2,6 +2,7 @@ import {
   buildGraphAgentContextPack,
   renderGraphAgentContextMarkdown,
 } from "@openagentgraph/shared";
+import { buildHarnessContextNoiseDiagnostics, loadHarnessWorkspaceMetadata } from "./graphHarnessMetadata.js";
 import { detectWorkspaceKernelProfile } from "../scanner/kernel/workspaceDetection.js";
 import {
   loadWorkspaceUnifiedGraph,
@@ -15,10 +16,11 @@ import {
 interface GraphContextCliOptions {
   goal?: string;
   redactRoot: boolean;
+  includeVerification: boolean;
 }
 
 function parseGraphContextArgv(argv: string[]) {
-  const contextOptions: GraphContextCliOptions = { redactRoot: false };
+  const contextOptions: GraphContextCliOptions = { redactRoot: false, includeVerification: false };
   const stripped: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -32,6 +34,8 @@ function parseGraphContextArgv(argv: string[]) {
       index += 1;
     } else if (arg === "--redact-root") {
       contextOptions.redactRoot = true;
+    } else if (arg === "--include-verification") {
+      contextOptions.includeVerification = true;
     } else {
       stripped.push(arg);
     }
@@ -53,6 +57,7 @@ export async function runGraphContextCli(argv = process.argv.slice(2)) {
   const kernelProfile = loaded.kernelProfile ?? await detectWorkspaceKernelProfile(workspaceRoot);
   const handoffFreshness = await readHandoffFreshness(workspaceRoot, loaded.graph.generatedAt);
 
+  const harnessMetadata = loadHarnessWorkspaceMetadata(workspaceRoot);
   const pack = buildGraphAgentContextPack(loaded.graph, {
     goal: contextOptions.goal,
     queryMode: graphOptions.queryMode,
@@ -62,6 +67,12 @@ export async function runGraphContextCli(argv = process.argv.slice(2)) {
     redactRoot: contextOptions.redactRoot,
     kernelProfile,
     handoffFreshness,
+    includeVerification: contextOptions.includeVerification,
+    harnessMetadata: contextOptions.includeVerification ? harnessMetadata : undefined,
+    contextNoiseDiagnostics: buildHarnessContextNoiseDiagnostics(workspaceRoot, loaded.graph, {
+      metadata: harnessMetadata,
+      kernelProfile,
+    }),
   });
 
   const payload = {

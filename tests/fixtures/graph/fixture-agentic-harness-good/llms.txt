@@ -1,0 +1,7 @@
+# Fixture Agentic Harness Good
+
+> Deterministic harness fixture for OAG 1.7 readiness scoring.
+
+- Setup: npm ci
+- Test: npm test
+- Build: npm run build

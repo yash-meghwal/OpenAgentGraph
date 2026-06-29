@@ -6,13 +6,15 @@ This guide is for Codex, Gemini, Claude, local agents, and human operators who a
 
 1. Read `GRAPH_REPORT.md` if it exists.
 2. Read `llms.txt`, then `LLMS.md`.
-3. If the graph artifacts are missing or stale, run `npm run graph:export -- --workspace . --offline-only --redact-root`.
-4. Run `npm run graph:context -- --workspace . --goal "<task>" --json` for a bounded task pack.
-5. Use `graph:query`, `graph:path`, `graph:explain`, and `graph:retrieve` before broad manual exploration.
-6. Confirm important facts in the source files before editing.
-7. Refresh `GRAPH_REPORT.md` after a meaningful scan or graph update.
+3. Read `docs/OAG-FOR-AGENTIC-SDLC.md` when the task involves agentic SDLC readiness or verification.
+4. If the graph artifacts are missing or stale, run `npm run graph:export -- --workspace . --offline-only --redact-root`.
+5. Run `npm run graph:context -- --workspace . --goal "<task>" --include-verification --json` for a bounded task pack.
+6. Run `npm run graph:check -- --workspace . --json` when harness readiness or context noise matters.
+7. Use `graph:query`, `graph:path`, `graph:explain`, and `graph:retrieve` before broad manual exploration.
+8. Confirm important facts in the source files before editing.
+9. Refresh `GRAPH_REPORT.md` after a meaningful scan or graph update.
 
-OpenAgentGraph is navigation context. It is not a replacement for reading code.
+OpenAgentGraph is navigation context and a deterministic harness layer. It is not a coding agent, hosted platform, token compressor, or replacement for reading code.
 
 ## Mental Model
 
@@ -70,16 +72,31 @@ Runtime is real source. Do not call it noise. Inspect it for backend, provider, 
 
 ### Orient from a folder only
 
-1. Run:
+1. Run (npm-installed CLI works the same with `oag` instead of `npx`):
+
+```bash
+npx @openagentgraph/cli@1.7.0 doctor --workspace .
+npx @openagentgraph/cli@1.7.0 graph:export --workspace . --offline-only --redact-root
+npx @openagentgraph/cli@1.7.0 graph:context --workspace . --goal "orient me" --include-verification --json
+```
+
+From source in this repo:
 
 ```powershell
 npm run graph:export -- --workspace . --offline-only --redact-root
-npm run graph:context -- --workspace . --goal "orient me" --json
+npm run graph:context -- --workspace . --goal "orient me" --include-verification --json
 ```
 
 2. Read `GRAPH_REPORT.md`, `.oag/wiki/index.md`, and `.oag/graph.html`.
 3. Use retrieval IDs from the context pack with `npm run graph:retrieve -- --workspace . --id "oag:node:<id>" --json`.
 4. Inspect source files before editing.
+
+### Check agentic SDLC readiness
+
+1. Run `npx @openagentgraph/cli@1.7.0 graph:check --workspace . --json` or `npm run graph:check -- --workspace . --json`.
+2. Read `agenticSdlcScorecard`, `contextNoise`, and `agentHarnessReport` in the JSON output.
+3. Use `graph:learn --workspace . --json` for review-only improvement proposals after failures.
+4. See `docs/AGENTIC-SDLC-HARNESS.md` for scorecard categories and fixture expectations.
 
 ### Coordinate with external agents
 
@@ -157,7 +174,7 @@ For a new agent or teammate:
 
 - Read `GRAPH_REPORT.md`.
 - Read `LLMS.md`.
-- Read `docs/AGENT-ACCESS-LAYER.md`, `docs/GRAPH-CONTEXT.md`, and `docs/MCP.md` for the 1.4 agent access surfaces.
+- Read `docs/OAG-FOR-AGENTIC-SDLC.md`, `docs/AGENTIC-SDLC-HARNESS.md`, `docs/AGENT-ACCESS-LAYER.md`, `docs/GRAPH-CONTEXT.md`, and `docs/MCP.md` for agent access and harness surfaces.
 - Read `docs/OPENAGENTGRAPH-FUNCTIONS.md`.
 - Read `docs/BUILDING-AGENTS-ON-OAG.md` only when building an external worker or script that will coordinate with OAG.
 - If the agent supports repo skills, load `skills/openagentgraph/SKILL.md`.
